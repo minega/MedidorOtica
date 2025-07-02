@@ -8,7 +8,6 @@
 
 import SwiftUI
 import AVFoundation
-import Vision
 import UIKit
 import ARKit
 
@@ -19,9 +18,7 @@ struct CameraView: View {
     @StateObject private var verificationManager = VerificationManager.shared
     
     // Estados da interface
-    @State private var isCaptureEnabled = true
     @State private var isAutoCaptureEnabled = false
-    @State private var instructionText = "Posicione seu rosto no oval"
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedImage: UIImage?
