@@ -244,7 +244,7 @@ class VerificationManager: ObservableObject {
     }
 
     
-    // Método público para atualizar as verificações a partir de extensões
+    /// Método público para atualizar as verificações a partir de extensões
     func updateAllVerifications() {
         updateVerificationStatus()
     }
