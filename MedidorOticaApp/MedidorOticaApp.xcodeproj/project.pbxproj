@@ -1,0 +1,586 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		94CC97282DCEF06200D3547A /* ARKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 94CC97272DCEF06200D3547A /* ARKit.framework */; };
+		94CC972A2DCEF06C00D3547A /* SceneKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 94CC97292DCEF06C00D3547A /* SceneKit.framework */; };
+		94CC972C2DCEF07800D3547A /* Vision.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 94CC972B2DCEF07800D3547A /* Vision.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		94CC96FC2DCEEF1100D3547A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 94CC96E32DCEEF0F00D3547A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 94CC96EA2DCEEF0F00D3547A;
+			remoteInfo = MedidorOticaApp;
+		};
+		94CC97062DCEEF1100D3547A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 94CC96E32DCEEF0F00D3547A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 94CC96EA2DCEEF0F00D3547A;
+			remoteInfo = MedidorOticaApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		94CC96EB2DCEEF0F00D3547A /* MedidorOticaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MedidorOticaApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		94CC96FB2DCEEF1100D3547A /* MedidorOticaAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedidorOticaAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		94CC97052DCEEF1100D3547A /* MedidorOticaAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedidorOticaAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		94CC97272DCEF06200D3547A /* ARKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ARKit.framework; path = System/Library/Frameworks/ARKit.framework; sourceTree = SDKROOT; };
+		94CC97292DCEF06C00D3547A /* SceneKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SceneKit.framework; path = System/Library/Frameworks/SceneKit.framework; sourceTree = SDKROOT; };
+		94CC972B2DCEF07800D3547A /* Vision.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Vision.framework; path = System/Library/Frameworks/Vision.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		94CC96ED2DCEEF0F00D3547A /* MedidorOticaApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MedidorOticaApp;
+			sourceTree = "<group>";
+		};
+		94CC96FE2DCEEF1100D3547A /* MedidorOticaAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MedidorOticaAppTests;
+			sourceTree = "<group>";
+		};
+		94CC97082DCEEF1100D3547A /* MedidorOticaAppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MedidorOticaAppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		94CC96E82DCEEF0F00D3547A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				94CC972A2DCEF06C00D3547A /* SceneKit.framework in Frameworks */,
+				94CC972C2DCEF07800D3547A /* Vision.framework in Frameworks */,
+				94CC97282DCEF06200D3547A /* ARKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC96F82DCEEF1100D3547A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC97022DCEEF1100D3547A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		94CC96E22DCEEF0F00D3547A = {
+			isa = PBXGroup;
+			children = (
+				94CC96ED2DCEEF0F00D3547A /* MedidorOticaApp */,
+				94CC96FE2DCEEF1100D3547A /* MedidorOticaAppTests */,
+				94CC97082DCEEF1100D3547A /* MedidorOticaAppUITests */,
+				94CC97262DCEF06200D3547A /* Frameworks */,
+				94CC96EC2DCEEF0F00D3547A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		94CC96EC2DCEEF0F00D3547A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				94CC96EB2DCEEF0F00D3547A /* MedidorOticaApp.app */,
+				94CC96FB2DCEEF1100D3547A /* MedidorOticaAppTests.xctest */,
+				94CC97052DCEEF1100D3547A /* MedidorOticaAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		94CC97262DCEF06200D3547A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				94CC972B2DCEF07800D3547A /* Vision.framework */,
+				94CC97292DCEF06C00D3547A /* SceneKit.framework */,
+				94CC97272DCEF06200D3547A /* ARKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		94CC96EA2DCEEF0F00D3547A /* MedidorOticaApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 94CC970F2DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaApp" */;
+			buildPhases = (
+				94CC96E72DCEEF0F00D3547A /* Sources */,
+				94CC96E82DCEEF0F00D3547A /* Frameworks */,
+				94CC96E92DCEEF0F00D3547A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				94CC96ED2DCEEF0F00D3547A /* MedidorOticaApp */,
+			);
+			name = MedidorOticaApp;
+			packageProductDependencies = (
+			);
+			productName = MedidorOticaApp;
+			productReference = 94CC96EB2DCEEF0F00D3547A /* MedidorOticaApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		94CC96FA2DCEEF1100D3547A /* MedidorOticaAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 94CC97122DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaAppTests" */;
+			buildPhases = (
+				94CC96F72DCEEF1100D3547A /* Sources */,
+				94CC96F82DCEEF1100D3547A /* Frameworks */,
+				94CC96F92DCEEF1100D3547A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				94CC96FD2DCEEF1100D3547A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				94CC96FE2DCEEF1100D3547A /* MedidorOticaAppTests */,
+			);
+			name = MedidorOticaAppTests;
+			packageProductDependencies = (
+			);
+			productName = MedidorOticaAppTests;
+			productReference = 94CC96FB2DCEEF1100D3547A /* MedidorOticaAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		94CC97042DCEEF1100D3547A /* MedidorOticaAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 94CC97152DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaAppUITests" */;
+			buildPhases = (
+				94CC97012DCEEF1100D3547A /* Sources */,
+				94CC97022DCEEF1100D3547A /* Frameworks */,
+				94CC97032DCEEF1100D3547A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				94CC97072DCEEF1100D3547A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				94CC97082DCEEF1100D3547A /* MedidorOticaAppUITests */,
+			);
+			name = MedidorOticaAppUITests;
+			packageProductDependencies = (
+			);
+			productName = MedidorOticaAppUITests;
+			productReference = 94CC97052DCEEF1100D3547A /* MedidorOticaAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		94CC96E32DCEEF0F00D3547A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1610;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					94CC96EA2DCEEF0F00D3547A = {
+						CreatedOnToolsVersion = 16.1;
+					};
+					94CC96FA2DCEEF1100D3547A = {
+						CreatedOnToolsVersion = 16.1;
+						TestTargetID = 94CC96EA2DCEEF0F00D3547A;
+					};
+					94CC97042DCEEF1100D3547A = {
+						CreatedOnToolsVersion = 16.1;
+						TestTargetID = 94CC96EA2DCEEF0F00D3547A;
+					};
+				};
+			};
+			buildConfigurationList = 94CC96E62DCEEF0F00D3547A /* Build configuration list for PBXProject "MedidorOticaApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 94CC96E22DCEEF0F00D3547A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 94CC96EC2DCEEF0F00D3547A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				94CC96EA2DCEEF0F00D3547A /* MedidorOticaApp */,
+				94CC96FA2DCEEF1100D3547A /* MedidorOticaAppTests */,
+				94CC97042DCEEF1100D3547A /* MedidorOticaAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		94CC96E92DCEEF0F00D3547A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC96F92DCEEF1100D3547A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC97032DCEEF1100D3547A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		94CC96E72DCEEF0F00D3547A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC96F72DCEEF1100D3547A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		94CC97012DCEEF1100D3547A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		94CC96FD2DCEEF1100D3547A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 94CC96EA2DCEEF0F00D3547A /* MedidorOticaApp */;
+			targetProxy = 94CC96FC2DCEEF1100D3547A /* PBXContainerItemProxy */;
+		};
+		94CC97072DCEEF1100D3547A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 94CC96EA2DCEEF0F00D3547A /* MedidorOticaApp */;
+			targetProxy = 94CC97062DCEEF1100D3547A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		94CC970D2DCEEF1100D3547A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		94CC970E2DCEEF1100D3547A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		94CC97102DCEEF1100D3547A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MedidorOticaApp/Preview Content\"";
+				DEVELOPMENT_TEAM = 9T7N4J79TW;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "necessario para tirar medidas";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "usado para alinhar o rosto";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		94CC97112DCEEF1100D3547A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MedidorOticaApp/Preview Content\"";
+				DEVELOPMENT_TEAM = 9T7N4J79TW;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "necessario para tirar medidas";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "usado para alinhar o rosto";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		94CC97132DCEEF1100D3547A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedidorOticaApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedidorOticaApp";
+			};
+			name = Debug;
+		};
+		94CC97142DCEEF1100D3547A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedidorOticaApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedidorOticaApp";
+			};
+			name = Release;
+		};
+		94CC97162DCEEF1100D3547A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MedidorOticaApp;
+			};
+			name = Debug;
+		};
+		94CC97172DCEEF1100D3547A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Manzolli.MedidorOticaAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MedidorOticaApp;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		94CC96E62DCEEF0F00D3547A /* Build configuration list for PBXProject "MedidorOticaApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94CC970D2DCEEF1100D3547A /* Debug */,
+				94CC970E2DCEEF1100D3547A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		94CC970F2DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94CC97102DCEEF1100D3547A /* Debug */,
+				94CC97112DCEEF1100D3547A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		94CC97122DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94CC97132DCEEF1100D3547A /* Debug */,
+				94CC97142DCEEF1100D3547A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		94CC97152DCEEF1100D3547A /* Build configuration list for PBXNativeTarget "MedidorOticaAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				94CC97162DCEEF1100D3547A /* Debug */,
+				94CC97172DCEEF1100D3547A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 94CC96E32DCEEF0F00D3547A /* Project object */;
+}
