@@ -53,7 +53,8 @@ class CameraManager: NSObject, ObservableObject {
     public var outputDelegate: ((ARFrame) -> Void)?
     
     // MARK: - Private Properties
-    private let session = AVCaptureSession()
+    /// Sessão de captura utilizada pela visualização
+    let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.oticaManzolli.sessionQueue", qos: .userInitiated)
     private let videoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
