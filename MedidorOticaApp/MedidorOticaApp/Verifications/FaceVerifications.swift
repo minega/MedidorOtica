@@ -321,33 +321,6 @@ extension VerificationManager {
         return faceDetected
     }
     
-    // MARK: - Verificação 2: Distância
-    func checkDistance(in image: CVPixelBuffer) -> Bool {
-        // Todo este código foi movido para o DistanceVerification.swift
-        // Esta implementação está obsoleta e foi removida para evitar redeclarações
-        return false
-    }
-    
-    // MARK: - Verificação 3: Centralização
-    func checkCentering(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para CenteringVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
-    
-    // MARK: - Verificação 4: Alinhamento da Cabeça
-    func checkHeadAlignment(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para HeadAlignmentVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
-    
-    // MARK: - Verificação 7: Gaze (Olhar)
-    func checkGaze(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para GazeVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
     
     // Função auxiliar para calcular o ponto médio a partir de uma lista de pontos
     private func averagePoint(from points: [CGPoint]) -> CGPoint {

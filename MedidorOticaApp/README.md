@@ -23,9 +23,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 ### Managers
 | Caminho | Descrição |
 |---------|-----------|
-| `Managers/ARSessionManager.swift` | Gerencia a sessão ARKit |
 | `Managers/CameraManager.swift` | Controla o acesso e operação da câmera |
-| `Managers/DepthDataManager.swift` | Processa dados de profundidade |
 | `Managers/HistoryManager.swift` | Gerencia histórico de medições |
 | `Managers/VerificationManager.swift` | Coordena as verificações de medição |
 
@@ -120,15 +118,6 @@ Contribuições são bem-vindas! Por favor, leia nosso guia de contribuição an
 - Recuperação e gerenciamento do histórico
 - Persistência em disco com tratamento de erros
 
-### ARSessionManager
-- Gerencia a sessão ARKit
-- Tratamento de interrupções
-- Configuração otimizada para performance
-
-### DepthDataManager
-- Processamento de dados de profundidade
-- Sincronização de saídas de dados
-- Suporte a diferentes sensores de profundidade
 
 ## ⚙️ Configuração
 
@@ -150,7 +139,6 @@ MedidorOticaApp/
 ├── Models/              # Modelos de dados
 ├── Views/               # Telas e componentes de UI
 ├── Managers/            # Gerenciadores de funcionalidades
-│   ├── ARSessionManager.swift
 │   ├── CameraManager.swift
 │   └── CameraComponents/  # Componentes reutilizáveis da câmera
 └── Resources/           # Assets, cores, strings localizadas

@@ -198,37 +198,30 @@ class VerificationManager: ObservableObject {
     
     /// Processa um frame ARFrame para realizar todas as verificações
     func processARFrame(_ frame: ARFrame) {
-        // Verifica se o frame é válido
         guard case .normal = frame.camera.trackingState else {
             print("Aviso: Rastreamento da câmera não está no estado normal: \(frame.camera.trackingState)")
             return
         }
-        
-        // Verificação 1: Detecção de rosto
-        let faceDetected = checkFaceDetection(in: frame)
-        
-        // Só continua com as demais verificações se um rosto for detectado
+
+        let faceDetected = checkFaceDetection(using: frame)
+
         if faceDetected {
-            // Verificação 2: Distância
-            let distanceOk = checkDistance(in: frame)
-            
-            // Verificação 3: Centralização do rosto
-            if distanceOk {
-                let centeredOk = checkFaceCentering(in: frame)
-                
-                // Verificação 4: Alinhamento da cabeça
+            let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
+            let distanceOk = checkDistance(using: frame, faceAnchor: faceAnchor)
+
+            if distanceOk, let faceAnchor = faceAnchor {
+                let centeredOk = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
+
                 if centeredOk {
-                    let headAlignedOk = checkHeadAlignment(in: frame)
-                    
-                    // Verificação 5: Direcionamento do olhar
+                    let headAlignedOk = checkHeadAlignment(using: faceAnchor)
+
                     if headAlignedOk {
-                        let gazeOk = checkGaze(in: frame)
+                        let gazeOk = checkGaze(using: frame)
                         print("Olhar direcionado para a câmera: \(gazeOk)")
                     }
                 }
             }
-            
-            // Log detalhado apenas se estiver em modo de depuração
+
             #if DEBUG
             print("Verificações sequenciais: " +
                   "Rosto=\(faceDetected), " +
@@ -238,12 +231,10 @@ class VerificationManager: ObservableObject {
                   "Olhar=\(self.gazeCorrect)")
             #endif
         } else {
-            // Se nenhum rosto for detectado, redefine todas as verificações
             resetAllVerifications()
             print("Verificações com ARKit: Nenhum rosto detectado")
         }
-        
-        // Atualiza as verificações na thread principal
+
         DispatchQueue.main.async { [weak self] in
             self?.updateVerificationStatus()
         }
@@ -265,199 +256,6 @@ class VerificationManager: ObservableObject {
         }
     }
     
-    /// Verifica se há um rosto detectado no frame
-    private func checkFaceDetection(in frame: ARFrame) -> Bool {
-        // Verifica se há âncoras de rosto no frame
-        let hasFaceAnchor = frame.anchors.contains { $0 is ARFaceAnchor }
-        
-        // Atualiza o estado na thread principal
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.faceDetected = hasFaceAnchor
-            
-            // Atualiza a verificação correspondente
-            if let index = self.verifications.firstIndex(where: { $0.type == .faceDetection }) {
-                self.verifications[index].isChecked = hasFaceAnchor
-            }
-        }
-        
-        return hasFaceAnchor
-    }
-    
-    /// Verifica a distância do usuário à câmera
-    private func checkDistance(in frame: ARFrame) -> Bool {
-        // Verificação com TrueDepth (câmera frontal)
-        if let faceAnchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
-            // Calcula a distância da câmera ao rosto usando a posição Z da âncora
-            // A posição Z é negativa e representa a distância em metros
-            let distanceInMeters = abs(faceAnchor.transform.columns.3.z)
-            let distanceInCm = distanceInMeters * 100
-            
-            // Armazena a distância medida com precisão
-            let finalDistanceInCm = Float(distanceInCm)
-            let isDistanceOk = finalDistanceInCm >= minDistance && finalDistanceInCm <= maxDistance
-            
-            // Atualiza o estado na thread principal
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.lastMeasuredDistance = finalDistanceInCm
-                self.distanceCorrect = isDistanceOk
-                self.deviceHasDepthSensor = true
-                
-                // Atualiza a verificação correspondente
-                if let index = self.verifications.firstIndex(where: { $0.type == .distance }) {
-                    self.verifications[index].isChecked = isDistanceOk
-                    self.verifications[index].value = String(format: "%.1f cm", finalDistanceInCm)
-                }
-            }
-            
-            return isDistanceOk
-        }
-        // Verificação com LiDAR (câmera traseira)
-        else if let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth {
-            // Usa o mapa de profundidade para estimar a distância
-            let depthMap = depthData.depthMap
-            let distanceInMeters = getAverageDepth(from: depthMap)
-            let distanceInCm = distanceInMeters * 100
-            
-            // Armazena a distância medida
-            let finalDistanceInCm = Float(distanceInCm)
-            let isDistanceOk = finalDistanceInCm >= minDistance && finalDistanceInCm <= maxDistance
-            
-            // Atualiza o estado na thread principal
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.lastMeasuredDistance = finalDistanceInCm
-                self.distanceCorrect = isDistanceOk
-                self.deviceHasDepthSensor = true
-                
-                // Atualiza a verificação correspondente
-                if let index = self.verifications.firstIndex(where: { $0.type == .distance }) {
-                    self.verifications[index].isChecked = isDistanceOk
-                    self.verifications[index].value = String(format: "%.1f cm", finalDistanceInCm)
-                }
-            }
-            
-            return isDistanceOk
-        }
-        
-        // Se não for possível medir a distância
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.distanceCorrect = false
-        }
-        return false
-    }
-    
-    /// Verifica se o rosto está centralizado no frame
-    func checkFaceCentering(in frame: ARFrame) -> Bool {
-        guard let faceAnchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor else {
-            self.faceAligned = false
-            self.faceCentered = false
-            return false
-        }
-        
-        // Obtém a posição X e Y do rosto
-        let facePosition = faceAnchor.transform.columns.3
-        
-        // Tolerância de centralização em metros (0.5 cm = 0.005 metros)
-        let tolerance: Float = 0.005
-        
-        // Verifica se o rosto está centralizado (X e Y próximos de zero)
-        let isCentered = abs(facePosition.x) < tolerance && abs(facePosition.y) < tolerance
-        
-        // Atualiza tanto faceAligned quanto faceCentered (para compatibilidade)
-        self.faceAligned = isCentered
-        self.faceCentered = isCentered
-        
-        // Atualiza facePosition para compatibilidade com código antigo
-        self.facePosition = ["x": facePosition.x, "y": facePosition.y, "z": facePosition.z]
-        
-        return isCentered
-    }
-    
-    /// Verifica se a cabeça está alinhada corretamente
-    func checkHeadAlignment(in frame: ARFrame) -> Bool {
-        guard let faceAnchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor else {
-            self.headAligned = false
-            return false
-        }
-        
-        // Extrai os ângulos de Euler da matriz de transformação
-        let transform = faceAnchor.transform
-        
-        // Converte a matriz de rotação para ângulos de Euler
-        let pitch = asin(-transform.columns.2.y)
-        let yaw = atan2(transform.columns.2.x, transform.columns.2.z)
-        let roll = atan2(transform.columns.0.y, transform.columns.1.y)
-        
-        // Converte para graus
-        let pitchDegrees = abs(pitch * 180 / .pi)
-        let yawDegrees = abs(yaw * 180 / .pi)
-        let rollDegrees = abs(roll * 180 / .pi)
-        
-        // Tolerância de 2 graus para cada eixo
-        let tolerance: Float = 2.0
-        
-        // Verifica se todos os ângulos estão dentro da tolerância
-        let isAligned = pitchDegrees < tolerance && yawDegrees < tolerance && rollDegrees < tolerance
-        
-        self.headAligned = isAligned
-        
-        // Atualiza o headRoll e alignmentData para compatibilidade com código antigo
-        self.headRoll = Float(roll)
-        self.alignmentData = ["pitch": Float(pitchDegrees),
-                             "yaw": Float(yawDegrees),
-                             "roll": Float(rollDegrees)]
-        
-        return isAligned
-    }
-    
-    /// Verifica se o olhar está direcionado para a câmera
-    func checkGaze(in frame: ARFrame) -> Bool {
-        guard let faceAnchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor else {
-            self.gazeCorrect = false
-            return false
-        }
-        
-        // Usa os blend shapes para verificar o olhar
-        let blendShapes = faceAnchor.blendShapes
-        
-        // Verifica se os olhos estão abertos
-        let leftEyeBlink = blendShapes[.eyeBlinkLeft]?.floatValue ?? 0.0
-        let rightEyeBlink = blendShapes[.eyeBlinkRight]?.floatValue ?? 0.0
-        
-        // Considera que os olhos estão abertos se o valor de piscar for menor que 0.5
-        let eyesOpen = leftEyeBlink < 0.5 && rightEyeBlink < 0.5
-        
-        // Verifica a direção do olhar usando os blend shapes
-        // Nota: ARKit não tem BlendShapeLocation.lookAtPoint, usamos eye look in/out como alternativa
-        let lookUpLeft = blendShapes[.eyeLookInLeft]?.floatValue ?? 0.0
-        let lookDownLeft = blendShapes[.eyeLookOutLeft]?.floatValue ?? 0.0
-        let lookUpRight = blendShapes[.eyeLookInRight]?.floatValue ?? 0.0
-        let lookDownRight = blendShapes[.eyeLookOutRight]?.floatValue ?? 0.0
-        let eyeSquintLeft = blendShapes[.eyeSquintLeft]?.floatValue ?? 0.0
-        let eyeSquintRight = blendShapes[.eyeSquintRight]?.floatValue ?? 0.0
-        
-        // Verifica se o olhar está direcionado para a câmera (sem desvio significativo)
-        let gazeStraight = (lookUpLeft < 0.2 && lookDownLeft < 0.2 &&
-                          lookUpRight < 0.2 && lookDownRight < 0.2 &&
-                          eyeSquintLeft < 0.3 && eyeSquintRight < 0.3)
-        
-        // Atualiza gazeData para compatibilidade com código antigo
-        gazeData = ["leftEyeBlink": leftEyeBlink,
-                   "rightEyeBlink": rightEyeBlink,
-                   "lookUpLeft": lookUpLeft,
-                   "lookUpRight": lookUpRight,
-                   "eyeSquintLeft": eyeSquintLeft,
-                   "eyeSquintRight": eyeSquintRight]
-        
-        // O olhar está correto se os olhos estão abertos e direcionados para a frente
-        let isGazeCorrect = eyesOpen && gazeStraight
-        
-        self.gazeCorrect = isGazeCorrect
-        return isGazeCorrect
-    }
     
     /// Obtém a profundidade média de um mapa de profundidade
     private func getAverageDepth(from depthMap: CVPixelBuffer) -> Double {
