@@ -4,7 +4,7 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 ## Estrutura
 
-- `MedidorOticaApp/` – Projeto Xcode com o código do aplicativo. Dentro dele há um `README.md` mais detalhado.
+- `MedidorOticaApp/` – Projeto Xcode com o código do aplicativo. Dentro dele há um `README.md` mais detalhado. O gerenciamento da câmera foi organizado em extensões, deixando o arquivo `CameraManager.swift` mais simples.
 
 ## Requisitos
 

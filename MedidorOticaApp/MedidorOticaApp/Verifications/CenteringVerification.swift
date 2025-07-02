@@ -26,6 +26,7 @@
 
 import ARKit
 import Vision
+import simd
 
 // MARK: - Extensões
 
@@ -43,11 +44,9 @@ extension VerificationManager {
         // Tolerância de 0.5cm convertida para metros
         static let tolerance: Float = 0.005
         
-        // Índices dos vértices na malha facial do ARKit
+        // Índice do vértice correspondente à ponta do nariz
         struct FaceIndices {
-            static let leftEye = 1220   // Centro aproximado do olho esquerdo
-            static let rightEye = 1940  // Centro aproximado do olho direito
-            static let noseTip = 9130   // Ponta do nariz
+            static let noseTip = 9
         }
     }
     
@@ -70,21 +69,23 @@ extension VerificationManager {
     }
 
     private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor) -> Bool {
-        // Obtém a geometria 3D do rosto do ARKit
+        // Obtém a geometria 3D do rosto
         let vertices = faceAnchor.geometry.vertices
-        
+
         // Valida se temos vértices suficientes para análise
         guard vertices.count > CenteringConstants.FaceIndices.noseTip else {
             print("❌ Geometria facial incompleta para análise de centralização")
             return false
         }
-        
-        // Extrai as posições dos pontos faciais relevantes
-        let leftEyePos = vertices[CenteringConstants.FaceIndices.leftEye]
-        let rightEyePos = vertices[CenteringConstants.FaceIndices.rightEye]
+
+        // Posições dos olhos fornecidas pelo ARKit
+        let leftEyePos = simd_make_float3(faceAnchor.leftEyeTransform.columns.3)
+        let rightEyePos = simd_make_float3(faceAnchor.rightEyeTransform.columns.3)
+
+        // Posição da ponta do nariz obtida da malha facial
         let nosePos = vertices[CenteringConstants.FaceIndices.noseTip]
-        
-        // Calcula o ponto médio entre os olhos (deve estar alinhado com o centro da câmera)
+
+        // Calcula o ponto médio entre os olhos
         let midEyeX = (leftEyePos.x + rightEyePos.x) / 2
         let midEyeY = (leftEyePos.y + rightEyePos.y) / 2
         
