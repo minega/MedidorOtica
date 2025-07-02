@@ -8,10 +8,8 @@
 import Foundation
 import Vision
 import AVFoundation
-import UIKit
 import ARKit
 import Combine
-import ARKit
 
 // Tipos de câmera disponíveis
 enum CameraType {
@@ -68,32 +66,23 @@ class VerificationManager: ObservableObject {
     
     // MARK: - Configurações e capacidades do dispositivo
     
-    /// Verifica as capacidades do dispositivo em termos de sensores
-    private func checkDeviceCapabilitiesInternal() -> (hasTrueDepth: Bool, hasLiDAR: Bool) {
+    /// Verifica e armazena as capacidades do dispositivo
+    func checkDeviceCapabilities() -> (hasTrueDepth: Bool, hasLiDAR: Bool) {
         print("Verificando capacidades do dispositivo...")
-        
-        // Verifica TrueDepth (câmera frontal)
-        if let device = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) {
-            if !device.activeFormat.supportedDepthDataFormats.isEmpty {
-                hasTrueDepth = true
-                print("Sensor TrueDepth detectado")
-            }
+
+        // TrueDepth (câmera frontal)
+        if let device = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front),
+           !device.activeFormat.supportedDepthDataFormats.isEmpty {
+            hasTrueDepth = true
+            print("Sensor TrueDepth detectado")
         }
-        
-        // Verifica LiDAR (câmera traseira)
+
+        // LiDAR (câmera traseira)
         hasLiDAR = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
-        
-        if hasLiDAR {
-            print("Sensor LiDAR detectado")
-        }
-        
+        if hasLiDAR { print("Sensor LiDAR detectado") }
+
         print("Capacidades do dispositivo - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
         return (hasTrueDepth, hasLiDAR)
-    }
-    
-    /// Interface pública para verificação de capacidades do dispositivo
-    func checkDeviceCapabilities() -> (hasTrueDepth: Bool, hasLiDAR: Bool) {
-        return checkDeviceCapabilitiesInternal()
     }
     
     /// Configura a sessão AR para o tipo de câmera especificado
@@ -207,11 +196,11 @@ class VerificationManager: ObservableObject {
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
             let distanceOk = checkDistance(using: frame, faceAnchor: faceAnchor)
 
-            if distanceOk, let faceAnchor = faceAnchor {
+            if distanceOk {
                 let centeredOk = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
 
                 if centeredOk {
-                    let headAlignedOk = checkHeadAlignment(using: faceAnchor)
+                    let headAlignedOk = checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
 
                     if headAlignedOk {
                         let gazeOk = checkGaze(using: frame)
@@ -253,47 +242,7 @@ class VerificationManager: ObservableObject {
             verifications[i].isChecked = false
         }
     }
-    
-    
-    /// Obtém a profundidade média de um mapa de profundidade
-    private func getAverageDepth(from depthMap: CVPixelBuffer) -> Double {
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-        
-        let width = CVPixelBufferGetWidth(depthMap)
-        let height = CVPixelBufferGetHeight(depthMap)
-        
-        // Considera apenas a região central (25% da área total)
-        let centerRegionWidth = width / 2
-        let centerRegionHeight = height / 2
-        let startX = (width - centerRegionWidth) / 2
-        let startY = (height - centerRegionHeight) / 2
-        
-        // Obtém o formato dos pixels
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
-        let baseAddress = CVPixelBufferGetBaseAddress(depthMap)!
-        
-        var totalDepth: Float = 0.0
-        var validSamples = 0
-        
-        // Para mapa de profundidade de 32 bits (Float32)
-        for y in startY..<(startY + centerRegionHeight) {
-            for x in startX..<(startX + centerRegionWidth) {
-                let pixelAddress = baseAddress.advanced(by: y * bytesPerRow + x * MemoryLayout<Float32>.size)
-                let depth = pixelAddress.assumingMemoryBound(to: Float32.self).pointee
-                
-                // Apenas considere valores válidos (maior que zero)
-                if depth > 0 {
-                    totalDepth += Float(depth)
-                    validSamples += 1
-                }
-            }
-        }
-        
-        // Calcula a média
-        let averageDepth = validSamples > 0 ? Double(totalDepth / Float(validSamples)) : 0.0
-        return averageDepth
-    }
+
     
     // Método público para atualizar as verificações a partir de extensões
     func updateAllVerifications() {
