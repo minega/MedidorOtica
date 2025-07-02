@@ -328,13 +328,6 @@ struct CameraView: View {
             self.showingAlert = true
         }
         
-        // Verifica permissões da câmera
-        checkCameraPermissions { success in
-            if success {
-                // Configura o processamento real de frames da câmera apenas se a permissão foi concedida
-                self.configureCameraProcessing()
-            }
-        }
     }
     
     // Verifica as permissões da câmera
@@ -344,7 +337,6 @@ struct CameraView: View {
         switch cameraAuthStatus {
         case .authorized:
             print("Permissão de câmera já concedida")
-            cameraManager.setupSession()
             completion(true)
         case .notDetermined:
             print("Solicitando permissão de câmera")
@@ -352,7 +344,6 @@ struct CameraView: View {
                 if granted {
                     print("Permissão de câmera concedida")
                     DispatchQueue.main.async { [self] in
-                        cameraManager.setupSession()
                         completion(true)
                     }
                 } else {
