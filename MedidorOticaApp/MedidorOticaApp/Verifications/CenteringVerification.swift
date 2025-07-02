@@ -26,7 +26,6 @@
 
 import ARKit
 import Vision
-import UIKit
 
 // MARK: - Extensões
 
@@ -59,7 +58,18 @@ extension VerificationManager {
     ///   - frame: O frame AR atual (não utilizado, mantido para compatibilidade)
     ///   - faceAnchor: O anchor do rosto detectado pelo ARKit
     /// - Returns: Booleano indicando se o rosto está perfeitamente centralizado
-    func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor) -> Bool {
+    /// Confere se o rosto está centralizado
+    func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
+        if hasTrueDepth, let anchor = faceAnchor {
+            return checkCenteringWithTrueDepth(faceAnchor: anchor)
+        }
+        if hasLiDAR {
+            return checkCenteringWithLiDAR(frame: frame)
+        }
+        return false
+    }
+
+    private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor) -> Bool {
         // Obtém a geometria 3D do rosto do ARKit
         let vertices = faceAnchor.geometry.vertices
         
@@ -100,6 +110,45 @@ extension VerificationManager {
         )
         
         return isCentered
+    }
+
+    @available(iOS 13.0, *)
+    private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
+        guard let depthMap = frame.sceneDepth?.depthMap ?? frame.smoothedSceneDepth?.depthMap else {
+            print("❌ Dados de profundidade LiDAR não disponíveis")
+            return false
+        }
+
+        let request = VNDetectFaceLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage, orientation: .right, options: [:])
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first as? VNFaceObservation else { return false }
+
+            let width = CVPixelBufferGetWidth(depthMap)
+            let height = CVPixelBufferGetHeight(depthMap)
+            let nosePointNorm = face.landmarks?.nose?.normalizedPoints.first ?? CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY)
+            let px = nosePointNorm.x * CGFloat(width)
+            let py = (1 - nosePointNorm.y) * CGFloat(height)
+
+            guard let depth = depthValue(from: depthMap, at: CGPoint(x: px, y: py)) else { return false }
+            let horizontalOffset = Float(nosePointNorm.x - 0.5) * Float(depth)
+            let verticalOffset = Float(0.5 - nosePointNorm.y) * Float(depth)
+
+            let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
+            let isVerticallyAligned = abs(verticalOffset) < CenteringConstants.tolerance
+            let isCentered = isHorizontallyAligned && isVerticallyAligned
+
+            updateCenteringUI(horizontalOffset: horizontalOffset,
+                              verticalOffset: verticalOffset,
+                              noseOffset: horizontalOffset,
+                              isCentered: isCentered)
+
+            return isCentered
+        } catch {
+            print("Erro ao verificar centralização com Vision: \(error)")
+            return false
+        }
     }
     
     // MARK: - Atualização da Interface

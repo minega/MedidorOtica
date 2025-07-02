@@ -8,36 +8,41 @@
 
 import ARKit
 import Vision
-import UIKit
 
 // Extensão para verificação de alinhamento da cabeça
 extension VerificationManager {
-    
     // MARK: - Verificação 4: Alinhamento da Cabeça
-    func checkHeadAlignment(using faceAnchor: ARFaceAnchor) -> Bool {
+    /// Verifica se a cabeça está alinhada em todos os eixos
+    
+    func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
         // A verificação de alinhamento da cabeça com tolerância de exatamente ±2 graus
         // conforme solicitado pelo usuário
-        
+
         // Define a margem de erro exatamente como ±2 graus
         let alignmentToleranceDegrees: Float = 2.0
-        
-        // Extrai a orientação da cabeça da matriz de transformação do ARFaceAnchor
-        // ARKit fornece informações de orientação mais precisas que o Vision Framework
-        
-        // Converte a matriz de transformação para ângulos de Euler
-        let transform = faceAnchor.transform
-        let eulerAngles = extractEulerAngles(from: transform)
-        
-        // Converte de radianos para graus
-        let rollDegrees = radiansToDegrees(eulerAngles.roll)
-        let yawDegrees = radiansToDegrees(eulerAngles.yaw)
-        let pitchDegrees = radiansToDegrees(eulerAngles.pitch)
+
+        let rollDegrees: Float
+        let yawDegrees: Float
+        let pitchDegrees: Float
+
+        if hasTrueDepth, let anchor = faceAnchor {
+            let euler = extractEulerAngles(from: anchor.transform)
+            rollDegrees = radiansToDegrees(euler.roll)
+            yawDegrees = radiansToDegrees(euler.yaw)
+            pitchDegrees = radiansToDegrees(euler.pitch)
+        } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
+            rollDegrees = angles.roll
+            yawDegrees = angles.yaw
+            pitchDegrees = angles.pitch
+        } else {
+            return false
+        }
         
         // Verifica se todos os ângulos estão dentro da margem de tolerância
         let isRollAligned = abs(rollDegrees) <= alignmentToleranceDegrees
         let isYawAligned = abs(yawDegrees) <= alignmentToleranceDegrees
         let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
-        
+
         // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
         let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
         
@@ -53,7 +58,7 @@ extension VerificationManager {
             
             self.updateAllVerifications()
             
-            print("Alinhamento da cabeça (ARKit): Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
+            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
         }
         
         return isHeadAligned
@@ -97,13 +102,26 @@ extension VerificationManager {
         return angles
     }
     
-    // Converte ângulo de radianos para graus (Float)
+    // Converte ângulo de radianos para graus
     private func radiansToDegrees(_ radians: Float) -> Float {
-        return radians * (180.0 / .pi)
+        radians * (180.0 / .pi)
     }
-    
-    // Sobrecarrega o método para Double
-    private func radiansToDegrees(_ radians: Double) -> Double {
-        return radians * (180.0 / .pi)
+
+    // Obtém ângulos de rotação da cabeça usando Vision (para LiDAR)
+    @available(iOS 13.0, *)
+    private func headAnglesWithVision(from frame: ARFrame) -> (roll: Float, yaw: Float, pitch: Float)? {
+        let request = VNDetectFaceLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage, orientation: .right, options: [:])
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first as? VNFaceObservation else { return nil }
+            let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
+            let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
+            let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
+            return (roll, yaw, pitch)
+        } catch {
+            print("Erro ao calcular ângulos com Vision: \(error)")
+            return nil
+        }
     }
 }

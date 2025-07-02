@@ -8,34 +8,23 @@
 
 import ARKit
 import Vision
-import UIKit
 
 // Extensão para verificação de detecção de rosto
 extension VerificationManager {
     
     // MARK: - Verificação 1: Detecção de Rosto
+    /// Verifica a presença de rosto usando o sensor disponível
     func checkFaceDetection(using frame: ARFrame) -> Bool {
-        // Verificamos se estamos com a câmera frontal (TrueDepth) ou traseira (LiDAR)
-        if ARFaceTrackingConfiguration.isSupported {
-            // Câmera frontal com TrueDepth
-            return checkFaceDetectionWithTrueDepth(frame: frame)
-        } else if #available(iOS 13.4, *), ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            // Câmera traseira com LiDAR
-            return checkFaceDetectionWithLiDAR(frame: frame)
-        } else {
-            // Dispositivo não suporta nenhum dos sensores necessários
-            print("ERRO: Dispositivo não possui sensores necessários para detecção de rosto")
-            
-            // Notifica que o dispositivo não é compatível
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("DeviceNotCompatible"),
-                    object: nil,
-                    userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"]
-                )
-            }
-            return false
+        if hasTrueDepth { return checkFaceDetectionWithTrueDepth(frame: frame) }
+        if hasLiDAR { return checkFaceDetectionWithLiDAR(frame: frame) }
+
+        print("ERRO: Sensores de detecção de rosto indisponíveis")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: NSNotification.Name("DeviceNotCompatible"),
+                                            object: nil,
+                                            userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"])
         }
+        return false
     }
     
     // MARK: - Detecção com TrueDepth (Câmera Frontal)
@@ -102,7 +91,7 @@ extension VerificationManager {
                     
                     // Coleta profundidades para os pontos de amostra
                     for point in samplePoints {
-                        if let depth = getDepthValue(from: depthMap, at: point) {
+                        if let depth = depthValue(from: depthMap, at: point) {
                             depthValues.append(depth)
                         }
                     }
@@ -131,33 +120,4 @@ extension VerificationManager {
         }
     }
     
-    // MARK: - Funções Auxiliares
-    
-    // Função auxiliar para obter valor de profundidade de um ponto específico
-    private func getDepthValue(from depthMap: CVPixelBuffer, at point: CGPoint) -> Float? {
-        // Garante que as coordenadas estão dentro dos limites
-        let width = CVPixelBufferGetWidth(depthMap)
-        let height = CVPixelBufferGetHeight(depthMap)
-        
-        guard point.x >= 0, point.x < CGFloat(width),
-              point.y >= 0, point.y < CGFloat(height) else {
-            return nil
-        }
-        
-        // Bloqueia o buffer para acesso seguro
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
-        
-        // Formato do buffer de profundidade: 32-bit float
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
-        let baseAddress = CVPixelBufferGetBaseAddress(depthMap)!
-        
-        // Calcula o offset para o ponto de interesse
-        let pixelOffset = Int(point.y) * bytesPerRow + Int(point.x) * MemoryLayout<Float>.size
-        
-        // Obtém o valor de profundidade (convertendo bytes para float)
-        let depthValue = baseAddress.load(fromByteOffset: pixelOffset, as: Float.self)
-        
-        return depthValue
-    }
 }

@@ -8,7 +8,6 @@
 import Foundation
 import Vision
 import AVFoundation
-import UIKit
 
 // Extensão do VerificationManager para as verificações de armação
 extension VerificationManager {
