@@ -98,50 +98,6 @@ extension VerificationManager {
         processFrameInternal(frame: frame, cameraType: cameraType)
     }
     
-    // Sobrecarga do método para aceitar CVPixelBuffer
-    func processARFrame(_ pixelBuffer: CVPixelBuffer, cameraType: CameraType = .front) {
-        // Fallback para quando temos apenas CVPixelBuffer
-        processFrameWithPixelBuffer(pixelBuffer, cameraType: cameraType)
-    }
-    
-    // Método para processar frames quando apenas temos CVPixelBuffer disponível
-    private func processFrameWithPixelBuffer(_ pixelBuffer: CVPixelBuffer, cameraType: CameraType) {
-        // Executa as verificações em sequência
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            
-            // Verificação 1: Detecção de rosto
-            let faceDetected = self.checkFaceDetection(in: pixelBuffer)
-            
-            // Só continua com as demais verificações se um rosto for detectado
-            if faceDetected {
-                // Verificação 2: Distância
-                let distanceOk = self.checkDistance(in: pixelBuffer)
-                
-                // Verificação 3: Centralização
-                if distanceOk {
-                    let centeredOk = self.checkCentering(in: pixelBuffer)
-                    
-                    // Verificação 4: Alinhamento da cabeça
-                    if centeredOk {
-                        let headAlignedOk = self.checkHeadAlignment(in: pixelBuffer)
-                        
-                        // Verificação 7: Direcionamento do olhar
-                        if headAlignedOk {
-                            let gazeOk = self.checkGaze(in: pixelBuffer)
-                            print("Olhar direcionado para a câmera: \(gazeOk)")
-                        }
-                    }
-                }
-            }
-            
-            // Atualiza as verificações em tempo real
-            DispatchQueue.main.async {
-                self.updateAllVerifications()
-            }
-        }
-    }
-    
     // Método interno compartilhado para processamento
     private func processFrameInternal(frame: ARFrame, cameraType: CameraType) {
         // Executa as verificações em sequência
@@ -220,20 +176,39 @@ extension VerificationManager {
     
     // MARK: - Processamento para Câmera Traseira (LiDAR)
     private func processBackCameraFrame(_ frame: ARFrame) {
-        // Implementação para câmera traseira com LiDAR
-        // Nota: Esta implementação depende de funcionalidades específicas do LiDAR
-        // e pode ser expandida conforme necessário
-        
-        // Por enquanto, notifica que a câmera traseira ainda não é totalmente suportada
+        // Detecção de rosto usando Vision
+        guard let observation = detectFaceObservation(in: frame.capturedImage) else {
+            resetVerificationStates(upTo: .faceDetection)
+            return
+        }
+
+        // VERIFICAÇÃO 2: Distância usando LiDAR
+        let distanceOk = self.checkDistance(using: frame, faceAnchor: nil)
+        guard distanceOk else {
+            resetVerificationStates(upTo: .distance)
+            return
+        }
+
+        // VERIFICAÇÃO 3: Centralização com LiDAR
+        let centeredOk = self.checkFaceCentering(using: frame, observation: observation)
+        guard centeredOk else {
+            resetVerificationStates(upTo: .centering)
+            return
+        }
+
+        // VERIFICAÇÃO 4: Alinhamento com dados do Vision
+        let headOk = self.checkHeadAlignment(using: frame, observation: observation)
+        guard headOk else {
+            resetVerificationStates(upTo: .headAlignment)
+            return
+        }
+
         DispatchQueue.main.async {
-            // Configura o estado como não verificado
-            self.resetAllVerificationStates()
-            
-            // Notifica que está em desenvolvimento
-            NotificationCenter.default.post(
-                name: NSNotification.Name("BackCameraNotImplemented"),
-                object: nil
-            )
+            self.faceDetected = true
+            self.distanceCorrect = true
+            self.faceCentered = true
+            self.headAligned = true
+            self.updateAllVerifications()
         }
     }
     
@@ -279,83 +254,12 @@ extension VerificationManager {
         }
     }
     
-    // MARK: - Verificação 1: Detecção de Rosto
-    func checkFaceDetection(in image: CVPixelBuffer) -> Bool {
-        // Cria uma solicitação de detecção de rosto usando Vision
-        let faceDetectionRequest = VNDetectFaceRectanglesRequest()
-        
-        // Configura o manipulador de solicitação
-        let requestHandler = VNImageRequestHandler(cvPixelBuffer: image, options: [:])
-        
-        // Resultado da detecção
-        var faceDetected = false
-        
-        do {
-            // Executa a solicitação de detecção de rosto
-            try requestHandler.perform([faceDetectionRequest])
-            
-            // Verifica se algum rosto foi detectado
-            if let results = faceDetectionRequest.results, !results.isEmpty {
-                faceDetected = true
-                
-                // Atualiza o estado no VerificationManager
-                DispatchQueue.main.async {
-                    self.faceDetected = true
-                    self.updateAllVerifications()
-                }
-            } else {
-                // Nenhum rosto detectado
-                DispatchQueue.main.async {
-                    self.faceDetected = false
-                    self.updateAllVerifications()
-                }
-            }
-        } catch {
-            print("Erro na detecção de rosto: \(error)")
-            DispatchQueue.main.async {
-                self.faceDetected = false
-                self.updateAllVerifications()
-            }
-        }
-        
-        return faceDetected
+    @available(iOS 13.0, *)
+    private func detectFaceObservation(in pixelBuffer: CVPixelBuffer) -> VNFaceObservation? {
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        try? handler.perform([request])
+        return request.results?.first as? VNFaceObservation
     }
     
-    // MARK: - Verificação 2: Distância
-    func checkDistance(in image: CVPixelBuffer) -> Bool {
-        // Todo este código foi movido para o DistanceVerification.swift
-        // Esta implementação está obsoleta e foi removida para evitar redeclarações
-        return false
-    }
-    
-    // MARK: - Verificação 3: Centralização
-    func checkCentering(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para CenteringVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
-    
-    // MARK: - Verificação 4: Alinhamento da Cabeça
-    func checkHeadAlignment(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para HeadAlignmentVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
-    
-    // MARK: - Verificação 7: Gaze (Olhar)
-    func checkGaze(in image: CVPixelBuffer) -> Bool {
-        // Esta implementação foi movida para GazeVerification.swift
-        // Mantendo apenas um stub para compatibilidade
-        return false
-    }
-    
-    // Função auxiliar para calcular o ponto médio a partir de uma lista de pontos
-    private func averagePoint(from points: [CGPoint]) -> CGPoint {
-        guard !points.isEmpty else { return .zero }
-        
-        let sumX = points.reduce(0) { $0 + $1.x }
-        let sumY = points.reduce(0) { $0 + $1.y }
-        
-        return CGPoint(x: sumX / CGFloat(points.count), y: sumY / CGFloat(points.count))
-    }
 }

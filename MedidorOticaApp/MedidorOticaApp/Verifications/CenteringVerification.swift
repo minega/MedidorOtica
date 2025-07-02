@@ -2,27 +2,8 @@
 //  CenteringVerification.swift
 //  MedidorOticaApp
 //
-//  Verificação de Centralização do Rosto
-//
-//  Objetivo:
-//  - Garantir que o rosto esteja perfeitamente centralizado na câmera
-//  - Manter o alinhamento preciso entre os olhos e o nariz
-//  - Fornecer feedback visual sobre o posicionamento
-//
-//  Critérios de Aceitação:
-//  1. Centralização horizontal (eixo X) com margem de ±0.5cm
-//  2. Centralização vertical (eixo Y) com margem de ±0.5cm
-//  3. Alinhamento do nariz com o centro da câmera
-//
-//  Técnicas Utilizadas:
-//  - ARKit Face Tracking para detecção precisa de pontos faciais
-//  - Cálculos 3D para determinar o posicionamento relativo
-//  - Tolerância ajustável para diferentes cenários de uso
-//
-//  Notas de Desempenho:
-//  - Processamento otimizado para execução em tempo real
-//  - Uso eficiente de memória com reutilização de estruturas
-//  - Cálculos otimizados para evitar sobrecarga na CPU/GPU
+//  Verifica se o rosto está centralizado na câmera com ARKit ou Vision,
+//  aceitando desvio de ±0.5cm.
 
 import ARKit
 import Vision
@@ -101,6 +82,43 @@ extension VerificationManager {
         
         return isCentered
     }
+
+    /// Verificação de centralização usando Vision e LiDAR (câmera traseira)
+    func checkFaceCentering(using frame: ARFrame, observation: VNFaceObservation) -> Bool {
+        guard #available(iOS 13.4, *),
+              let depth = depthFromLiDAR(frame, at: observation.boundingBox.midPoint) else {
+            return false
+        }
+
+        let intrinsics = frame.camera.intrinsics
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+
+        let width = Float(CVPixelBufferGetWidth(frame.capturedImage))
+        let height = Float(CVPixelBufferGetHeight(frame.capturedImage))
+
+        let px = Float(observation.boundingBox.midX) * width
+        let py = Float(1 - observation.boundingBox.midY) * height
+
+        let horizontalOffset = ((px - cx) / fx) * depth
+        let verticalOffset = ((py - cy) / fy) * depth
+
+        let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
+        let isVerticallyAligned = abs(verticalOffset) < CenteringConstants.tolerance
+
+        let isCentered = isHorizontallyAligned && isVerticallyAligned
+
+        updateCenteringUI(
+            horizontalOffset: horizontalOffset,
+            verticalOffset: verticalOffset,
+            noseOffset: horizontalOffset,
+            isCentered: isCentered
+        )
+
+        return isCentered
+    }
     
     // MARK: - Atualização da Interface
     
@@ -112,45 +130,41 @@ extension VerificationManager {
         let verticalCm = verticalOffset * 100
         let noseCm = noseOffset * 100
         
-        // Log detalhado para debug
-        print("""
-        📏 Centralização (cm):
-           - Horizontal: \(String(format: "%+.2f", horizontalCm)) cm
-           - Vertical:   \(String(format: "%+.2f", verticalCm)) cm
-           - Nariz:      \(String(format: "%+.2f", noseCm)) cm
-           - Alinhado:   \(isCentered ? "✅" : "❌")
-        """)
-        
-        // Atualiza a interface na thread principal
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            // Atualiza as propriedades de estado
+            guard let self else { return }
             self.faceAligned = isCentered
             self.faceCentered = isCentered
-            
-            // Armazena os desvios para feedback visual
             self.facePosition = [
                 "x": horizontalCm,
                 "y": verticalCm,
                 "z": noseCm
             ]
-            
-            // Notifica a interface sobre a atualização
-            self.notifyCenteringUpdate()
+            NotificationCenter.default.post(
+                name: .faceCenteringUpdated,
+                object: nil,
+                userInfo: [
+                    "isCentered": isCentered,
+                    "offsets": self.facePosition ?? [:]
+                ]
+            )
         }
     }
-    
-    /// Notifica a interface sobre a atualização do status de centralização
-    private func notifyCenteringUpdate() {
-        NotificationCenter.default.post(
-            name: .faceCenteringUpdated,
-            object: nil,
-            userInfo: [
-                "isCentered": faceAligned,
-                "offsets": facePosition ?? [:],
-                "timestamp": Date().timeIntervalSince1970
-            ]
-        )
+
+    @available(iOS 13.4, *)
+    private func depthFromLiDAR(_ frame: ARFrame, at point: CGPoint) -> Float? {
+        guard let depthMap = frame.sceneDepth?.depthMap else { return nil }
+
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        let x = Int(point.x * CGFloat(width))
+        let y = Int((1 - point.y) * CGFloat(height))
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        let base = CVPixelBufferGetBaseAddress(depthMap)!
+        let offset = y * bytesPerRow + x * MemoryLayout<Float>.size
+        let value = base.load(fromByteOffset: offset, as: Float.self)
+        return value.isFinite ? value : nil
     }
 }

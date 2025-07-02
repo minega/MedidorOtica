@@ -2,8 +2,7 @@
 //  HeadAlignmentVerification.swift
 //  MedidorOticaApp
 //
-//  Verificação 4: Alinhamento da cabeça
-//  Usando ARKit para medições precisas com margem de erro de ±2 graus
+//  Verifica se a cabeça está alinhada em até ±2° usando ARKit ou Vision.
 //
 
 import ARKit
@@ -15,29 +14,18 @@ extension VerificationManager {
     
     // MARK: - Verificação 4: Alinhamento da Cabeça
     func checkHeadAlignment(using faceAnchor: ARFaceAnchor) -> Bool {
-        // A verificação de alinhamento da cabeça com tolerância de exatamente ±2 graus
-        // conforme solicitado pelo usuário
-        
-        // Define a margem de erro exatamente como ±2 graus
         let alignmentToleranceDegrees: Float = 2.0
-        
-        // Extrai a orientação da cabeça da matriz de transformação do ARFaceAnchor
-        // ARKit fornece informações de orientação mais precisas que o Vision Framework
-        
-        // Converte a matriz de transformação para ângulos de Euler
+        // Extrai a orientação da cabeça e converte para ângulos de Euler
         let transform = faceAnchor.transform
         let eulerAngles = extractEulerAngles(from: transform)
         
-        // Converte de radianos para graus
         let rollDegrees = radiansToDegrees(eulerAngles.roll)
         let yawDegrees = radiansToDegrees(eulerAngles.yaw)
         let pitchDegrees = radiansToDegrees(eulerAngles.pitch)
         
-        // Verifica se todos os ângulos estão dentro da margem de tolerância
         let isRollAligned = abs(rollDegrees) <= alignmentToleranceDegrees
         let isYawAligned = abs(yawDegrees) <= alignmentToleranceDegrees
         let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
-        
         // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
         let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
         
@@ -52,11 +40,41 @@ extension VerificationManager {
             ]
             
             self.updateAllVerifications()
-            
-            print("Alinhamento da cabeça (ARKit): Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
         }
         
         return isHeadAligned
+    }
+
+    /// Verificação de alinhamento usando Vision quando o sensor TrueDepth não está disponível
+    func checkHeadAlignment(using frame: ARFrame, observation: VNFaceObservation) -> Bool {
+        let tolerance: Float = 2.0
+
+        let rollDegrees = radiansToDegrees(observation.roll?.floatValue ?? 0)
+        let yawDegrees = radiansToDegrees(observation.yaw?.floatValue ?? 0)
+        let pitchDegrees: Float
+        if #available(iOS 14.0, *), let pitch = observation.pitch?.floatValue {
+            pitchDegrees = radiansToDegrees(pitch)
+        } else {
+            pitchDegrees = 0
+        }
+
+        let isRollAligned = abs(rollDegrees) <= tolerance
+        let isYawAligned = abs(yawDegrees) <= tolerance
+        let isPitchAligned = abs(pitchDegrees) <= tolerance
+
+        let aligned = isRollAligned && isYawAligned && isPitchAligned
+
+        DispatchQueue.main.async {
+            self.headAligned = aligned
+            self.alignmentData = [
+                "roll": rollDegrees,
+                "yaw": yawDegrees,
+                "pitch": pitchDegrees
+            ]
+            self.updateAllVerifications()
+        }
+
+        return aligned
     }
     
     // Estrutura para armazenar os ângulos de Euler
@@ -97,13 +115,8 @@ extension VerificationManager {
         return angles
     }
     
-    // Converte ângulo de radianos para graus (Float)
+    // Converte ângulo de radianos para graus
     private func radiansToDegrees(_ radians: Float) -> Float {
-        return radians * (180.0 / .pi)
-    }
-    
-    // Sobrecarrega o método para Double
-    private func radiansToDegrees(_ radians: Double) -> Double {
-        return radians * (180.0 / .pi)
+        radians * (180.0 / .pi)
     }
 }
