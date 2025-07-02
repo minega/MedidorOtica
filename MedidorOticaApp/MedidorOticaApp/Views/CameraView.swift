@@ -442,24 +442,10 @@ struct CameraView: View {
     
     // Configura o processamento real dos frames da câmera
     func configureCameraProcessing() {
-        // Configura o delegate para processar cada frame capturado pela câmera
-        // NOTA: Não usamos [weak self] em structs porque structs são tipos de valor,
-        // não tipos de referência, e não podem causar ciclos de retenção
-        cameraManager.outputDelegate = { capturedSampleBuffer in
-            // Extrai o buffer de imagem do frame capturado
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(capturedSampleBuffer) else {
-                return
-            }
-            
-            // Usa ARKit quando disponível, caso contrário usa Vision Framework
-            if let arFrame = self.cameraManager.arSession?.currentFrame {
-                // Processamento com ARKit (preferencial para maior precisão)
-                self.verificationManager.processARFrame(arFrame)
-            } else {
-                // Fallback para sobrecarga com CVPixelBuffer
-                self.verificationManager.processARFrame(pixelBuffer)
-            }
-            
+        // Processa cada ARFrame recebido da câmera
+        cameraManager.outputDelegate = { frame in
+            self.verificationManager.processARFrame(frame)
+
             // Atualiza as verificações em tempo real
             DispatchQueue.main.async {
                 self.verificationManager.updateAllVerifications()
