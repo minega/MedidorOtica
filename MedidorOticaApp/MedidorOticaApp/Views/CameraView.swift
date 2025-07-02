@@ -268,30 +268,37 @@ struct CameraView: View {
             
             // Verifica os sensores disponíveis no dispositivo
             let capabilities = self.verificationManager.checkDeviceCapabilities()
-            
-            // Define o tipo de câmera inicialmente para frontal
-            let cameraType: CameraType = .front
-            
-            // Verifica se o dispositivo tem TrueDepth
-            if !capabilities.hasTrueDepth {
+
+            // Seleciona o tipo de câmera de acordo com os sensores disponíveis
+            let cameraType: CameraType
+            let position: AVCaptureDevice.Position
+
+            if capabilities.hasTrueDepth {
+                cameraType = .front
+                position = .front
+            } else if capabilities.hasLiDAR {
+                cameraType = .back
+                position = .back
+            } else {
+                // Nenhum sensor compatível encontrado
                 DispatchQueue.main.async {
-                    self.alertMessage = "Este dispositivo não possui o sensor TrueDepth necessário para as medições."
+                    self.alertMessage = "Este dispositivo não possui sensores TrueDepth ou LiDAR necessários para as medições."
                     self.showingAlert = true
                 }
                 return
             }
-            
+
             // Configura a AR Session
             let arSession = self.verificationManager.createARSession(for: cameraType)
-            
+
             // Marca a câmera como inicializada antes da configuração para evitar chamadas redundantes
             DispatchQueue.main.async {
                 self.cameraInitialized = true
             }
-            
-            // Configura a câmera com a posição frontal (TrueDepth)
+
+            // Configura a câmera com o sensor disponível
             // A configuração real é feita dentro dessa chamada, não precisamos chamar setupSession() separadamente
-            self.cameraManager.setup(position: .front, arSession: arSession) { success in
+            self.cameraManager.setup(position: position, arSession: arSession) { success in
                 if !success {
                     DispatchQueue.main.async {
                         self.alertMessage = "Não foi possível acessar a câmera."
