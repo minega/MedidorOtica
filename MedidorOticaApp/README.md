@@ -38,7 +38,6 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 | `Verifications/HeadAlignmentVerification.swift` | Verificação de alinhamento da cabeça |
 | `Verifications/GazeVerification.swift` | Verificação de direção do olhar |
 | `Verifications/FrameVerifications.swift` | Verificações de armação de óculos |
-| `Verifications/FaceVerifications.swift` | Constantes e configurações de verificação |
 
 ### Models
 | Caminho | Descrição |
