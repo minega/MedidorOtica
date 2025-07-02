@@ -268,19 +268,21 @@ struct CameraView: View {
             
             // Verifica os sensores disponíveis no dispositivo
             let capabilities = self.verificationManager.checkDeviceCapabilities()
-            
-            // Define o tipo de câmera inicialmente para frontal
-            let cameraType: CameraType = .front
-            
-            // Verifica se o dispositivo tem TrueDepth
-            if !capabilities.hasTrueDepth {
+
+            // Decide qual câmera usar com base nos sensores
+            let cameraType: CameraType
+            if capabilities.hasTrueDepth {
+                cameraType = .front
+            } else if capabilities.hasLiDAR {
+                cameraType = .back
+            } else {
                 DispatchQueue.main.async {
-                    self.alertMessage = "Este dispositivo não possui o sensor TrueDepth necessário para as medições."
+                    self.alertMessage = "Dispositivo sem TrueDepth ou LiDAR."
                     self.showingAlert = true
                 }
                 return
             }
-            
+
             // Configura a AR Session
             let arSession = self.verificationManager.createARSession(for: cameraType)
             
@@ -289,9 +291,10 @@ struct CameraView: View {
                 self.cameraInitialized = true
             }
             
-            // Configura a câmera com a posição frontal (TrueDepth)
+            // Configura a câmera com a posição escolhida
             // A configuração real é feita dentro dessa chamada, não precisamos chamar setupSession() separadamente
-            self.cameraManager.setup(position: .front, arSession: arSession) { success in
+            let position: AVCaptureDevice.Position = (cameraType == .front) ? .front : .back
+            self.cameraManager.setup(position: position, arSession: arSession) { success in
                 if !success {
                     DispatchQueue.main.async {
                         self.alertMessage = "Não foi possível acessar a câmera."
@@ -445,21 +448,10 @@ struct CameraView: View {
         // Configura o delegate para processar cada frame capturado pela câmera
         // NOTA: Não usamos [weak self] em structs porque structs são tipos de valor,
         // não tipos de referência, e não podem causar ciclos de retenção
-        cameraManager.outputDelegate = { capturedSampleBuffer in
-            // Extrai o buffer de imagem do frame capturado
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(capturedSampleBuffer) else {
-                return
-            }
-            
-            // Usa ARKit quando disponível, caso contrário usa Vision Framework
-            if let arFrame = self.cameraManager.arSession?.currentFrame {
-                // Processamento com ARKit (preferencial para maior precisão)
-                self.verificationManager.processARFrame(arFrame)
-            } else {
-                // Fallback para sobrecarga com CVPixelBuffer
-                self.verificationManager.processARFrame(pixelBuffer)
-            }
-            
+        cameraManager.outputDelegate = { _ in
+            guard let arFrame = self.cameraManager.arSession?.currentFrame else { return }
+            self.verificationManager.processARFrame(arFrame)
+
             // Atualiza as verificações em tempo real
             DispatchQueue.main.async {
                 self.verificationManager.updateAllVerifications()

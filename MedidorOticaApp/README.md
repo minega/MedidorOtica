@@ -11,6 +11,8 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - **Interface Intuitiva**: Design focado na experiência do usuário
 - **Suporte a Múltiplos Sensores**: TrueDepth (câmera frontal) e LiDAR (câmera traseira)
 - **Processamento em Tempo Real**: Análise de imagens e dados de profundidade
+- **Inicialização Condicional**: a câmera só abre se o dispositivo tiver
+  TrueDepth ou LiDAR disponível
 
 ## 📂 Estrutura do Projeto
 
@@ -23,9 +25,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 ### Managers
 | Caminho | Descrição |
 |---------|-----------|
-| `Managers/ARSessionManager.swift` | Gerencia a sessão ARKit |
 | `Managers/CameraManager.swift` | Controla o acesso e operação da câmera |
-| `Managers/DepthDataManager.swift` | Processa dados de profundidade |
 | `Managers/HistoryManager.swift` | Gerencia histórico de medições |
 | `Managers/VerificationManager.swift` | Coordena as verificações de medição |
 
@@ -75,6 +75,7 @@ O aplicativo executa verificações em sequência para garantir medições preci
 - iOS 15.0+
 - Dispositivo com suporte a ARKit
 - Câmera traseira (LiDAR) ou frontal (TrueDepth) recomendado
+- O app seleciona automaticamente a câmera com sensor disponível
 - Xcode 13.0+
 - Swift 5.5+
 
@@ -120,15 +121,6 @@ Contribuições são bem-vindas! Por favor, leia nosso guia de contribuição an
 - Recuperação e gerenciamento do histórico
 - Persistência em disco com tratamento de erros
 
-### ARSessionManager
-- Gerencia a sessão ARKit
-- Tratamento de interrupções
-- Configuração otimizada para performance
-
-### DepthDataManager
-- Processamento de dados de profundidade
-- Sincronização de saídas de dados
-- Suporte a diferentes sensores de profundidade
 
 ## ⚙️ Configuração
 
@@ -150,7 +142,6 @@ MedidorOticaApp/
 ├── Models/              # Modelos de dados
 ├── Views/               # Telas e componentes de UI
 ├── Managers/            # Gerenciadores de funcionalidades
-│   ├── ARSessionManager.swift
 │   ├── CameraManager.swift
 │   └── CameraComponents/  # Componentes reutilizáveis da câmera
 └── Resources/           # Assets, cores, strings localizadas
