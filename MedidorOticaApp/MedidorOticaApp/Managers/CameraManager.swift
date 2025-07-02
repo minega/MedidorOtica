@@ -69,6 +69,8 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // MARK: - Session Control
+    /// Inicia a captura de vídeo ou a sessão AR
+
     func start() {
         guard !isSessionRunning else { return }
         
@@ -148,6 +150,8 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    /// Interrompe a captura de vídeo ou a sessão AR
+
     func stop() {
         guard isSessionRunning else { return }
         
@@ -320,6 +324,8 @@ class CameraManager: NSObject, ObservableObject {
     
     // MARK: - Camera Controls
     
+    /// Alterna entre as câmeras frontal e traseira
+
     func switchCamera() {
         isUsingARSession ? switchARPosition() : switchAVPosition()
     }
@@ -359,6 +365,8 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    /// Liga ou desliga o flash da câmera se disponível
+
     func toggleFlash() {
         guard let device = videoDeviceInput?.device else { return }
         
@@ -386,6 +394,8 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // MARK: - Photo Capture
+    /// Captura uma foto usando a sessão atual
+
     func capturePhoto(completion: @escaping (UIImage?) -> Void) {
         if isUsingARSession {
             captureARPhoto(completion: completion)
@@ -498,6 +508,8 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // MARK: - Configuration
+    /// Configura o gerenciador definindo posição e sessão AR opcional
+
     func setup(position: AVCaptureDevice.Position, arSession: ARSession? = nil, completion: @escaping (Bool) -> Void) {
         cameraPosition = position
         self.arSession = arSession
