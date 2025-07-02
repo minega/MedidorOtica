@@ -445,12 +445,9 @@ struct CameraView: View {
     
     // Configura o processamento real dos frames da câmera
     func configureCameraProcessing() {
-        // Configura o delegate para processar cada frame capturado pela câmera
-        // NOTA: Não usamos [weak self] em structs porque structs são tipos de valor,
-        // não tipos de referência, e não podem causar ciclos de retenção
-        cameraManager.outputDelegate = { _ in
-            guard let arFrame = self.cameraManager.arSession?.currentFrame else { return }
-            self.verificationManager.processARFrame(arFrame)
+        // Processa cada ARFrame recebido da câmera
+        cameraManager.outputDelegate = { frame in
+            self.verificationManager.processARFrame(frame)
 
             // Atualiza as verificações em tempo real
             DispatchQueue.main.async {

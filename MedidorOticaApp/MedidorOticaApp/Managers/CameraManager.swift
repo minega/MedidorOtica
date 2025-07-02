@@ -48,6 +48,9 @@ class CameraManager: NSObject, ObservableObject {
     @Published private(set) var isSessionRunning = false
     @Published private(set) var hasTrueDepth = false
     @Published private(set) var hasLiDAR = false
+
+    /// Callback invoked with every new AR frame
+    public var outputDelegate: ((ARFrame) -> Void)?
     
     // MARK: - Private Properties
     private let session = AVCaptureSession()
@@ -77,10 +80,12 @@ class CameraManager: NSObject, ObservableObject {
     
     private func startARSession(_ arSession: ARSession) {
         let configuration = createARConfiguration()
-        
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
+
+            arSession.delegate = self
+
             do {
                 arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
                 self.isSessionRunning = true
@@ -394,7 +399,9 @@ class CameraManager: NSObject, ObservableObject {
             DispatchQueue.main.async { completion(nil) }
             return
         }
-        
+
+        outputDelegate?(frame)
+
         let pixelBuffer = frame.capturedImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
@@ -493,8 +500,9 @@ class CameraManager: NSObject, ObservableObject {
     func setup(position: AVCaptureDevice.Position, arSession: ARSession? = nil, completion: @escaping (Bool) -> Void) {
         cameraPosition = position
         self.arSession = arSession
+        self.arSession?.delegate = self
         isUsingARSession = (arSession != nil)
-        
+
         isUsingARSession ? configureARSession(completion) : configureCaptureSession(completion)
     }
     
@@ -540,5 +548,12 @@ private class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         }
         
         completion(image)
+    }
+}
+
+// MARK: - ARSessionDelegate
+extension CameraManager: ARSessionDelegate {
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        outputDelegate?(frame)
     }
 }
