@@ -42,12 +42,10 @@ class VerificationManager: ObservableObject {
     @Published var hasLiDAR = false // Indica se o dispositivo tem sensor LiDAR
     
     // Compatibilidade com código antigo
-    @Published var deviceHasDepthSensor: Bool = false // Para compatiblidade com código antigo
     @Published var faceCentered: Bool = false // Para compatiblidade com código antigo
     @Published var gazeData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
-    @Published var headRoll: Float = 0.0 // Para compatiblidade com código antigo
     
     // Sessão AR
     private var arSession: ARSession?
