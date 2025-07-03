@@ -115,7 +115,7 @@ extension CameraManager {
             position: .unspecified
         )
         for device in discoverySession.devices {
-            print("- \(device.localizedName) (posição: \(device.position == .front ? \"frontal\" : \"traseira\"))")
+            print("- \(device.localizedName) (posição: \(device.position == .front ? "frontal" : "traseira"))")
         }
     }
 
@@ -199,7 +199,7 @@ extension CameraManager {
 
     private func switchARPosition() {
         cameraPosition = (cameraPosition == .front) ? .back : .front
-        print("Nova posição da câmera: \(cameraPosition == .front ? \"frontal\" : \"traseira\")")
+        print("Nova posição da câmera: \(cameraPosition == .front ? "frontal" : "traseira")")
 
         if let arSession = arSession {
             let configuration = createARConfiguration()
@@ -223,7 +223,7 @@ extension CameraManager {
 
             self.session.commitConfiguration()
 
-            print("Nova posição da câmera: \(self.cameraPosition == .front ? \"frontal\" : \"traseira\")")
+            print("Nova posição da câmera: \(self.cameraPosition == .front ? "frontal" : "traseira")")
         }
     }
 }

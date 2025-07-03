@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import os.log
+import UIKit
 
 /// Gerenciador responsável por armazenar e recuperar o histórico de medições
 extension OSLog {
@@ -83,20 +84,20 @@ final class HistoryManager: ObservableObject {
     func addMeasurement(_ measurement: Measurement) async {
         await withCheckedContinuation { continuation in
             queue.async(flags: .barrier) { [weak self] in
-                guard let self = self else { return }
-                
+                guard let self else { return }
+
                 let startTime = Date()
-                self.measurements.insert(measurement, at: 0)
-                
-                // Agenda o salvamento com debounce
-                self.scheduleSave()
-                
+                Task { @MainActor in
+                    self.measurements.insert(measurement, at: 0)
+                    self.scheduleSave()
+                }
+
                 let duration = Date().timeIntervalSince(startTime)
-                os_log("Medição adicionada em %.4f segundos", 
+                os_log("Medição adicionada em %.4f segundos",
                        log: .historyLog,
                        type: .debug,
                        duration)
-                
+
                 continuation.resume()
             }
         }
@@ -107,13 +108,17 @@ final class HistoryManager: ObservableObject {
     func removeMeasurement(at index: Int) async {
         await withCheckedContinuation { continuation in
             queue.async(flags: .barrier) { [weak self] in
-                guard let self = self, self.measurements.indices.contains(index) else {
-                    return continuation.resume()
+                guard let self else { return continuation.resume() }
+
+                Task { @MainActor in
+                    guard self.measurements.indices.contains(index) else {
+                        return continuation.resume()
+                    }
+
+                    self.measurements.remove(at: index)
+                    self.scheduleSave()
+                    continuation.resume()
                 }
-                
-                self.measurements.remove(at: index)
-                self.scheduleSave()
-                continuation.resume()
             }
         }
     }
@@ -123,14 +128,17 @@ final class HistoryManager: ObservableObject {
     func removeMeasurement(id: UUID) async {
         await withCheckedContinuation { continuation in
             queue.async(flags: .barrier) { [weak self] in
-                guard let self = self,
-                      let index = self.measurements.firstIndex(where: { $0.id == id }) else {
-                    return continuation.resume()
+                guard let self else { return continuation.resume() }
+
+                Task { @MainActor in
+                    guard let index = self.measurements.firstIndex(where: { $0.id == id }) else {
+                        return continuation.resume()
+                    }
+
+                    self.measurements.remove(at: index)
+                    self.scheduleSave()
+                    continuation.resume()
                 }
-                
-                self.measurements.remove(at: index)
-                self.scheduleSave()
-                continuation.resume()
             }
         }
     }
@@ -139,11 +147,13 @@ final class HistoryManager: ObservableObject {
     func clearHistory() async {
         await withCheckedContinuation { continuation in
             queue.async(flags: .barrier) { [weak self] in
-                guard let self = self else { return }
-                
-                self.measurements.removeAll()
-                self.scheduleSave()
-                continuation.resume()
+                guard let self else { return continuation.resume() }
+
+                Task { @MainActor in
+                    self.measurements.removeAll()
+                    self.scheduleSave()
+                    continuation.resume()
+                }
             }
         }
     }
@@ -182,22 +192,24 @@ final class HistoryManager: ObservableObject {
     }
     
     private func loadMeasurements() async {
+        let saveFile = saveFile
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async { [weak self] in
-                guard let self = self else { return }
-                
+            queue.async { [weak self, saveFile] in
+                guard let self else { return }
+                let fm = FileManager.default
+
                 let startTime = Date()
-                
-                guard self.fileManager.fileExists(atPath: self.saveFile.path) else {
+
+                guard fm.fileExists(atPath: saveFile.path) else {
                     return continuation.resume()
                 }
-                
+
                 do {
-                    let data = try Data(contentsOf: self.saveFile)
+                    let data = try Data(contentsOf: saveFile)
                     let decoder = JSONDecoder()
                     let loadedMeasurements = try decoder.decode([Measurement].self, from: data)
-                    
-                    DispatchQueue.main.async {
+
+                    Task { @MainActor in
                         self.measurements = loadedMeasurements
                         let duration = Date().timeIntervalSince(startTime)
                         os_log("Carregadas %d medições em %.4f segundos",
@@ -219,37 +231,38 @@ final class HistoryManager: ObservableObject {
     }
     
     private func saveMeasurements() async {
+        let measurementsToSave = self.measurements
+        let saveDir = saveDirectory
+        let saveFile = saveFile
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async(flags: .barrier) { [weak self] in
-                guard let self = self else { return }
-                
+            queue.async(flags: .barrier) { [measurementsToSave, saveDir, saveFile] in
+                let fm = FileManager.default
                 let startTime = Date()
-                let measurementsToSave = self.measurements
-                
+
                 do {
                     let encoder = JSONEncoder()
                     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                     let data = try encoder.encode(measurementsToSave)
                     
                     // Cria um arquivo temporário primeiro
-                    let tempURL = self.saveDirectory
+                    let tempURL = saveDir
                         .appendingPathComponent(UUID().uuidString)
                         .appendingPathExtension("tmp")
-                    
+
                     try data.write(to: tempURL, options: [.atomic])
-                    
+
                     // Move o arquivo temporário para o local final
-                    if self.fileManager.fileExists(atPath: self.saveFile.path) {
-                        try self.fileManager.removeItem(at: self.saveFile)
+                    if fm.fileExists(atPath: saveFile.path) {
+                        try fm.removeItem(at: saveFile)
                     }
-                    try self.fileManager.moveItem(at: tempURL, to: self.saveFile)
-                    
+                    try fm.moveItem(at: tempURL, to: saveFile)
+
                     // Configura proteção de dados
-                    try (self.saveFile as NSURL).setResourceValue(
+                    try (saveFile as NSURL).setResourceValue(
                         URLFileProtection.complete,
                         forKey: .fileProtectionKey
                     )
-                    
+
                     let duration = Date().timeIntervalSince(startTime)
                     os_log("Salvas %d medições em %.4f segundos",
                            log: .historyLog,
@@ -270,27 +283,28 @@ final class HistoryManager: ObservableObject {
     }
     
     private func cleanupOldMeasurementsIfNeeded() async {
+        let dir = saveDirectory
+        let limit = maxStorageSize
+        let current = measurements
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async(flags: .barrier) { [weak self] in
-                guard let self = self else { return }
-                
-                // Verifica o tamanho do diretório
-                guard let directorySize = try? self.fileManager.sizeOfDirectory(at: self.saveDirectory) else {
+            queue.async(flags: .barrier) { [weak self, dir, limit, current] in
+                guard let self else { return }
+                let fm = FileManager.default
+
+                guard let directorySize = try? fm.sizeOfDirectory(at: dir) else {
                     return continuation.resume()
                 }
-                
-                // Se estiver abaixo do limite, não faz nada
-                guard directorySize > self.maxStorageSize else {
+
+                guard directorySize > limit else {
                     return continuation.resume()
                 }
-                
-                // Ordena as medições da mais antiga para a mais recente
-                let sortedMeasurements = self.measurements.sorted { $0.timestamp < $1.timestamp }
+
+                var sortedMeasurements = current.sorted(by: { $0.timestamp < $1.timestamp })
                 var remainingSize = directorySize
                 var index = 0
                 
                 // Remove as medições mais antigas até ficar abaixo do limite
-                while remainingSize > self.maxStorageSize / 2 && index < sortedMeasurements.count {
+                while remainingSize > limit / 2 && index < sortedMeasurements.count {
                     // Estimativa do tamanho de cada medição (aproximada)
                     let measurementSize = 1024 // 1KB por medição (estimativa)
                     remainingSize -= Int64(measurementSize)
@@ -300,10 +314,8 @@ final class HistoryManager: ObservableObject {
                 // Atualiza a lista de medições
                 if index > 0 {
                     let idsToRemove = Set(sortedMeasurements.prefix(index).map { $0.id })
-                    self.measurements.removeAll { idsToRemove.contains($0.id) }
-                    
-                    // Força o salvamento
-                    Task {
+                    Task { @MainActor in
+                        self.measurements.removeAll { idsToRemove.contains($0.id) }
                         await self.saveMeasurements()
                         os_log("Removidas %d medições antigas para economizar espaço",
                                log: .historyLog,

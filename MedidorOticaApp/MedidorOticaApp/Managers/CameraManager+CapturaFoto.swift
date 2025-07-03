@@ -70,7 +70,7 @@ extension CameraManager {
 
         if let device = videoDeviceInput?.device, device.isFlashAvailable {
             settings.flashMode = isFlashOn ? .on : .off
-            print("Flash configurado: \(isFlashOn ? \"ligado\" : \"desligado\")")
+            print("Flash configurado: \(isFlashOn ? "ligado" : "desligado")")
         }
 
         return settings
@@ -86,7 +86,7 @@ extension CameraManager {
 }
 
 // MARK: - Photo Capture Processor
-private class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
+final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private var selfRetain: PhotoCaptureProcessor?
     private let completion: (UIImage?) -> Void
 
