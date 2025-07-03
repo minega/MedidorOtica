@@ -44,10 +44,16 @@ struct CameraView: View {
     // MARK: - View principal
     var body: some View {
         ZStack {
-            // Preview da câmera
-            CameraPreview(session: cameraManager.session)
-                .edgesIgnoringSafeArea(.all)
-                .onAppear {
+            // Preview da câmera ou AR
+            Group {
+                if cameraManager.isUsingARSession, let arSession = cameraManager.arSession {
+                    ARCameraPreview(session: arSession)
+                } else {
+                    CameraPreview(session: cameraManager.session)
+                }
+            }
+            .edgesIgnoringSafeArea(.all)
+            .onAppear {
                     print("CameraView apareceu - iniciando câmera")
                     // Inicia as verificações e a câmera
                     setupCamera()
@@ -65,7 +71,7 @@ struct CameraView: View {
                         }
                     }
                 }
-                .onDisappear {
+            .onDisappear {
                     print("CameraView desapareceu - parando câmera")
                     // Para a câmera e limpa recursos
                     cameraManager.stop()

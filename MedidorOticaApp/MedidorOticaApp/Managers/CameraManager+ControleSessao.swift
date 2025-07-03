@@ -11,30 +11,6 @@ import ARKit
 
 extension CameraManager {
     // MARK: - Controle de Sessão
-    /// Inicia a sessão de captura ou a sessão AR.
-    func start() {
-        guard !isSessionRunning else { return }
-
-        if isUsingARSession, let arSession = arSession {
-            startARSession(arSession)
-        } else {
-            startCaptureSession()
-        }
-    }
-
-    private func startARSession(_ arSession: ARSession) {
-        let configuration = createARConfiguration()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            arSession.delegate = self
-
-            arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-            self.isSessionRunning = true
-            print("Sessão AR iniciada com sucesso")
-        }
-    }
 
     func createARConfiguration() -> ARConfiguration {
         if cameraPosition == .front, ARFaceTrackingConfiguration.isSupported {
@@ -60,32 +36,6 @@ extension CameraManager {
         return ARWorldTrackingConfiguration()
     }
 
-    private func startCaptureSession() {
-        sessionQueue.async { [weak self] in
-            guard let self = self else { return }
-
-            if self.session.isRunning {
-                self.session.stopRunning()
-            }
-
-            self.setupSession()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self = self else { return }
-
-                if !self.session.isRunning {
-                    self.session.startRunning()
-                    self.isSessionRunning = self.session.isRunning
-
-                    if self.session.isRunning {
-                        print("Sessão da câmera iniciada com sucesso")
-                    } else {
-                        self.publishError(.deviceConfigurationFailed)
-                    }
-                }
-            }
-        }
-    }
 
     /// Encerra a sessão de captura ou AR em execução.
     func stop() {
