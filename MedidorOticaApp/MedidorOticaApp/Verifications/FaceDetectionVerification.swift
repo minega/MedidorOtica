@@ -13,18 +13,33 @@ import Vision
 extension VerificationManager {
     
     // MARK: - Verificação 1: Detecção de Rosto
-    /// Verifica a presença de rosto usando o sensor disponível
+    /// Verifica a presença de rosto usando o sensor disponível e atualiza o estado
     func checkFaceDetection(using frame: ARFrame) -> Bool {
-        if hasTrueDepth { return checkFaceDetectionWithTrueDepth(frame: frame) }
-        if hasLiDAR { return checkFaceDetectionWithLiDAR(frame: frame) }
-
-        print("ERRO: Sensores de detecção de rosto indisponíveis")
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: NSNotification.Name("DeviceNotCompatible"),
-                                            object: nil,
-                                            userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"])
+        let detected: Bool
+        if hasTrueDepth {
+            detected = checkFaceDetectionWithTrueDepth(frame: frame)
+        } else if hasLiDAR {
+            detected = checkFaceDetectionWithLiDAR(frame: frame)
+        } else {
+            print("ERRO: Sensores de detecção de rosto indisponíveis")
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("DeviceNotCompatible"),
+                    object: nil,
+                    userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"]
+                )
+                self.faceDetected = false
+                self.updateAllVerifications()
+            }
+            return false
         }
-        return false
+
+        DispatchQueue.main.async {
+            self.faceDetected = detected
+            self.updateAllVerifications()
+        }
+
+        return detected
     }
     
     // MARK: - Detecção com TrueDepth (Câmera Frontal)
