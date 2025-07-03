@@ -15,6 +15,9 @@
 - Utilize extensões para isolar responsabilidades, mantendo classes principais enxutas.
 - Verifique se ao abrir a câmera pela tela inicial todas as verificações começam automaticamente.
 - Se o rosto já estiver no quadro ao iniciar, o app não deve apresentar erros e deve seguir a sequência normalmente.
+- Garanta que todas as verificações funcionem tanto com a câmera frontal (TrueDepth) quanto com a traseira (LiDAR).
+- Bloqueie o uso da câmera em dispositivos que não possuam o sensor necessário.
+- Otimize o código ao máximo, identificando claramente cada trecho e removendo qualquer duplicação ou funcionalidade sem uso.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.
