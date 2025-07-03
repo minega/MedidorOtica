@@ -13,6 +13,8 @@
 - Simplifique as verificações e evite imports desnecessários.
 - Ao adicionar novas funcionalidades, mantenha o código modular e fácil de ler.
 - Utilize extensões para isolar responsabilidades, mantendo classes principais enxutas.
+- Verifique se ao abrir a câmera pela tela inicial todas as verificações começam automaticamente.
+- Se o rosto já estiver no quadro ao iniciar, o app não deve apresentar erros e deve seguir a sequência normalmente.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.

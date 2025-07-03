@@ -14,6 +14,12 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 O aplicativo detecta automaticamente qual sensor está disponível e ajusta as verificações.
 
+## Comportamentos Verificados
+
+- Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
+- Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
+- As verificações de rosto, distância, centralização, alinhamento e olhar são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+
 ## Como contribuir
 
 1. Leia as diretrizes em `AGENTS.md`.
