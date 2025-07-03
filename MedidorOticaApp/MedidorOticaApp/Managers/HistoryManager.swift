@@ -299,7 +299,7 @@ final class HistoryManager: ObservableObject {
                     return continuation.resume()
                 }
 
-                var sortedMeasurements = current.sorted(by: { $0.timestamp < $1.timestamp })
+                var sortedMeasurements = current.sorted(by: { $0.date < $1.date })
                 var remainingSize = directorySize
                 var index = 0
                 
