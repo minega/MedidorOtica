@@ -26,6 +26,10 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 2. Crie sua branch ou fork e faça suas alterações seguindo as regras de estilo.
 3. Envie um pull request.
 
+### Documentação do Código
+- Sempre descreva a função de cada trecho relevante com comentários.
+- Remova trechos duplicados ou que não estejam em uso.
+
 ### Testes Rápidos
 Execute `swift --version` para confirmar a versão do compilador antes de enviar suas alterações.
 

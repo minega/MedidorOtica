@@ -7,6 +7,7 @@
 - Prefira variáveis e funções em `camelCase` e tipos em `PascalCase`.
 - Escreva comentários e mensagens em português.
 - Inclua no início de cada arquivo um breve comentário descrevendo sua finalidade.
+- Adicione comentários explicando a função de cada trecho relevante do código.
 
 ## Development
 - Antes de abrir a câmera, garanta que o dispositivo possui TrueDepth ou LiDAR.
