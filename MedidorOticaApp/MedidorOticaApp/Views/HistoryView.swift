@@ -78,7 +78,7 @@ struct HistoryView: View {
     // Remove uma medição do histórico
     private func deleteMeasurement(at offsets: IndexSet) {
         for index in offsets {
-            historyManager.removeMeasurement(at: index)
+            Task { await historyManager.removeMeasurement(at: index) }
         }
     }
 }

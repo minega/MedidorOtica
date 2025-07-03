@@ -340,12 +340,12 @@ struct CameraView: View {
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 if granted {
                     print("Permissão de câmera concedida")
-                    DispatchQueue.main.async { [self] in
+                    DispatchQueue.main.async {
                         completion(true)
                     }
                 } else {
                     print("Permissão de câmera negada")
-                    DispatchQueue.main.async { [self] in
+                    DispatchQueue.main.async {
                         showPermissionDeniedAlert()
                         completion(false)
                     }
@@ -353,14 +353,14 @@ struct CameraView: View {
             }
         case .denied, .restricted:
             print("Permissão de câmera negada ou restrita")
-            DispatchQueue.main.async { [self] in
+            DispatchQueue.main.async {
                 showPermissionDeniedAlert()
                 completion(false)
             }
         @unknown default:
             // Lida com possíveis valores futuros do enum
             print("Status de autorização de câmera desconhecido: \(cameraAuthStatus)")
-            DispatchQueue.main.async { [self] in
+            DispatchQueue.main.async {
                 showPermissionDeniedAlert()
                 completion(false)
             }
@@ -415,7 +415,7 @@ struct CameraView: View {
         
         // Tenta capturar a foto com tratamento de erro
         print("Iniciando captura de foto...")
-        cameraManager.capturePhoto { [self] image in
+        cameraManager.capturePhoto { image in
             // Certifica-se de processar na thread principal
             DispatchQueue.main.async {
                 // Marca o fim do processamento

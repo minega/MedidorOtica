@@ -198,7 +198,7 @@ extension VerificationManager {
             object: nil,
             userInfo: [
                 "isCentered": faceAligned,
-                "offsets": facePosition ?? [:],
+                "offsets": facePosition,
                 "timestamp": Date().timeIntervalSince1970
             ]
         )
