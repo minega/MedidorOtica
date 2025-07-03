@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVFoundation
+import ARKit
 
 // MARK: - Preview da câmera
 struct CameraPreview: UIViewRepresentable {
@@ -65,6 +66,24 @@ struct CameraPreview: UIViewRepresentable {
             
             uiView.layer.addSublayer(newLayer)
         }
+    }
+}
+
+// MARK: - Preview para ARSession
+struct ARCameraPreview: UIViewRepresentable {
+    let session: ARSession
+
+    func makeUIView(context: Context) -> ARSCNView {
+        let view = ARSCNView(frame: UIScreen.main.bounds)
+        view.session = session
+        view.automaticallyUpdatesLighting = true
+        view.backgroundColor = .black
+        return view
+    }
+
+    func updateUIView(_ uiView: ARSCNView, context: Context) {
+        uiView.session = session
+        uiView.frame = UIScreen.main.bounds
     }
 }
 
