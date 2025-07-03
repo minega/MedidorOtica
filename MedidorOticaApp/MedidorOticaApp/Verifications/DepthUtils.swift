@@ -3,7 +3,8 @@ import CoreGraphics
 
 extension VerificationManager {
     // MARK: - Utilidades de Profundidade
-    fileprivate func depthValue(from depthMap: CVPixelBuffer, at point: CGPoint) -> Float? {
+    /// Retorna a profundidade em um ponto específico do depth map.
+    func depthValue(from depthMap: CVPixelBuffer, at point: CGPoint) -> Float? {
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
         guard point.x >= 0, point.x < CGFloat(width),

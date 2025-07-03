@@ -65,13 +65,10 @@ extension VerificationManager {
         
         do {
             try handler.perform([request])
-            
+
             // Verifica se detectou rostos
             if let results = request.results, !results.isEmpty {
-                // Para cada rosto detectado - sabemos que são todos VNFaceObservation
-                for observation in results where observation is VNFaceObservation {
-                    // Fazemos um cast forçado porque configuramos a requisição para retornar apenas VNFaceObservation
-                    let faceObservation = observation as! VNFaceObservation
+                for faceObservation in results {
                     // Converte as coordenadas normalizadas para coordenadas de pixel
                     let boundingBox = faceObservation.boundingBox
                     let centerX = boundingBox.midX * CGFloat(width)

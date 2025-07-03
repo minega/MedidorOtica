@@ -30,17 +30,13 @@ extension CameraManager {
 
             arSession.delegate = self
 
-            do {
-                arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-                self.isSessionRunning = true
-                print("Sessão AR iniciada com sucesso")
-            } catch {
-                self.publishError(.deviceConfigurationFailed)
-            }
+            arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            self.isSessionRunning = true
+            print("Sessão AR iniciada com sucesso")
         }
     }
 
-    private func createARConfiguration() -> ARConfiguration {
+    func createARConfiguration() -> ARConfiguration {
         if cameraPosition == .front, ARFaceTrackingConfiguration.isSupported {
             let config = ARFaceTrackingConfiguration()
             config.maximumNumberOfTrackedFaces = 1
@@ -119,7 +115,7 @@ extension CameraManager {
         }
     }
 
-    private func cleanupSession() {
+    func cleanupSession() {
         session.beginConfiguration()
         session.inputs.forEach { session.removeInput($0) }
         session.outputs.forEach { session.removeOutput($0) }

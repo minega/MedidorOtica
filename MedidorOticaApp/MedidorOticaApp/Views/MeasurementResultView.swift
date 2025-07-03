@@ -194,8 +194,10 @@ struct MeasurementResultView: View {
             image: capturedImage
         )
         
-        historyManager.addMeasurement(measurement)
-        isSaved = true
+        Task {
+            await historyManager.addMeasurement(measurement)
+            isSaved = true
+        }
     }
     
     // Renderiza a imagem com as medidas para compartilhamento

@@ -43,9 +43,9 @@ class CameraManager: NSObject, ObservableObject {
 
     // MARK: - Published Properties
     @Published private(set) var error: CameraError?
-    @Published private(set) var isFlashOn = false
-    @Published private(set) var cameraPosition: AVCaptureDevice.Position = .front
-    @Published private(set) var isSessionRunning = false
+    @Published var isFlashOn = false
+    @Published var cameraPosition: AVCaptureDevice.Position = .front
+    @Published var isSessionRunning = false
     @Published private(set) var hasTrueDepth = false
     @Published private(set) var hasLiDAR = false
 
