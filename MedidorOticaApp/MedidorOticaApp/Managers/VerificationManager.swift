@@ -40,7 +40,7 @@ class VerificationManager: ObservableObject {
     @Published var hasLiDAR = false // Indica se o dispositivo tem sensor LiDAR
     
     // Compatibilidade com código antigo
-    @Published var faceCentered: Bool = false // Para compatiblidade com código antigo
+    @Published var faceCentered: Bool = false // Compatibilidade com código antigo
     @Published var gazeData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
@@ -187,6 +187,10 @@ class VerificationManager: ObservableObject {
     func processARFrame(_ frame: ARFrame) {
         guard case .normal = frame.camera.trackingState else {
             print("Aviso: Rastreamento da câmera não está no estado normal: \(frame.camera.trackingState)")
+            resetAllVerifications()
+            DispatchQueue.main.async { [weak self] in
+                self?.updateVerificationStatus()
+            }
             return
         }
 
@@ -229,23 +233,34 @@ class VerificationManager: ObservableObject {
     
     /// Redefine todas as verificações para o estado inicial
     private func resetAllVerifications() {
-        faceDetected = false
-        distanceCorrect = false
-        faceAligned = false
-        headAligned = false
-        frameDetected = false
-        frameAligned = false
-        gazeCorrect = false
-        
-        // Atualiza a lista de verificações
-        for i in 0..<verifications.count {
-            verifications[i].isChecked = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.faceDetected = false
+            self.distanceCorrect = false
+            self.faceAligned = false
+            self.headAligned = false
+            self.frameDetected = false
+            self.frameAligned = false
+            self.gazeCorrect = false
+            self.faceCentered = false
+
+            // Atualiza a lista de verificações
+            for i in 0..<self.verifications.count {
+                self.verifications[i].isChecked = false
+            }
         }
     }
 
     
     /// Método público para atualizar as verificações a partir de extensões
     func updateAllVerifications() {
+        updateVerificationStatus()
+    }
+
+    /// Permite resetar todas as verificações externamente
+    func reset() {
+        resetAllVerifications()
         updateVerificationStatus()
     }
     

@@ -48,6 +48,8 @@ class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning = false
     @Published private(set) var hasTrueDepth = false
     @Published private(set) var hasLiDAR = false
+    /// Indica se a sessão atual utiliza ARKit (TrueDepth ou LiDAR)
+    @Published var isUsingARSession = false
 
     /// Callback invocado a cada novo frame AR
     public var outputDelegate: ((ARFrame) -> Void)?
@@ -60,7 +62,6 @@ class CameraManager: NSObject, ObservableObject {
     var videoDeviceInput: AVCaptureDeviceInput?
     var currentPhotoCaptureProcessor: PhotoCaptureProcessor?
     var arSession: ARSession?
-    var isUsingARSession = false
 
     // MARK: - Initialization
     private override init() {
@@ -110,5 +111,12 @@ class CameraManager: NSObject, ObservableObject {
 extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         outputDelegate?(frame)
+    }
+
+    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        if case .normal = camera.trackingState { return }
+
+        // Quando o rastreamento não está normal, reseta verificações
+        VerificationManager.shared.reset()
     }
 }

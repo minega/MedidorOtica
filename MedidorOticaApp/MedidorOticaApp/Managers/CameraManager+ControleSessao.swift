@@ -48,6 +48,7 @@ extension CameraManager {
         }
 
         isSessionRunning = false
+        VerificationManager.shared.reset()
     }
 
     private func stopARSession() {
