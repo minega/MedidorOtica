@@ -36,6 +36,60 @@ extension CameraManager {
         return ARWorldTrackingConfiguration()
     }
 
+    /// Cria e configura uma nova `ARSession` de acordo com o `CameraType`.
+    func createARSession(for cameraType: CameraType) -> ARSession {
+        arSession?.pause()
+        let newSession = ARSession()
+        arSession = newSession
+        arSession?.delegate = self
+
+        cameraPosition = cameraType == .front ? .front : .back
+
+        let configuration: ARConfiguration
+        var configurationError: String? = nil
+
+        do {
+            switch cameraType {
+            case .front:
+                guard ARFaceTrackingConfiguration.isSupported else {
+                    configurationError = "Este dispositivo não suporta rastreamento facial (TrueDepth)."
+                    throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
+                }
+                let faceConfig = ARFaceTrackingConfiguration()
+                faceConfig.maximumNumberOfTrackedFaces = 1
+                if #available(iOS 13.0, *) { faceConfig.isLightEstimationEnabled = true }
+                configuration = faceConfig
+                print("Configurando sessão AR para rastreamento facial")
+            case .back:
+                guard ARWorldTrackingConfiguration.isSupported else {
+                    configurationError = "Este dispositivo não suporta rastreamento de mundo."
+                    throw NSError(domain: "ARError", code: 1002, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
+                }
+                let worldConfig = ARWorldTrackingConfiguration()
+                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                    worldConfig.sceneReconstruction = .mesh
+                    worldConfig.frameSemantics.insert(.sceneDepth)
+                    print("Configurando sessão AR com LiDAR para profundidade")
+                }
+                configuration = worldConfig
+            }
+
+            newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            isUsingARSession = true
+            print("Sessão AR configurada com sucesso para \(cameraType)")
+        } catch {
+            let errorMessage = configurationError ?? "Falha ao configurar a sessão AR: \(error.localizedDescription)"
+            print(errorMessage)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: NSNotification.Name("ARConfigurationFailed"),
+                                                object: nil,
+                                                userInfo: ["error": errorMessage])
+            }
+        }
+
+        return newSession
+    }
+
 
     /// Encerra a sessão de captura ou AR em execução.
     func stop() {
@@ -50,7 +104,6 @@ extension CameraManager {
         isSessionRunning = false
         isUsingARSession = false
 
-        VerificationManager.shared.stopARSession()
         VerificationManager.shared.reset()
     }
 

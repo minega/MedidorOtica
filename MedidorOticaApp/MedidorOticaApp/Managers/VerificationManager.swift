@@ -11,12 +11,6 @@ import AVFoundation
 import ARKit
 import Combine
 
-// Tipos de câmera disponíveis
-enum CameraType {
-    case front // Câmera frontal (TrueDepth)
-    case back  // Câmera traseira (LiDAR)
-}
-
 class VerificationManager: ObservableObject {
     static let shared = VerificationManager()
 
@@ -51,123 +45,17 @@ class VerificationManager: ObservableObject {
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
     
-    // Sessão AR
-    private var arSession: ARSession?
-    
     // Configurações
     let minDistance: Float = 40.0 // cm
     let maxDistance: Float = 120.0 // cm
-    
+
     private init() {
-        // Inicializa a sessão AR
-        arSession = ARSession()
-        
         // Inicializa as verificações
         setupVerifications()
-        
-        // Verifica capacidades do dispositivo e armazena o resultado
-        let capabilities = checkDeviceCapabilities()
-        print("Dispositivo tem TrueDepth: \(capabilities.hasTrueDepth), tem LiDAR: \(capabilities.hasLiDAR)")
-    }
-    
-    // MARK: - Configurações e capacidades do dispositivo
-    
-    /// Verifica e armazena as capacidades do dispositivo
-    func checkDeviceCapabilities() -> (hasTrueDepth: Bool, hasLiDAR: Bool) {
-        print("Verificando capacidades do dispositivo...")
 
-        // TrueDepth (câmera frontal)
-        if let device = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front),
-           !device.activeFormat.supportedDepthDataFormats.isEmpty {
-            hasTrueDepth = true
-            print("Sensor TrueDepth detectado")
-        }
-
-        // LiDAR (câmera traseira)
-        hasLiDAR = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
-        if hasLiDAR { print("Sensor LiDAR detectado") }
-
-        print("Capacidades do dispositivo - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
-        return (hasTrueDepth, hasLiDAR)
+        // Sincroniza as capacidades do dispositivo a partir do CameraManager
+        updateCapabilities()
     }
-    
-    /// Configura a sessão AR para o tipo de câmera especificado
-    func createARSession(for cameraType: CameraType) -> ARSession {
-        // Se já existe uma sessão, pausa e remove as configurações antigas
-        if let existingSession = self.arSession {
-            existingSession.pause()
-            self.arSession = nil
-        }
-        
-        // Cria uma nova sessão AR
-        let newSession = ARSession()
-        self.arSession = newSession
-        
-        // Configura a sessão com as opções apropriadas
-        let configuration: ARConfiguration
-        var configurationError: String? = nil
-        
-        do {
-            switch cameraType {
-            case .front:
-                // Verifica se o dispositivo suporta rastreamento facial
-                guard ARFaceTrackingConfiguration.isSupported else {
-                    configurationError = "Este dispositivo não suporta rastreamento facial (TrueDepth)."
-                    throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                
-                let faceConfig = ARFaceTrackingConfiguration()
-                faceConfig.maximumNumberOfTrackedFaces = 1
-                if #available(iOS 13.0, *) {
-                    faceConfig.isLightEstimationEnabled = true
-                }
-                configuration = faceConfig
-                print("Configurando sessão AR para rastreamento facial")
-                
-            case .back:
-                // Verifica se o dispositivo suporta rastreamento de mundo
-                guard ARWorldTrackingConfiguration.isSupported else {
-                    configurationError = "Este dispositivo não suporta rastreamento de mundo."
-                    throw NSError(domain: "ARError", code: 1002, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                
-                let worldConfig = ARWorldTrackingConfiguration()
-                
-                // Habilita reconstrução de cena e dados de profundidade se LiDAR disponível
-                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-                    worldConfig.sceneReconstruction = .mesh
-                    worldConfig.frameSemantics.insert(.sceneDepth)
-                    print("Configurando sessão AR com LiDAR para profundidade")
-                }
-                
-                configuration = worldConfig
-            }
-            
-            // Executa a configuração com tratamento de erros
-            newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-            print("Sessão AR configurada com sucesso para \(cameraType)")
-            
-        } catch {
-            // Em caso de erro, notifica a view para exibir uma mensagem ao usuário
-            let errorMessage = configurationError ?? "Falha ao configurar a sessão AR: \(error.localizedDescription)"
-            print(errorMessage)
-            
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("ARConfigurationFailed"),
-                    object: nil,
-                    userInfo: ["error": errorMessage]
-                )
-            }
-            
-            // Configura uma sessão vazia para evitar crashes
-            let emptyConfig = ARWorldTrackingConfiguration()
-            newSession.run(emptyConfig, options: [.resetTracking, .removeExistingAnchors])
-        }
-        
-        return newSession
-    }
-    
     private func setupVerifications() {
         // Cria as verificações na ordem correta
         verifications = [
@@ -291,11 +179,6 @@ class VerificationManager: ObservableObject {
         updateVerificationStatus(throttled: true)
     }
 
-    /// Encerra e libera a sessão AR utilizada nas verificações
-    func stopARSession() {
-        arSession?.pause()
-        arSession = nil
-    }
 
     // Reseta todas as verificações após um determinado tipo
     private func resetVerificationsAfter(_ type: VerificationType) {
@@ -411,5 +294,11 @@ class VerificationManager: ObservableObject {
         }
 
         currentStep = gazeCorrect ? .completed : .gaze
+    }
+
+    /// Sincroniza `hasTrueDepth` e `hasLiDAR` com o `CameraManager`.
+    private func updateCapabilities(manager: CameraManager = .shared) {
+        hasTrueDepth = manager.hasTrueDepth
+        hasLiDAR = manager.hasLiDAR
     }
 }

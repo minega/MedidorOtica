@@ -304,7 +304,9 @@ struct CameraView: View {
             print("Permissão da câmera concedida, continuando configuração")
             
             // Verifica os sensores disponíveis no dispositivo
-            let capabilities = self.verificationManager.checkDeviceCapabilities()
+            self.cameraManager.checkAvailableSensors()
+            let capabilities = (hasTrueDepth: self.cameraManager.hasTrueDepth,
+                                hasLiDAR: self.cameraManager.hasLiDAR)
 
             // Seleciona o tipo de câmera de acordo com os sensores disponíveis
             let cameraType: CameraType
@@ -326,7 +328,7 @@ struct CameraView: View {
             }
 
             // Configura a AR Session
-            let arSession = self.verificationManager.createARSession(for: cameraType)
+            let arSession = self.cameraManager.createARSession(for: cameraType)
 
             // Configura a câmera com o sensor disponível
             // A configuração real é feita dentro dessa chamada, não precisamos chamar setupSession() separadamente
