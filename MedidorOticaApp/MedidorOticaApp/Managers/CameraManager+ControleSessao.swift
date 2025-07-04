@@ -48,12 +48,17 @@ extension CameraManager {
         }
 
         isSessionRunning = false
+        isUsingARSession = false
+
+        VerificationManager.shared.stopARSession()
         VerificationManager.shared.reset()
     }
 
     private func stopARSession() {
         arSession?.pause()
-        print("Sessão AR parada")
+        arSession?.delegate = nil
+        arSession = nil
+        print("Sessão AR parada e recursos liberados")
     }
 
     private func stopCaptureSession() {

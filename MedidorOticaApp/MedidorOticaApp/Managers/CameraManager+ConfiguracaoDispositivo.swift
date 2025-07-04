@@ -79,7 +79,11 @@ extension CameraManager {
         cameraPosition = position
         self.arSession = arSession
         self.arSession?.delegate = self
+
+        // Atualiza imediatamente o estado para evitar atraso na interface
+        self.isUsingARSession = (arSession != nil)
         DispatchQueue.main.async {
+            // Posta novamente na main para notificar observadores
             self.isUsingARSession = (arSession != nil)
         }
 
