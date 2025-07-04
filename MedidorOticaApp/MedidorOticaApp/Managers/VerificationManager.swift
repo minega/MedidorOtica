@@ -19,10 +19,13 @@ enum CameraType {
 
 class VerificationManager: ObservableObject {
     static let shared = VerificationManager()
-    
+
     // Publicação das verificações para a interface
     @Published var verifications: [Verification] = []
-    
+
+    /// Passo atual da máquina de estados
+    @Published var currentStep: VerificationStep = .idle
+
     // Estado atual de cada verificação
     @Published var faceDetected = false
     @Published var distanceCorrect = false
@@ -38,9 +41,12 @@ class VerificationManager: ObservableObject {
     // Status do dispositivo e sensores
     @Published var hasTrueDepth = false // Indica se o dispositivo tem sensor TrueDepth
     @Published var hasLiDAR = false // Indica se o dispositivo tem sensor LiDAR
+
+    /// Controle de frequência das atualizações (15 fps)
+    private var lastPublishTime = Date.distantPast
+    private let publishInterval: TimeInterval = 1.0 / 15.0
     
     // Compatibilidade com código antigo
-    @Published var faceCentered: Bool = false // Compatibilidade com código antigo
     @Published var gazeData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
@@ -185,29 +191,37 @@ class VerificationManager: ObservableObject {
     
     /// Processa um frame ARFrame para realizar todas as verificações
     func processARFrame(_ frame: ARFrame) {
-        guard case .normal = frame.camera.trackingState else {
-            print("Aviso: Rastreamento da câmera não está no estado normal: \(frame.camera.trackingState)")
-            resetAllVerifications()
+        // Atualiza a presença de rosto independentemente do estado de tracking
+        let facePresent = frame.anchors.contains { $0 is ARFaceAnchor }
+        DispatchQueue.main.async { [weak self] in
+            self?.faceDetected = facePresent
+        }
+
+        // Se o rastreamento estiver limitado, apenas avisamos e seguimos com as verificações
+        if case .limited = frame.camera.trackingState {
+            print("Aviso: rastreamento limitado - resultados podem ser imprecisos")
+        }
+
+        guard facePresent else {
+            resetNonFaceVerifications()
             DispatchQueue.main.async { [weak self] in
-                self?.updateVerificationStatus()
+                self?.updateVerificationStatus(throttled: true)
             }
+            print("Verificações com ARKit: Nenhum rosto detectado")
             return
         }
 
-        let faceDetected = checkFaceDetection(using: frame)
-
-        if faceDetected {
+        DispatchQueue.global(qos: .userInitiated).async {
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
-            let distanceOk = checkDistance(using: frame, faceAnchor: faceAnchor)
-
+            let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
             if distanceOk {
-                let centeredOk = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
+                let centeredOk = self.checkFaceCentering(using: frame, faceAnchor: faceAnchor)
 
                 if centeredOk {
-                    let headAlignedOk = checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
+                    let headAlignedOk = self.checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
 
                     if headAlignedOk {
-                        let gazeOk = checkGaze(using: frame)
+                        let gazeOk = self.checkGaze(using: frame)
                         print("Olhar direcionado para a câmera: \(gazeOk)")
                     }
                 }
@@ -215,19 +229,16 @@ class VerificationManager: ObservableObject {
 
             #if DEBUG
             print("Verificações sequenciais: " +
-                  "Rosto=\(faceDetected), " +
+                  "Rosto=\(facePresent), " +
                   "Distância=\(distanceOk), " +
                   "Centralizado=\(self.faceAligned), " +
                   "Cabeça=\(self.headAligned), " +
                   "Olhar=\(self.gazeCorrect)")
             #endif
-        } else {
-            resetAllVerifications()
-            print("Verificações com ARKit: Nenhum rosto detectado")
-        }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.updateVerificationStatus()
+            DispatchQueue.main.async { [weak self] in
+                self?.updateVerificationStatus(throttled: true)
+            }
         }
     }
     
@@ -243,7 +254,6 @@ class VerificationManager: ObservableObject {
             self.frameDetected = false
             self.frameAligned = false
             self.gazeCorrect = false
-            self.faceCentered = false
 
             // Atualiza a lista de verificações
             for i in 0..<self.verifications.count {
@@ -252,16 +262,36 @@ class VerificationManager: ObservableObject {
         }
     }
 
+    /// Reseta todas as verificações exceto a detecção de rosto
+    private func resetNonFaceVerifications() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.distanceCorrect = false
+            self.faceAligned = false
+            self.headAligned = false
+            self.frameDetected = false
+            self.frameAligned = false
+            self.gazeCorrect = false
+
+            for i in 0..<self.verifications.count {
+                if self.verifications[i].type != .faceDetection {
+                    self.verifications[i].isChecked = false
+                }
+            }
+        }
+    }
+
     
     /// Método público para atualizar as verificações a partir de extensões
     func updateAllVerifications() {
-        updateVerificationStatus()
+        updateVerificationStatus(throttled: true)
     }
 
     /// Permite resetar todas as verificações externamente
     func reset() {
         resetAllVerifications()
-        updateVerificationStatus()
+        updateVerificationStatus(throttled: true)
     }
     
     // Reseta todas as verificações após um determinado tipo
@@ -302,52 +332,63 @@ class VerificationManager: ObservableObject {
     }
     
     // Atualiza o status das verificações com base nos estados atuais e na lógica sequencial
-    private func updateVerificationStatus() {
+    // Atualiza o status das verificações e a máquina de estados
+    private func updateVerificationStatus(throttled: Bool = false) {
+        if throttled {
+            let now = Date()
+            guard now.timeIntervalSince(lastPublishTime) >= publishInterval else { return }
+            lastPublishTime = now
+        }
+
         // Implementação da lógica sequencial - cada etapa depende da anterior
         // Etapa 1: Detecção de rosto (independente, sempre verificada)
         if let index = verifications.firstIndex(where: { $0.type == .faceDetection }) {
             verifications[index].isChecked = faceDetected
         }
-        
+
         // Se o rosto não for detectado, todas as outras verificações falham
         if !faceDetected {
             resetVerificationsAfter(.faceDetection)
+            currentStep = .faceDetection
             return
         }
-        
+
         // Etapa 2: Verificação de distância (depende da detecção de rosto)
         if let index = verifications.firstIndex(where: { $0.type == .distance }) {
             verifications[index].isChecked = distanceCorrect
         }
-        
+
         // Se a distância não estiver correta, todas as verificações subsequentes falham
         if !distanceCorrect {
             resetVerificationsAfter(.distance)
+            currentStep = .distance
             return
         }
-        
+
         // Etapa 3: Centralização do rosto (depende da distância)
         if let index = verifications.firstIndex(where: { $0.type == .centering }) {
             verifications[index].isChecked = faceAligned
         }
-        
+
         // Se o rosto não estiver centralizado, as próximas falham
         if !faceAligned {
             resetVerificationsAfter(.centering)
+            currentStep = .centering
             return
         }
-        
+
         // Etapa 4: Alinhamento da cabeça (depende da centralização)
         if let index = verifications.firstIndex(where: { $0.type == .headAlignment }) {
             verifications[index].isChecked = headAligned
         }
-        
+
         // Se a cabeça não estiver alinhada, as próximas falham
         if !headAligned {
             resetVerificationsAfter(.headAlignment)
+            currentStep = .headAlignment
             return
         }
-        
+
         // Etapa 5: Detecção da armação (opcional, depende do alinhamento da cabeça)
         if let index = verifications.firstIndex(where: { $0.type == .frameDetection }) {
             verifications[index].isChecked = frameDetected
@@ -355,15 +396,17 @@ class VerificationManager: ObservableObject {
         
         // Se a armação for obrigatória mas não for detectada, as próximas falham
         // Como é opcional para teste, continuamos mesmo se falhar
-        
+
         // Etapa 6: Alinhamento da armação (opcional, depende da detecção da armação)
         if let index = verifications.firstIndex(where: { $0.type == .frameTilt }) {
             verifications[index].isChecked = frameDetected && frameAligned
         }
-        
+
         // Etapa 7: Direção do olhar (depende de todas as anteriores)
         if let index = verifications.firstIndex(where: { $0.type == .gaze }) {
             verifications[index].isChecked = gazeCorrect
         }
+
+        currentStep = gazeCorrect ? .completed : .gaze
     }
 }

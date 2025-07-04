@@ -65,3 +65,17 @@ struct Verification: Identifiable {
         return type.title
     }
 }
+
+/// Máquina de estados para controlar o passo atual das verificações
+enum VerificationStep: Int {
+    case idle = 0
+    case faceDetection
+    case distance
+    case centering
+    case headAlignment
+    case frameDetection
+    case frameTilt
+    case gaze
+    case completed
+}
+

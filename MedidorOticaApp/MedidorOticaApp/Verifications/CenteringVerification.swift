@@ -177,7 +177,6 @@ extension VerificationManager {
             
             // Atualiza as propriedades de estado
             self.faceAligned = isCentered
-            self.faceCentered = isCentered
             
             // Armazena os desvios para feedback visual
             self.facePosition = [

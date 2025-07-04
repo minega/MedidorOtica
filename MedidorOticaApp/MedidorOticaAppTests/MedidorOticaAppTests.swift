@@ -10,8 +10,28 @@ import Testing
 
 struct MedidorOticaAppTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    @Test func stateMachineTransitions() async throws {
+        let manager = VerificationManager.shared
+        manager.reset()
+
+        // Sem rosto detectado
+        manager.faceDetected = false
+        manager.updateAllVerifications()
+        #expect(manager.currentStep == .faceDetection)
+
+        // Após detectar rosto, mas distância incorreta
+        manager.faceDetected = true
+        manager.distanceCorrect = false
+        manager.updateAllVerifications()
+        #expect(manager.currentStep == .distance)
+
+        // Distância correta e rosto alinhado
+        manager.distanceCorrect = true
+        manager.faceAligned = true
+        manager.headAligned = true
+        manager.gazeCorrect = true
+        manager.updateAllVerifications()
+        #expect(manager.currentStep == .completed)
     }
 
 }

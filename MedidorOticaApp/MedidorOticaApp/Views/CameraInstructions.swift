@@ -18,7 +18,7 @@ struct CameraInstructions: View {
                 instructionView(text: "✍️ Posicione seu rosto no oval para detectar suas feições")
             } else if !verificationManager.distanceCorrect {
                 distanceInstructionView()
-            } else if !verificationManager.faceCentered {
+            } else if !verificationManager.faceAligned {
                 centeringInstructionView()
             } else if !verificationManager.headAligned {
                 headAlignmentInstructionView()
