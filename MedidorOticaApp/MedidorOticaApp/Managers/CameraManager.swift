@@ -11,6 +11,8 @@ import ARKit
 // MARK: - Notificações
 extension Notification.Name {
     static let cameraError = Notification.Name("CameraError")
+    /// Notificação disparada quando a sessão AR encontra um erro
+    static let arSessionError = Notification.Name("ARSessionError")
 }
 
 // MARK: - Erros
@@ -79,6 +81,15 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
 
+    /// Publica uma mensagem de erro relacionada à sessão AR.
+    func publishARError(_ message: String) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .arSessionError,
+                                            object: nil,
+                                            userInfo: ["message": message])
+        }
+    }
+
     // MARK: - Device Capabilities
     /// Verifica sensores disponíveis como TrueDepth e LiDAR.
     func checkAvailableSensors() {
@@ -118,5 +129,13 @@ extension CameraManager: ARSessionDelegate {
 
         // Quando o rastreamento não está normal, reseta verificações
         VerificationManager.shared.reset()
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        publishARError("Sessão AR falhou: \(error.localizedDescription)")
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        publishARError("Sessão AR interrompida")
     }
 }

@@ -70,6 +70,36 @@ struct CameraView: View {
                             self.isProcessing = false
                         }
                     }
+
+                    // Observa falhas na configuração da sessão AR
+                    NotificationCenter.default.addObserver(
+                        forName: NSNotification.Name("ARConfigurationFailed"),
+                        object: nil,
+                        queue: .main
+                    ) { notification in
+                        if let message = notification.userInfo?["error"] as? String {
+                            self.alertMessage = message
+                        } else {
+                            self.alertMessage = "Falha ao configurar ARSession."
+                        }
+                        self.cameraManager.stop()
+                        self.showingAlert = true
+                    }
+
+                    // Observa erros de execução da sessão AR
+                    NotificationCenter.default.addObserver(
+                        forName: .arSessionError,
+                        object: nil,
+                        queue: .main
+                    ) { notification in
+                        if let message = notification.userInfo?["message"] as? String {
+                            self.alertMessage = message
+                        } else {
+                            self.alertMessage = "A sessão de AR apresentou um erro."
+                        }
+                        self.cameraManager.stop()
+                        self.showingAlert = true
+                    }
                 }
             .onDisappear {
                     print("CameraView desapareceu - parando câmera")
