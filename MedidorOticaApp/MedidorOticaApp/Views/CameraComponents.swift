@@ -70,12 +70,16 @@ struct CameraPreview: UIViewRepresentable {
 }
 
 // MARK: - Preview para ARSession
+/// Exibe a visualização de uma `ARSession` mantendo o `delegate` informado.
 struct ARCameraPreview: UIViewRepresentable {
     let session: ARSession
+    let delegate: ARSessionDelegate
 
     func makeUIView(context: Context) -> ARSCNView {
         let view = ARSCNView(frame: UIScreen.main.bounds)
         view.session = session
+        // Garante que o delegate permaneça atribuído ao CameraManager
+        view.session.delegate = delegate
         view.automaticallyUpdatesLighting = true
         view.backgroundColor = .black
         return view
@@ -83,6 +87,7 @@ struct ARCameraPreview: UIViewRepresentable {
 
     func updateUIView(_ uiView: ARSCNView, context: Context) {
         uiView.session = session
+        uiView.session.delegate = delegate
         uiView.frame = UIScreen.main.bounds
     }
 }

@@ -47,7 +47,7 @@ struct CameraView: View {
             // Preview da câmera ou AR
             Group {
                 if cameraManager.isUsingARSession, let arSession = cameraManager.arSession {
-                    ARCameraPreview(session: arSession)
+                    ARCameraPreview(session: arSession, delegate: cameraManager)
                 } else {
                     CameraPreview(session: cameraManager.session)
                 }

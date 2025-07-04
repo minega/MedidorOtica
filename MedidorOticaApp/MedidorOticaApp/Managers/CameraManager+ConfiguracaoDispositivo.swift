@@ -79,7 +79,9 @@ extension CameraManager {
         cameraPosition = position
         self.arSession = arSession
         self.arSession?.delegate = self
-        isUsingARSession = (arSession != nil)
+        DispatchQueue.main.async {
+            self.isUsingARSession = (arSession != nil)
+        }
 
         isUsingARSession ? configureARSession(completion) : configureCaptureSession(completion)
     }
