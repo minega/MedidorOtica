@@ -27,6 +27,9 @@ struct CameraView: View {
     @State private var showingResultView = false
     @State private var showVerifications = true // Mostrar verificações por padrão
     @State private var cameraInitialized = false
+
+    // Observadores de notificações adicionados dinamicamente
+    @State private var notificationObservers: [NSObjectProtocol] = []
     
     // Timer para atualização das verificações
     @State private var verificationTimer: Timer? = nil
@@ -58,8 +61,8 @@ struct CameraView: View {
                     // Inicia as verificações e a câmera
                     setupCamera()
                     
-                    // Configura o observador para notificações de erro da câmera
-                    NotificationCenter.default.addObserver(
+                    // Observador de erros da câmera
+                    let camToken = NotificationCenter.default.addObserver(
                         forName: .cameraError,
                         object: nil,
                         queue: .main
@@ -70,9 +73,10 @@ struct CameraView: View {
                             self.isProcessing = false
                         }
                     }
+                    notificationObservers.append(camToken)
 
                     // Observa falhas na configuração da sessão AR
-                    NotificationCenter.default.addObserver(
+                    let configToken = NotificationCenter.default.addObserver(
                         forName: NSNotification.Name("ARConfigurationFailed"),
                         object: nil,
                         queue: .main
@@ -85,9 +89,10 @@ struct CameraView: View {
                         self.cameraManager.stop()
                         self.showingAlert = true
                     }
+                    notificationObservers.append(configToken)
 
                     // Observa erros de execução da sessão AR
-                    NotificationCenter.default.addObserver(
+                    let arToken = NotificationCenter.default.addObserver(
                         forName: .arSessionError,
                         object: nil,
                         queue: .main
@@ -100,15 +105,19 @@ struct CameraView: View {
                         self.cameraManager.stop()
                         self.showingAlert = true
                     }
+                    notificationObservers.append(arToken)
                 }
             .onDisappear {
                     print("CameraView desapareceu - parando câmera")
                     // Para a câmera e limpa recursos
                     cameraManager.stop()
-                    
-                    // Remove os observadores
-                    NotificationCenter.default.removeObserver(self)
-                    
+
+                    // Remove todos os observadores registrados
+                    notificationObservers.forEach {
+                        NotificationCenter.default.removeObserver($0)
+                    }
+                    notificationObservers.removeAll()
+
                     // Cancela o timer de verificações
                     verificationTimer?.invalidate()
                     verificationTimer = nil
@@ -243,11 +252,6 @@ struct CameraView: View {
                 }
             }
         }
-        .onDisappear {
-            // Cancela o timer quando a view desaparece
-            verificationTimer?.invalidate()
-            verificationTimer = nil
-        }
         // Alerta para mensagens de erro
         .alert(alertMessage, isPresented: $showingAlert) {
             Button("OK", role: .cancel) { }
@@ -324,24 +328,17 @@ struct CameraView: View {
             // Configura a AR Session
             let arSession = self.verificationManager.createARSession(for: cameraType)
 
-            // Marca a câmera como inicializada antes da configuração para evitar chamadas redundantes
-            DispatchQueue.main.async {
-                self.cameraInitialized = true
-            }
-
             // Configura a câmera com o sensor disponível
             // A configuração real é feita dentro dessa chamada, não precisamos chamar setupSession() separadamente
             self.cameraManager.setup(position: position, arSession: arSession) { success in
-                if !success {
-                    DispatchQueue.main.async {
+                DispatchQueue.main.async {
+                    if success {
+                        print("Câmera configurada com sucesso, iniciando processamento")
+                        self.cameraInitialized = true
+                        self.configureCameraProcessing()
+                    } else {
                         self.alertMessage = "Não foi possível acessar a câmera."
                         self.showingAlert = true
-                    }
-                } else {
-                    // Se tudo deu certo, iniciar o processamento (não precisamos chamar start() novamente)
-                    DispatchQueue.main.async {
-                        print("Câmera configurada com sucesso, iniciando processamento")
-                        self.configureCameraProcessing()
                     }
                 }
             }

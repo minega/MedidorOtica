@@ -290,7 +290,13 @@ class VerificationManager: ObservableObject {
         resetAllVerifications()
         updateVerificationStatus(throttled: true)
     }
-    
+
+    /// Encerra e libera a sessão AR utilizada nas verificações
+    func stopARSession() {
+        arSession?.pause()
+        arSession = nil
+    }
+
     // Reseta todas as verificações após um determinado tipo
     private func resetVerificationsAfter(_ type: VerificationType) {
         // Encontra o índice da verificação especificada
