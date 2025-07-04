@@ -189,29 +189,26 @@ class VerificationManager: ObservableObject {
     
     // MARK: - ARKit Integração para verificações
     
-    /// Processa um frame ARFrame para realizar todas as verificações
+    /// Processa um `ARFrame` realizando todas as verificações sequenciais
     func processARFrame(_ frame: ARFrame) {
-        // Atualiza a presença de rosto independentemente do estado de tracking
-        let facePresent = frame.anchors.contains { $0 is ARFaceAnchor }
-        DispatchQueue.main.async { [weak self] in
-            self?.faceDetected = facePresent
-        }
-
-        // Se o rastreamento estiver limitado, apenas avisamos e seguimos com as verificações
+        // Aviso de rastreamento limitado
         if case .limited = frame.camera.trackingState {
             print("Aviso: rastreamento limitado - resultados podem ser imprecisos")
         }
 
-        guard facePresent else {
-            resetNonFaceVerifications()
-            DispatchQueue.main.async { [weak self] in
-                self?.updateVerificationStatus(throttled: true)
-            }
-            print("Verificações com ARKit: Nenhum rosto detectado")
-            return
-        }
-
         DispatchQueue.global(qos: .userInitiated).async {
+            // Primeira verificação: detecção de rosto
+            let facePresent = self.checkFaceDetection(using: frame)
+
+            guard facePresent else {
+                self.resetNonFaceVerifications()
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateVerificationStatus(throttled: true)
+                }
+                print("Verificações com ARKit: Nenhum rosto detectado")
+                return
+            }
+
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
             if distanceOk {
