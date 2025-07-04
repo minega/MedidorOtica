@@ -115,7 +115,6 @@ class CameraManager: NSObject, ObservableObject {
         arSession?.pause()
         arSession?.delegate = nil
         arSession = nil
-        VerificationManager.shared.stopARSession()
         NotificationCenter.default.removeObserver(self)
     }
 }
