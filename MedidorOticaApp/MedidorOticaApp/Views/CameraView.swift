@@ -178,7 +178,7 @@ struct CameraView: View {
                             } else {
                                 alertMessage = "Afaste-se da câmera."
                             }
-                        } else if !verificationManager.faceCentered {
+                        } else if !verificationManager.faceAligned {
                             alertMessage = "Centralize seu rosto no oval."
                         } else if !verificationManager.headAligned {
                             alertMessage = "Mantenha sua cabeça reta alinhada com a câmera."
