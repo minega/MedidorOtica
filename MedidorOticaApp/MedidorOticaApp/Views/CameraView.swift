@@ -32,6 +32,7 @@ struct CameraView: View {
     /// Define se o indicador de status AR deve ser exibido.
     private let showARStatusIndicator = true
 
+
     // Observadores de notificações adicionados dinamicamente
     @State private var notificationObservers: [NSObjectProtocol] = []
     
