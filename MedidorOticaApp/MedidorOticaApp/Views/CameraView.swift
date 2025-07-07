@@ -27,6 +27,10 @@ struct CameraView: View {
     @State private var showingResultView = false
     @State private var showVerifications = true // Mostrar verificações por padrão
     @State private var cameraInitialized = false
+    /// Define se o medidor de distância deve ser exibido.
+    private let showDistanceOverlay = true
+    /// Define se o indicador de status AR deve ser exibido.
+    private let showARStatusIndicator = true
 
     // Observadores de notificações adicionados dinamicamente
     @State private var notificationObservers: [NSObjectProtocol] = []
@@ -137,7 +141,8 @@ struct CameraView: View {
             }
             
             // Oval centralizado com barra de progresso
-            ProgressOval(verificationManager: verificationManager)
+            ProgressOval(verificationManager: verificationManager,
+                         showDistance: showDistanceOverlay)
             
             // Overlay de controles (usando um VStack para elementos de interface)
             VStack {
@@ -153,7 +158,11 @@ struct CameraView: View {
                             .frame(width: 44, height: 44)
                             .background(Circle().fill(Color.black.opacity(0.6)))
                     }
-                    
+
+                    if showARStatusIndicator {
+                        ARStatusIndicator(cameraManager: cameraManager)
+                    }
+
                     Spacer()
                     
                     // Botão de captura automática

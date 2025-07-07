@@ -171,7 +171,9 @@ struct CameraHighlight: View {
 // MARK: - Oval com barra de progresso
 struct ProgressOval: View {
     let verificationManager: VerificationManager
-    
+    /// Define se a distância deve ser exibida abaixo do oval.
+    var showDistance: Bool = false
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -192,6 +194,13 @@ struct ProgressOval: View {
                     .stroke(Color.green, lineWidth: 3)
                     .frame(width: 300, height: 400)
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+
+                // Distância exibida abaixo do oval, caso habilitada
+                if showDistance {
+                    DistanceOverlay(verificationManager: verificationManager)
+                        .position(x: geometry.size.width / 2,
+                                  y: geometry.size.height / 2 + 230)
+                }
             }
         }
     }
