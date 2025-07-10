@@ -140,10 +140,10 @@ class VerificationManager: ObservableObject {
             self.frameAligned = false
             self.gazeCorrect = false
 
-            // Atualiza a lista de verificações
-            for i in 0..<self.verifications.count {
-                self.verifications[i].isChecked = false
-            }
+            // Trabalha em cópia para notificar a interface
+            var updated = self.verifications
+            for index in updated.indices { updated[index].isChecked = false }
+            self.verifications = updated
         }
     }
 
@@ -159,11 +159,11 @@ class VerificationManager: ObservableObject {
             self.frameAligned = false
             self.gazeCorrect = false
 
-            for i in 0..<self.verifications.count {
-                if self.verifications[i].type != .faceDetection {
-                    self.verifications[i].isChecked = false
-                }
+            var updated = self.verifications
+            for index in updated.indices where updated[index].type != .faceDetection {
+                updated[index].isChecked = false
             }
+            self.verifications = updated
         }
     }
 
@@ -184,19 +184,20 @@ class VerificationManager: ObservableObject {
     private func resetVerificationsAfter(_ type: VerificationType) {
         // Encontra o índice da verificação especificada
         guard let typeIndex = verifications.firstIndex(where: { $0.type == type }) else { return }
-        
+
         // Obtemos os tipos das verificações subsequentes
         let subsequentTypes = VerificationType.allCases.filter { currentType in
             guard let currentIndex = verifications.firstIndex(where: { $0.type == currentType }) else { return false }
             return currentIndex > typeIndex
         }
-        
-        // Reseta todas as verificações subsequentes
+
+        // Reseta todas as verificações subsequentes usando uma cópia
+        var updated = verifications
         for verificationType in subsequentTypes {
-            if let index = verifications.firstIndex(where: { $0.type == verificationType }) {
-                verifications[index].isChecked = false
+            if let index = updated.firstIndex(where: { $0.type == verificationType }) {
+                updated[index].isChecked = false
             }
-            
+
             // Reseta também os estados correspondentes
             switch verificationType {
             case .distance:
@@ -215,6 +216,8 @@ class VerificationManager: ObservableObject {
                 break
             }
         }
+
+        verifications = updated
     }
     
     // Atualiza o status das verificações com base nos estados atuais e na lógica sequencial
@@ -227,9 +230,12 @@ class VerificationManager: ObservableObject {
         }
 
         // Implementação da lógica sequencial - cada etapa depende da anterior
+        // Trabalhamos em uma cópia para garantir que o @Published notifique
+        var updated = verifications
+
         // Etapa 1: Detecção de rosto (independente, sempre verificada)
-        if let index = verifications.firstIndex(where: { $0.type == .faceDetection }) {
-            verifications[index].isChecked = faceDetected
+        if let index = updated.firstIndex(where: { $0.type == .faceDetection }) {
+            updated[index].isChecked = faceDetected
         }
 
         // Se o rosto não for detectado, todas as outras verificações falham
@@ -240,8 +246,8 @@ class VerificationManager: ObservableObject {
         }
 
         // Etapa 2: Verificação de distância (depende da detecção de rosto)
-        if let index = verifications.firstIndex(where: { $0.type == .distance }) {
-            verifications[index].isChecked = distanceCorrect
+        if let index = updated.firstIndex(where: { $0.type == .distance }) {
+            updated[index].isChecked = distanceCorrect
         }
 
         // Se a distância não estiver correta, todas as verificações subsequentes falham
@@ -252,8 +258,8 @@ class VerificationManager: ObservableObject {
         }
 
         // Etapa 3: Centralização do rosto (depende da distância)
-        if let index = verifications.firstIndex(where: { $0.type == .centering }) {
-            verifications[index].isChecked = faceAligned
+        if let index = updated.firstIndex(where: { $0.type == .centering }) {
+            updated[index].isChecked = faceAligned
         }
 
         // Se o rosto não estiver centralizado, as próximas falham
@@ -264,8 +270,8 @@ class VerificationManager: ObservableObject {
         }
 
         // Etapa 4: Alinhamento da cabeça (depende da centralização)
-        if let index = verifications.firstIndex(where: { $0.type == .headAlignment }) {
-            verifications[index].isChecked = headAligned
+        if let index = updated.firstIndex(where: { $0.type == .headAlignment }) {
+            updated[index].isChecked = headAligned
         }
 
         // Se a cabeça não estiver alinhada, as próximas falham
@@ -276,24 +282,27 @@ class VerificationManager: ObservableObject {
         }
 
         // Etapa 5: Detecção da armação (opcional, depende do alinhamento da cabeça)
-        if let index = verifications.firstIndex(where: { $0.type == .frameDetection }) {
-            verifications[index].isChecked = frameDetected
+        if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
+            updated[index].isChecked = frameDetected
         }
         
         // Se a armação for obrigatória mas não for detectada, as próximas falham
         // Como é opcional para teste, continuamos mesmo se falhar
 
         // Etapa 6: Alinhamento da armação (opcional, depende da detecção da armação)
-        if let index = verifications.firstIndex(where: { $0.type == .frameTilt }) {
-            verifications[index].isChecked = frameDetected && frameAligned
+        if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
+            updated[index].isChecked = frameDetected && frameAligned
         }
 
         // Etapa 7: Direção do olhar (depende de todas as anteriores)
-        if let index = verifications.firstIndex(where: { $0.type == .gaze }) {
-            verifications[index].isChecked = gazeCorrect
+        if let index = updated.firstIndex(where: { $0.type == .gaze }) {
+            updated[index].isChecked = gazeCorrect
         }
 
         currentStep = gazeCorrect ? .completed : .gaze
+
+        // Atribui a cópia modificada para disparar atualização da interface
+        verifications = updated
     }
 
     /// Sincroniza `hasTrueDepth` e `hasLiDAR` com o `CameraManager`.
