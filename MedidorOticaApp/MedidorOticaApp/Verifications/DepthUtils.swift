@@ -1,3 +1,10 @@
+//
+//  DepthUtils.swift
+//  MedidorOticaApp
+//
+//  Utilidades para leitura de profundidade e cálculo de pontos médios.
+//
+
 import ARKit
 import CoreGraphics
 
@@ -20,5 +27,16 @@ extension VerificationManager {
 
         let value = base.load(fromByteOffset: offset, as: Float.self)
         return value.isFinite ? value : nil
+    }
+
+    /// Calcula o ponto médio de uma lista de pontos normalizados.
+    func averagePoint(from points: [CGPoint]) -> CGPoint {
+        guard !points.isEmpty else { return .zero }
+
+        let sumX = points.reduce(0) { $0 + $1.x }
+        let sumY = points.reduce(0) { $0 + $1.y }
+
+        return CGPoint(x: sumX / CGFloat(points.count),
+                       y: sumY / CGFloat(points.count))
     }
 }
