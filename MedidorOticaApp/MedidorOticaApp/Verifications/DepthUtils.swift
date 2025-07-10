@@ -7,6 +7,7 @@
 
 import ARKit
 import CoreGraphics
+import UIKit
 
 extension VerificationManager {
     // MARK: - Utilidades de Profundidade
@@ -38,5 +39,15 @@ extension VerificationManager {
 
         return CGPoint(x: sumX / CGFloat(points.count),
                        y: sumY / CGFloat(points.count))
+    }
+
+    /// Retorna a orientação atual do dispositivo para uso no Vision
+    func currentCGOrientation() -> CGImagePropertyOrientation {
+        switch UIDevice.current.orientation {
+        case .landscapeLeft:  return .up
+        case .landscapeRight: return .down
+        case .portraitUpsideDown: return .left
+        default: return .right
+        }
     }
 }

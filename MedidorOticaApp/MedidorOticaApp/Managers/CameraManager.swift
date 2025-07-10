@@ -96,7 +96,9 @@ class CameraManager: NSObject, ObservableObject {
         hasTrueDepth = ARFaceTrackingConfiguration.isSupported
 
         if #available(iOS 13.4, *) {
-            hasLiDAR = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+            // Verifica suporte a profundidade de cena ou reconstrução 3D
+            hasLiDAR = ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) ||
+                       ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
         } else {
             hasLiDAR = false
         }

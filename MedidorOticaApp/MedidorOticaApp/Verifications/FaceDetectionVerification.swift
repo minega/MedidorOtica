@@ -75,7 +75,7 @@ extension VerificationManager {
         let request = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
-            orientation: .right,
+            orientation: currentCGOrientation(),
             options: [:])
         
         do {

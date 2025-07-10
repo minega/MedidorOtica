@@ -68,7 +68,8 @@ extension VerificationManager {
     private func checkGazeWithLiDAR(frame: ARFrame) -> Bool {
         let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
-                                            orientation: .right, options: [:])
+                                            orientation: currentCGOrientation(),
+                                            options: [:])
         do {
             try handler.perform([request])
             guard let face = request.results?.first as? VNFaceObservation,

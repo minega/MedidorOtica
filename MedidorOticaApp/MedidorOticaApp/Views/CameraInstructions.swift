@@ -153,13 +153,12 @@ struct VerificationMenu: View {
             // Todas as verificações (obrigatórias e opcionais)
             ForEach(verificationManager.verifications) { verification in
                 HStack(spacing: 6) {
-                    // Simplificando os textos das verificações para serem mais concisos
                     let simplifiedText = simplifyVerificationText(verification.text)
-                    
-                    Text(simplifiedText)
+
+                    Text(verification.isChecked ? "OK" : simplifiedText)
                         .font(.caption)
                         .foregroundColor(.white)
-                    
+
                     Circle()
                         .foregroundColor(verification.isChecked ? .green : .red)
                         .frame(width: 8, height: 8)

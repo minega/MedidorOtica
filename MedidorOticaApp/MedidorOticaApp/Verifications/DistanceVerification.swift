@@ -35,6 +35,7 @@ extension VerificationManager {
         static let maxDistanceMeters: Float = 1.2  // 120cm
         static let maxValidDepth: Float = 10.0     // 10 metros (filtro para valores inválidos)
     }
+
     
     // MARK: - Verificação de Distância
     
@@ -136,7 +137,8 @@ extension VerificationManager {
         
         let request = VNDetectFaceLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
-                                            orientation: .right, options: [:])
+                                            orientation: currentCGOrientation(),
+                                            options: [:])
         do {
             try handler.perform([request])
             guard let face = request.results?.first as? VNFaceObservation,

@@ -121,7 +121,9 @@ extension VerificationManager {
         }
 
         let request = VNDetectFaceLandmarksRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage, orientation: .right, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: currentCGOrientation(),
+                                            options: [:])
         do {
             try handler.perform([request])
             guard let face = request.results?.first as? VNFaceObservation else { return false }
