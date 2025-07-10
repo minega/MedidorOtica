@@ -23,9 +23,13 @@ extension CameraManager {
             return config
         } else if ARWorldTrackingConfiguration.isSupported {
             let config = ARWorldTrackingConfiguration()
-            if #available(iOS 13.4, *), ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-                config.sceneReconstruction = .mesh
-                config.frameSemantics.insert(.sceneDepth)
+            if #available(iOS 13.4, *) {
+                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                    config.sceneReconstruction = .mesh
+                }
+                if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                    config.frameSemantics.insert(.sceneDepth)
+                }
             }
             print("Usando ARWorldTrackingConfiguration")
             return config
@@ -66,9 +70,13 @@ extension CameraManager {
                     throw NSError(domain: "ARError", code: 1002, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
                 }
                 let worldConfig = ARWorldTrackingConfiguration()
-                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-                    worldConfig.sceneReconstruction = .mesh
-                    worldConfig.frameSemantics.insert(.sceneDepth)
+                if #available(iOS 13.4, *) {
+                    if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                        worldConfig.sceneReconstruction = .mesh
+                    }
+                    if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                        worldConfig.frameSemantics.insert(.sceneDepth)
+                    }
                     print("Configurando sessão AR com LiDAR para profundidade")
                 }
                 configuration = worldConfig
