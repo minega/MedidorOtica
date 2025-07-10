@@ -111,7 +111,9 @@ extension VerificationManager {
     @available(iOS 13.0, *)
     private func headAnglesWithVision(from frame: ARFrame) -> (roll: Float, yaw: Float, pitch: Float)? {
         let request = VNDetectFaceLandmarksRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage, orientation: .right, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: currentCGOrientation(),
+                                            options: [:])
         do {
             try handler.perform([request])
             guard let face = request.results?.first as? VNFaceObservation else { return nil }

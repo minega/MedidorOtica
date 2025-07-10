@@ -139,6 +139,7 @@ class VerificationManager: ObservableObject {
             self.frameDetected = false
             self.frameAligned = false
             self.gazeCorrect = false
+            self.lastMeasuredDistance = 0
 
             // Trabalha em cópia para notificar a interface
             var updated = self.verifications
@@ -158,6 +159,7 @@ class VerificationManager: ObservableObject {
             self.frameDetected = false
             self.frameAligned = false
             self.gazeCorrect = false
+            self.lastMeasuredDistance = 0
 
             var updated = self.verifications
             for index in updated.indices where updated[index].type != .faceDetection {
@@ -242,6 +244,7 @@ class VerificationManager: ObservableObject {
         if !faceDetected {
             resetVerificationsAfter(.faceDetection)
             currentStep = .faceDetection
+            verifications = updated
             return
         }
 
@@ -254,6 +257,7 @@ class VerificationManager: ObservableObject {
         if !distanceCorrect {
             resetVerificationsAfter(.distance)
             currentStep = .distance
+            verifications = updated
             return
         }
 
@@ -266,6 +270,7 @@ class VerificationManager: ObservableObject {
         if !faceAligned {
             resetVerificationsAfter(.centering)
             currentStep = .centering
+            verifications = updated
             return
         }
 
@@ -278,6 +283,7 @@ class VerificationManager: ObservableObject {
         if !headAligned {
             resetVerificationsAfter(.headAlignment)
             currentStep = .headAlignment
+            verifications = updated
             return
         }
 
