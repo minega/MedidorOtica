@@ -140,16 +140,6 @@ extension VerificationManager {
         return abs(roll) < rotationThreshold && abs(yaw) < rotationThreshold && abs(pitch) < rotationThreshold
     }
     
-    // Função auxiliar para calcular o ponto médio
-    private func averagePoint(from points: [CGPoint]) -> CGPoint {
-        guard !points.isEmpty else { return .zero }
-        
-        let sumX = points.reduce(0) { $0 + $1.x }
-        let sumY = points.reduce(0) { $0 + $1.y }
-        
-        return CGPoint(x: sumX / CGFloat(points.count), y: sumY / CGFloat(points.count))
-    }
-    
     // Mantém a função original para compatibilidade com código existente
     func checkGaze(using faceAnchor: ARFaceAnchor) -> Bool {
         return checkGazeWithTrueDepth(faceAnchor: faceAnchor)

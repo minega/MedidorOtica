@@ -23,6 +23,7 @@
 //  - Fatores de correção específicos por dispositivo
 
 import ARKit
+import Vision
 
 // MARK: - Extensão para verificação de distância
 extension VerificationManager {
@@ -103,17 +104,21 @@ extension VerificationManager {
     /// - Parameter faceAnchor: O anchor do rosto detectado
     /// - Returns: Distância em metros ou 0 se inválida
     private func getMeasuredDistanceWithTrueDepth(faceAnchor: ARFaceAnchor) -> Float {
-        // A componente Z da posição é a distância perpendicular do rosto à câmera
-        let distanceInMeters = abs(faceAnchor.transform.columns.3.z)
-        
-        // Valida a distância medida
-        guard distanceInMeters > 0, distanceInMeters < DistanceConstants.maxValidDepth else {
-            print("⚠️ Distância TrueDepth fora do intervalo válido: \(distanceInMeters)m")
+        // Utiliza a posição dos olhos para uma medição mais precisa
+        let leftEye = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEye = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+
+        let leftDistance = abs(leftEye.columns.3.z)
+        let rightDistance = abs(rightEye.columns.3.z)
+        let average = (leftDistance + rightDistance) / 2
+
+        guard average > 0, average < DistanceConstants.maxValidDepth else {
+            print("⚠️ Distância TrueDepth fora do intervalo válido: \(average)m")
             return 0
         }
-        
-        print("📏 TrueDepth: \(String(format: "%.1f", distanceInMeters * 100)) cm")
-        return distanceInMeters
+
+        print("📏 TrueDepth olhos: \(String(format: "%.1f", average * 100)) cm")
+        return average
     }
     
     // MARK: - Medição com LiDAR (Câmera Traseira)
@@ -129,29 +134,47 @@ extension VerificationManager {
             return 0
         }
         
-        let width = CVPixelBufferGetWidth(depthData.depthMap)
-        let height = CVPixelBufferGetHeight(depthData.depthMap)
-        let stepX = width / 3
-        let stepY = height / 3
-        var depths: [Float] = []
-
-        for i in 0..<3 {
-            for j in 0..<3 {
-                let point = CGPoint(x: stepX / 2 + i * stepX, y: stepY / 2 + j * stepY)
-                if let d = depthValue(from: depthData.depthMap, at: point), d > 0, d < DistanceConstants.maxValidDepth {
-                    depths.append(d)
-                }
+        let request = VNDetectFaceLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: .right, options: [:])
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first as? VNFaceObservation,
+                  let landmarks = face.landmarks,
+                  let leftEye = landmarks.leftEye,
+                  let rightEye = landmarks.rightEye else {
+                print("⚠️ Olhos não detectados com LiDAR")
+                return 0
             }
-        }
 
-        guard !depths.isEmpty else {
-            print("⚠️ Nenhuma medição de profundidade válida encontrada")
+            let width = CVPixelBufferGetWidth(depthData.depthMap)
+            let height = CVPixelBufferGetHeight(depthData.depthMap)
+
+            let leftCenter = averagePoint(from: leftEye.normalizedPoints)
+            let rightCenter = averagePoint(from: rightEye.normalizedPoints)
+
+            func convert(_ p: CGPoint) -> CGPoint {
+                CGPoint(x: p.x * CGFloat(width), y: (1 - p.y) * CGFloat(height))
+            }
+
+            var depths: [Float] = []
+            if let d = depthValue(from: depthData.depthMap, at: convert(leftCenter)) { depths.append(d) }
+            if let d = depthValue(from: depthData.depthMap, at: convert(rightCenter)) { depths.append(d) }
+
+            guard !depths.isEmpty else {
+                print("⚠️ Não foi possível medir a profundidade dos olhos")
+                return 0
+            }
+
+            let avgDepth = depths.reduce(0, +) / Float(depths.count)
+            guard avgDepth > 0, avgDepth < DistanceConstants.maxValidDepth else { return 0 }
+
+            print("📏 LiDAR olhos: \(String(format: "%.1f", avgDepth * 100)) cm")
+            return avgDepth
+        } catch {
+            print("ERRO na medição de distância com LiDAR: \(error)")
             return 0
         }
-
-        let avgDepth = depths.reduce(0, +) / Float(depths.count)
-        print("📏 LiDAR: \(String(format: "%.1f", avgDepth * 100)) cm")
-        return avgDepth
     }
     
     // MARK: - Tratamento de Erros
