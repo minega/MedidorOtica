@@ -76,6 +76,7 @@ extension CameraManager {
 
             newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
             isUsingARSession = true
+            isSessionRunning = true
             print("Sessão AR configurada com sucesso para \(cameraType)")
         } catch {
             let errorMessage = configurationError ?? "Falha ao configurar a sessão AR: \(error.localizedDescription)"
