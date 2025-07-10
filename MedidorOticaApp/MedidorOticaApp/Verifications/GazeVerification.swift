@@ -45,7 +45,6 @@ extension VerificationManager {
         let aligned = horizontal && vertical
 
         DispatchQueue.main.async {
-            self.gazeCorrect = aligned
             self.gazeData = [
                 "leftIn": shapes[.eyeLookInLeft]?.floatValue ?? 0,
                 "rightIn": shapes[.eyeLookInRight]?.floatValue ?? 0,
@@ -56,7 +55,6 @@ extension VerificationManager {
                 "leftDown": shapes[.eyeLookDownLeft]?.floatValue ?? 0,
                 "rightDown": shapes[.eyeLookDownRight]?.floatValue ?? 0
             ]
-            self.updateAllVerifications()
             print("Verificação de olhar (ARKit): \(aligned)")
         }
 
@@ -84,9 +82,7 @@ extension VerificationManager {
                            checkHeadRotation(faceObservation: face)
 
             DispatchQueue.main.async {
-                self.gazeCorrect = aligned
                 self.gazeData = ["aligned": aligned ? 1.0 : 0.0]
-                self.updateAllVerifications()
                 print("Verificação de olhar (LiDAR): \(aligned)")
             }
 

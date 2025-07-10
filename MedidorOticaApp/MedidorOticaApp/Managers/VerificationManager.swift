@@ -85,8 +85,9 @@ class VerificationManager: ObservableObject {
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            // Primeira verificação: detecção de rosto
+            // MARK: Passo 1 - Detecção de rosto
             let facePresent = self.checkFaceDetection(using: frame)
+            DispatchQueue.main.async { self.faceDetected = facePresent }
 
             guard facePresent else {
                 self.resetNonFaceVerifications()
@@ -98,27 +99,51 @@ class VerificationManager: ObservableObject {
             }
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
+
+            // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
-            if distanceOk {
-                let centeredOk = self.checkFaceCentering(using: frame, faceAnchor: faceAnchor)
-
-                if centeredOk {
-                    let headAlignedOk = self.checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
-
-                    if headAlignedOk {
-                        let gazeOk = self.checkGaze(using: frame)
-                        print("Olhar direcionado para a câmera: \(gazeOk)")
-                    }
+            DispatchQueue.main.async { self.distanceCorrect = distanceOk }
+            guard distanceOk else {
+                self.resetVerificationsAfter(.distance)
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateVerificationStatus(throttled: true)
                 }
+                return
             }
+
+            // MARK: Passo 3 - Centralização do rosto
+            let centeredOk = self.checkFaceCentering(using: frame, faceAnchor: faceAnchor)
+            DispatchQueue.main.async { self.faceAligned = centeredOk }
+            guard centeredOk else {
+                self.resetVerificationsAfter(.centering)
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateVerificationStatus(throttled: true)
+                }
+                return
+            }
+
+            // MARK: Passo 4 - Alinhamento da cabeça
+            let headAlignedOk = self.checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
+            DispatchQueue.main.async { self.headAligned = headAlignedOk }
+            guard headAlignedOk else {
+                self.resetVerificationsAfter(.headAlignment)
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateVerificationStatus(throttled: true)
+                }
+                return
+            }
+
+            // MARK: Passo 5 - Direção do olhar
+            let gazeOk = self.checkGaze(using: frame)
+            DispatchQueue.main.async { self.gazeCorrect = gazeOk }
 
             #if DEBUG
             print("Verificações sequenciais: " +
                   "Rosto=\(facePresent), " +
                   "Distância=\(distanceOk), " +
-                  "Centralizado=\(self.faceAligned), " +
-                  "Cabeça=\(self.headAligned), " +
-                  "Olhar=\(self.gazeCorrect)")
+                  "Centralizado=\(centeredOk), " +
+                  "Cabeça=\(headAlignedOk), " +
+                  "Olhar=\(gazeOk)")
             #endif
 
             DispatchQueue.main.async { [weak self] in

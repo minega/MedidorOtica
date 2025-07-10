@@ -22,21 +22,12 @@ extension VerificationManager {
             detected = checkFaceDetectionWithLiDAR(frame: frame)
         } else {
             print("ERRO: Sensores de detecção de rosto indisponíveis")
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("DeviceNotCompatible"),
-                    object: nil,
-                    userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"]
-                )
-                self.faceDetected = false
-                self.updateAllVerifications()
-            }
+            NotificationCenter.default.post(
+                name: NSNotification.Name("DeviceNotCompatible"),
+                object: nil,
+                userInfo: ["reason": "Sensores TrueDepth ou LiDAR não encontrados"]
+            )
             return false
-        }
-
-        DispatchQueue.main.async {
-            self.faceDetected = detected
-            self.updateAllVerifications()
         }
 
         return detected
