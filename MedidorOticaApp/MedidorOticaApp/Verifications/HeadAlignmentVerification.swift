@@ -47,17 +47,13 @@ extension VerificationManager {
         let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
         
         DispatchQueue.main.async {
-            self.headAligned = isHeadAligned
-            
             // Armazena dados sobre o desalinhamento para feedback mais preciso
             self.alignmentData = [
                 "roll": rollDegrees,
                 "yaw": yawDegrees,
                 "pitch": pitchDegrees
             ]
-            
-            self.updateAllVerifications()
-            
+
             print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
         }
         

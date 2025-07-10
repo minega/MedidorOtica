@@ -86,11 +86,9 @@ extension VerificationManager {
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
+
             self.lastMeasuredDistance = Float(distanceInCm)
-            self.distanceCorrect = isValid
-            self.updateAllVerifications()
-            
+
             // Feedback adicional baseado na distância
             if !isValid {
                 let message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
@@ -185,13 +183,7 @@ extension VerificationManager {
     private func handleDistanceVerificationError(reason: String) {
         print("❌ Erro na verificação de distância: \(reason)")
         
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            self.distanceCorrect = false
-            self.updateAllVerifications()
-            
-            // Notifica sobre o erro
+        DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: NSNotification.Name("DistanceVerificationError"),
                 object: nil,

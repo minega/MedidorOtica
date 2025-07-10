@@ -176,10 +176,7 @@ extension VerificationManager {
         // Atualiza a interface na thread principal
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
-            // Atualiza as propriedades de estado
-            self.faceAligned = isCentered
-            
+
             // Armazena os desvios para feedback visual
             self.facePosition = [
                 "x": horizontalCm,
