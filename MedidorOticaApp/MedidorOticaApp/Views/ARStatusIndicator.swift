@@ -2,20 +2,29 @@
 //  ARStatusIndicator.swift
 //  MedidorOticaApp
 //
-//  Pequeno indicador visual que mostra se a sessão AR está ativa.
-//  Pode ser habilitado ou removido facilmente.
+//  Indicador visual de status da sessão AR e detecção de rosto.
+//  Exibe duas bolinhas lado a lado: uma para a ARSession e outra para o rosto.
 //
 import SwiftUI
 
-/// Mostra um círculo verde se a sessão AR está ativa, vermelho caso contrário.
+/// Exibe o status da sessão AR e da detecção de rosto.
+/// A primeira bolinha indica a ARSession e a segunda se um rosto está visível.
 struct ARStatusIndicator: View {
     @ObservedObject var cameraManager: CameraManager
+    @ObservedObject var verificationManager: VerificationManager
 
+    // MARK: - View
     var body: some View {
-        Circle()
-            .fill(cameraManager.isUsingARSession ? Color.green : Color.red)
-            .frame(width: 12, height: 12)
-            .padding(.leading, 4)
+        HStack(spacing: 4) {
+            Circle()
+                .fill(cameraManager.isUsingARSession ? Color.green : Color.red)
+                .frame(width: 12, height: 12)
+
+            Circle()
+                .fill(verificationManager.faceDetected ? Color.green : Color.red)
+                .frame(width: 12, height: 12)
+        }
+        .padding(.horizontal, 4)
     }
 }
 

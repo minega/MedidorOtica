@@ -13,7 +13,8 @@ struct DistanceOverlay: View {
     @ObservedObject var verificationManager: VerificationManager
 
     var body: some View {
-        Text(String(format: "%.1f cm", verificationManager.lastMeasuredDistance))
+        let distance = verificationManager.faceDetected ? verificationManager.lastMeasuredDistance : 0
+        Text(String(format: "%.1f cm", distance))
             .font(.headline)
             .foregroundColor(.white)
             .padding(.horizontal, 12)
