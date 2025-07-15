@@ -161,7 +161,8 @@ struct CameraView: View {
                     }
 
                     if showARStatusIndicator {
-                        ARStatusIndicator(cameraManager: cameraManager)
+                        ARStatusIndicator(cameraManager: cameraManager,
+                                         verificationManager: verificationManager)
                     }
 
                     Spacer()
