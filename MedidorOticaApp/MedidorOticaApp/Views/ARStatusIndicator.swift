@@ -21,6 +21,7 @@ struct ARStatusIndicator: View {
                 .frame(width: 12, height: 12)
 
             Circle()
+                // Verde quando o rosto é detectado, vermelho caso contrário
                 .fill(verificationManager.faceDetected ? Color.green : Color.red)
                 .frame(width: 12, height: 12)
         }

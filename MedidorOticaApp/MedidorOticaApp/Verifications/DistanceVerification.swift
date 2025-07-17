@@ -65,7 +65,7 @@ extension VerificationManager {
     /// Obtém a medição de distância usando o sensor apropriado
     private func getDistanceMeasurement(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> (distance: Float, isValid: Bool)? {
         if hasTrueDepth, let faceAnchor = faceAnchor {
-            let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: faceAnchor)
+            let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
             return (distance, distance > 0)
         }
 
@@ -100,12 +100,18 @@ extension VerificationManager {
     // MARK: - Medição com TrueDepth (Câmera Frontal)
     
     /// Mede a distância usando o sensor TrueDepth e a geometria 3D do rosto
-    /// - Parameter faceAnchor: O anchor do rosto detectado
+    /// - Parameters:
+    ///   - faceAnchor: Anchor do rosto detectado
+    ///   - frame: Frame atual para referência de câmera
     /// - Returns: Distância em metros ou 0 se inválida
-    private func getMeasuredDistanceWithTrueDepth(faceAnchor: ARFaceAnchor) -> Float {
-        // Utiliza a posição dos olhos para uma medição mais precisa
-        let leftEye = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
-        let rightEye = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+    private func getMeasuredDistanceWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Float {
+        // Calcula a posição dos olhos no sistema de coordenadas da câmera
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+
+        let leftEye = simd_mul(worldToCamera, leftEyeWorld)
+        let rightEye = simd_mul(worldToCamera, rightEyeWorld)
 
         let leftDistance = abs(leftEye.columns.3.z)
         let rightDistance = abs(rightEye.columns.3.z)
