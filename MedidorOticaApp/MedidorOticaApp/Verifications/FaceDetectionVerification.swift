@@ -35,17 +35,15 @@ extension VerificationManager {
     
     // MARK: - Detecção com TrueDepth (Câmera Frontal)
     private func checkFaceDetectionWithTrueDepth(frame: ARFrame) -> Bool {
-        // Verifica se há um rosto no frame utilizando ARFaceAnchor
-        let hasFace = !frame.anchors.filter { $0 is ARFaceAnchor }.isEmpty
-        
-        // Registra o resultado para debug
-        if hasFace {
-            print("Rosto detectado usando TrueDepth")
-        } else {
-            print("Nenhum rosto detectado com TrueDepth")
+        // Busca a primeira âncora de rosto e verifica se está sendo rastreada
+        if let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
+            let tracked = faceAnchor.isTracked
+            print(tracked ? "Rosto detectado usando TrueDepth" : "Rosto não rastreado com TrueDepth")
+            return tracked
         }
-        
-        return hasFace
+
+        print("Nenhum rosto detectado com TrueDepth")
+        return false
     }
     
     // MARK: - Detecção com LiDAR (Câmera Traseira)
