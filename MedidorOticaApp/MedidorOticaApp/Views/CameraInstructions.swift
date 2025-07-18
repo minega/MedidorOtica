@@ -8,7 +8,8 @@
 import SwiftUI
 
 struct CameraInstructions: View {
-    let verificationManager: VerificationManager
+    /// Observa alterações do `VerificationManager` para atualizar as instruções em tempo real
+    @ObservedObject var verificationManager: VerificationManager
     
     var body: some View {
         VStack(spacing: 8) {
@@ -125,7 +126,8 @@ struct CameraInstructions: View {
 
 // View para o menu de verificações laterais
 struct VerificationMenu: View {
-    let verificationManager: VerificationManager
+    /// Gerenciador observado para refletir mudanças no menu em tempo real
+    @ObservedObject var verificationManager: VerificationManager
     
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {

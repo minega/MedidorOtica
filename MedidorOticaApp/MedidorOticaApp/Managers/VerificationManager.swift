@@ -49,6 +49,17 @@ class VerificationManager: ObservableObject {
     let minDistance: Float = 40.0 // cm
     let maxDistance: Float = 120.0 // cm
 
+    /// Fila serial usada para processar os frames sem sobrecarregar a CPU.
+    private let processingQueue = DispatchQueue(label: "com.oticaManzolli.verification.queue",
+                                               qos: .userInitiated)
+
+    /// Indica se um frame já está em processamento para evitar filas gigantes.
+    private var isProcessingFrame = false
+
+    /// Controle de frequência do processamento de frames (15 fps).
+    private var lastFrameTime = Date.distantPast
+    private let frameInterval: TimeInterval = 1.0 / 15.0
+
     private init() {
         // Inicializa as verificações
         setupVerifications()
@@ -79,12 +90,25 @@ class VerificationManager: ObservableObject {
     
     /// Processa um `ARFrame` realizando todas as verificações sequenciais
     func processARFrame(_ frame: ARFrame) {
+        // Controla a frequência do processamento para evitar sobrecarga
+        let now = Date()
+        guard !isProcessingFrame, now.timeIntervalSince(lastFrameTime) >= frameInterval else {
+            return
+        }
+        lastFrameTime = now
+        isProcessingFrame = true
+
         // Aviso de rastreamento limitado
         if case .limited = frame.camera.trackingState {
             print("Aviso: rastreamento limitado - resultados podem ser imprecisos")
         }
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        processingQueue.async { [weak self] in
+            guard let self = self else { return }
+            // Garante que o flag seja resetado mesmo em retornos antecipados
+            defer {
+                DispatchQueue.main.async { self.isProcessingFrame = false }
+            }
             // MARK: Passo 1 - Detecção de rosto
             let facePresent = self.checkFaceDetection(using: frame)
             DispatchQueue.main.async { self.faceDetected = facePresent }

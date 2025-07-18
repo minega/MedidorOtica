@@ -170,7 +170,8 @@ struct CameraHighlight: View {
 
 // MARK: - Oval com barra de progresso
 struct ProgressOval: View {
-    let verificationManager: VerificationManager
+    /// Observa o `VerificationManager` para desenhar a barra de progresso dinâmicamente
+    @ObservedObject var verificationManager: VerificationManager
     /// Define se a distância deve ser exibida abaixo do oval.
     var showDistance: Bool = false
 
