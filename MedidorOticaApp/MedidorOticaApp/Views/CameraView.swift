@@ -36,8 +36,6 @@ struct CameraView: View {
     // Observadores de notificações adicionados dinamicamente
     @State private var notificationObservers: [NSObjectProtocol] = []
     
-    // Timer para atualização das verificações
-    @State private var verificationTimer: Timer? = nil
     
     // Feedback tátil
     private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
@@ -123,9 +121,6 @@ struct CameraView: View {
                     }
                     notificationObservers.removeAll()
 
-                    // Cancela o timer de verificações
-                    verificationTimer?.invalidate()
-                    verificationTimer = nil
                 }
             
             // Overlay de flash ao tirar foto
@@ -486,21 +481,6 @@ struct CameraView: View {
         // Processa cada ARFrame recebido da câmera
         cameraManager.outputDelegate = { frame in
             self.verificationManager.processARFrame(frame)
-
-            // Atualiza as verificações em tempo real
-            DispatchQueue.main.async {
-                self.verificationManager.updateAllVerifications()
-            }
-        }
-        
-        // Timer auxiliar para garantir atualização da interface a cada 500ms
-        // Não usamos [weak self] aqui porque CameraView é um struct (tipo de valor)
-        if verificationTimer == nil {
-            verificationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-                DispatchQueue.main.async {
-                    self.verificationManager.updateAllVerifications()
-                }
-            }
         }
     }
 }
