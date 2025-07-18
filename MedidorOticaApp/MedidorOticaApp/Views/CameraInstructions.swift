@@ -63,26 +63,27 @@ struct CameraInstructions: View {
     
     // View específica para instruções de centralização
     private func centeringInstructionView() -> some View {
-        // Usa os dados de posição do rosto para dar instruções específicas
-        let xPos = verificationManager.facePosition["x"] ?? 0
-        let yPos = verificationManager.facePosition["y"] ?? 0
+        // Usa os dados de posição do rosto e ajusta conforme a orientação do dispositivo
+        let rawX = verificationManager.facePosition["x"] ?? 0
+        let rawY = verificationManager.facePosition["y"] ?? 0
+        let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
         
         var instruction = "Centralize seu rosto no oval"
         
         // Determina a direção com base na posição atual
         if abs(xPos) > abs(yPos) {
-            // Movimento horizontal mais importante
+            // Movimento horizontal prioritário
             if xPos > 0.5 {
-                instruction = "⬅️ Mova seu celular para direita aproximadamente \(Int(abs(xPos))) cm"
+                instruction = "➡️ Mova seu celular para a direita aproximadamente \(Int(abs(xPos))) cm"
             } else if xPos < -0.5 {
-                instruction = "➡️ Mova seu celular para esquerda aproximadamente \(Int(abs(xPos))) cm"
+                instruction = "⬅️ Mova seu celular para a esquerda aproximadamente \(Int(abs(xPos))) cm"
             }
         } else {
-            // Movimento vertical mais importante
+            // Movimento vertical prioritário
             if yPos > 0.5 {
-                instruction = "⬆️ Mova seu celular para baixo aproximadamente \(Int(abs(yPos))) cm"
+                instruction = "⬆️ Mova seu celular para cima aproximadamente \(Int(abs(yPos))) cm"
             } else if yPos < -0.5 {
-                instruction = "⬇️ Mova seu celular para cima aproximadamente \(Int(abs(yPos))) cm"
+                instruction = "⬇️ Mova seu celular para baixo aproximadamente \(Int(abs(yPos))) cm"
             }
         }
         
@@ -100,14 +101,14 @@ struct CameraInstructions: View {
         
         // Determina qual rotação precisa de maior correção
         if abs(roll) > max(abs(yaw), abs(pitch)) && abs(roll) > 2 {
-            let direction = roll > 0 ? "anti-horário" : "horário"
-            instruction = "↺️ Gire sua cabeça no sentido \(direction) aproximadamente \(Int(abs(roll))) graus"
+            let direction = roll > 0 ? "horário" : "anti-horário"
+            instruction = "↻ Gire sua cabeça no sentido \(direction) aproximadamente \(Int(abs(roll))) graus"
         } else if abs(yaw) > abs(pitch) && abs(yaw) > 2 {
-            let direction = yaw > 0 ? "esquerda" : "direita"
-            instruction = "⤵️ Vire sua cabeça para \(direction) aproximadamente \(Int(abs(yaw))) graus"
+            let direction = yaw > 0 ? "direita" : "esquerda"
+            instruction = "➡️ Vire sua cabeça para \(direction) aproximadamente \(Int(abs(yaw))) graus"
         } else if abs(pitch) > 2 {
-            let direction = pitch > 0 ? "cima" : "baixo"
-            instruction = "⤴️ Incline sua cabeça para \(direction) aproximadamente \(Int(abs(pitch))) graus"
+            let direction = pitch > 0 ? "baixo" : "cima"
+            instruction = "⬇️ Incline sua cabeça para \(direction) aproximadamente \(Int(abs(pitch))) graus"
         }
         
         return instructionView(text: instruction)

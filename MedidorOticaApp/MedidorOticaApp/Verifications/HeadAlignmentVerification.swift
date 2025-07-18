@@ -26,7 +26,10 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            let euler = extractEulerAngles(from: anchor.transform)
+            // Converte a rotação do rosto para o sistema de coordenadas da câmera
+            let worldToCamera = simd_inverse(frame.camera.transform)
+            let headInCamera = simd_mul(worldToCamera, anchor.transform)
+            let euler = extractEulerAngles(from: headInCamera)
             rollDegrees = radiansToDegrees(euler.roll)
             yawDegrees = radiansToDegrees(euler.yaw)
             pitchDegrees = radiansToDegrees(euler.pitch)
