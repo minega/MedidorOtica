@@ -34,7 +34,8 @@ enum VerificationType: Int, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .faceDetection: return "Detecta se há um rosto no oval"
-        case .distance: return "Distância entre 40cm e 120cm"
+        case .distance:
+            return "Distância entre \(Int(DistanceLimits.minCm))cm e \(Int(DistanceLimits.maxCm))cm"
         case .centering: return "Rosto centralizado no oval"
         case .headAlignment: return "Cabeça sem inclinação"
         case .frameDetection: return "Detecta uso de armação"

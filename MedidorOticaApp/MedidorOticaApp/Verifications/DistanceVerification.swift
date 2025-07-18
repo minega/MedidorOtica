@@ -10,7 +10,7 @@
 //  - Suportar diferentes sensores (TrueDepth e LiDAR) para máxima precisão
 //
 //  Critérios de Aceitação:
-//  1. Distância ideal entre 40cm e 60cm do dispositivo
+//  1. Distância ideal entre 30cm e 80cm do dispositivo
 //  2. Feedback visual claro quando fora da faixa ideal
 //  
 //  Sensores Suportados:
@@ -25,15 +25,26 @@
 import ARKit
 import Vision
 
+/// Limites globais de distância (centímetros)
+struct DistanceLimits {
+    /// Distância mínima permitida
+    static let minCm: Float = 30.0
+    /// Distância máxima permitida
+    static let maxCm: Float = 80.0
+}
+
 // MARK: - Extensão para verificação de distância
 extension VerificationManager {
     
     // MARK: - Constantes
     
     private enum DistanceConstants {
-        static let minDistanceMeters: Float = 0.4  // 40cm
-        static let maxDistanceMeters: Float = 1.2  // 120cm
-        static let maxValidDepth: Float = 10.0     // 10 metros (filtro para valores inválidos)
+        // Distância mínima em metros (conversão de centímetros)
+        static let minDistanceMeters: Float = DistanceLimits.minCm / 100
+        // Distância máxima em metros
+        static let maxDistanceMeters: Float = DistanceLimits.maxCm / 100
+        // Limite superior para descartar leituras inválidas
+        static let maxValidDepth: Float = 10.0
     }
 
     

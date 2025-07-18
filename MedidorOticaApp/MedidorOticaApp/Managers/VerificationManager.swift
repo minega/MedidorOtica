@@ -46,8 +46,10 @@ class VerificationManager: ObservableObject {
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
     
     // Configurações
-    let minDistance: Float = 40.0 // cm
-    let maxDistance: Float = 120.0 // cm
+    /// Distância mínima permitida em centímetros
+    var minDistance: Float { DistanceLimits.minCm }
+    /// Distância máxima permitida em centímetros
+    var maxDistance: Float { DistanceLimits.maxCm }
 
     /// Fila serial usada para processar os frames sem sobrecarregar a CPU.
     private let processingQueue = DispatchQueue(label: "com.oticaManzolli.verification.queue",

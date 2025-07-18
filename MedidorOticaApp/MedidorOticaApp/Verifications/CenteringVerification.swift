@@ -6,7 +6,7 @@
 //
 //  Objetivo:
 //  - Garantir que o rosto esteja perfeitamente centralizado na câmera
-//  - Manter o alinhamento preciso entre os olhos e o nariz
+//  - Posicionar o dispositivo no meio do nariz, na altura das pupilas
 //  - Fornecer feedback visual sobre o posicionamento
 //
 //  Critérios de Aceitação:
@@ -60,7 +60,7 @@ extension VerificationManager {
     /// Confere se o rosto está centralizado
     func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
         if hasTrueDepth, let anchor = faceAnchor {
-            return checkCenteringWithTrueDepth(faceAnchor: anchor)
+            return checkCenteringWithTrueDepth(faceAnchor: anchor, frame: frame)
         }
         if hasLiDAR {
             return checkCenteringWithLiDAR(frame: frame)
@@ -68,7 +68,7 @@ extension VerificationManager {
         return false
     }
 
-    private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor) -> Bool {
+    private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
         // Obtém a geometria 3D do rosto
         let vertices = faceAnchor.geometry.vertices
 
@@ -78,21 +78,24 @@ extension VerificationManager {
             return false
         }
 
-        // Posições dos olhos fornecidas pelo ARKit
-        let leftEyePos = simd_make_float3(faceAnchor.leftEyeTransform.columns.3)
-        let rightEyePos = simd_make_float3(faceAnchor.rightEyeTransform.columns.3)
+        // Converte pontos faciais para o sistema de coordenadas da câmera
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+        let noseWorld = simd_mul(faceAnchor.transform,
+                                 simd_float4(vertices[CenteringConstants.FaceIndices.noseTip], 1))
+        let leftEyeCam = simd_mul(worldToCamera, leftEyeWorld)
+        let rightEyeCam = simd_mul(worldToCamera, rightEyeWorld)
+        let noseCam = simd_mul(worldToCamera, noseWorld)
 
-        // Posição da ponta do nariz obtida da malha facial
-        let nosePos = vertices[CenteringConstants.FaceIndices.noseTip]
+        // Ponto médio das pupilas em relação à câmera
+        let midEyeY = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
 
-        // Calcula o ponto médio entre os olhos
-        let midEyeX = (leftEyePos.x + rightEyePos.x) / 2
-        let midEyeY = (leftEyePos.y + rightEyePos.y) / 2
-        
-        // Calcula os desvios em relação ao centro (origem no espaço da câmera)
-        let horizontalOffset = midEyeX
+        // Desvio horizontal do nariz em relação ao centro da lente
+        let horizontalOffset = noseCam.columns.3.x
+        // Desvio vertical levando em conta a altura das pupilas
         let verticalOffset = midEyeY
-        let noseOffset = nosePos.x
+        let noseOffset = horizontalOffset
         
         // Verifica se os desvios estão dentro da tolerância permitida
         let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
@@ -126,18 +129,22 @@ extension VerificationManager {
                                             options: [:])
         do {
             try handler.perform([request])
-            guard let face = request.results?.first as? VNFaceObservation else { return false }
+            guard let face = request.results?.first as? VNFaceObservation,
+                  let landmarks = face.landmarks else { return false }
 
             let width = CVPixelBufferGetWidth(depthMap)
             let height = CVPixelBufferGetHeight(depthMap)
-            let nosePointNorm = face.landmarks?.nose?.normalizedPoints.first ?? CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY)
+            let nosePointNorm = landmarks.nose?.normalizedPoints.first ?? CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY)
+            let leftEyeCenter = averagePoint(from: landmarks.leftEye?.normalizedPoints ?? [])
+            let rightEyeCenter = averagePoint(from: landmarks.rightEye?.normalizedPoints ?? [])
+            let eyeCenterY = (leftEyeCenter.y + rightEyeCenter.y) / 2
+
             let px = nosePointNorm.x * CGFloat(width)
             let py = (1 - nosePointNorm.y) * CGFloat(height)
-
             guard let depth = depthValue(from: depthMap, at: CGPoint(x: px, y: py)) else { return false }
-            let horizontalOffset = Float(nosePointNorm.x - 0.5) * Float(depth)
-            let verticalOffset = Float(0.5 - nosePointNorm.y) * Float(depth)
 
+            let horizontalOffset = Float(nosePointNorm.x - 0.5) * depth
+            let verticalOffset = Float(0.5 - eyeCenterY) * depth
             let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
             let isVerticallyAligned = abs(verticalOffset) < CenteringConstants.tolerance
             let isCentered = isHorizontallyAligned && isVerticallyAligned
