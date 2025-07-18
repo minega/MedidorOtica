@@ -268,100 +268,92 @@ class VerificationManager: ObservableObject {
         }
     }
     
-    // Atualiza o status das verificações com base nos estados atuais e na lógica sequencial
-    // Atualiza o status das verificações e a máquina de estados
+    // Atualiza o status das verificações conforme os estados atuais
+    // Este método deve sempre executar no `DispatchQueue.main`
     private func updateVerificationStatus(throttled: Bool = false) {
-        let work = {
+        let publishWork = {
             if throttled {
                 let now = Date()
                 guard now.timeIntervalSince(lastPublishTime) >= publishInterval else { return }
                 lastPublishTime = now
             }
 
-            // Implementação da lógica sequencial - cada etapa depende da anterior
-            // Trabalhamos em uma cópia para garantir que o @Published notifique
+            // Trabalha em cópia para garantir notificação do @Published
             var updated = verifications
 
-        // Etapa 1: Detecção de rosto (independente, sempre verificada)
-        if let index = updated.firstIndex(where: { $0.type == .faceDetection }) {
-            updated[index].isChecked = faceDetected
-        }
+            // Etapa 1: Detecção de rosto
+            if let index = updated.firstIndex(where: { $0.type == .faceDetection }) {
+                updated[index].isChecked = faceDetected
+            }
 
-        // Se o rosto não for detectado, todas as outras verificações falham
-        if !faceDetected {
-            resetVerificationsAfter(.faceDetection)
-            currentStep = .faceDetection
-            verifications = updated
-            return
-        }
+            guard faceDetected else {
+                resetVerificationsAfter(.faceDetection)
+                currentStep = .faceDetection
+                verifications = updated
+                return
+            }
 
-        // Etapa 2: Verificação de distância (depende da detecção de rosto)
-        if let index = updated.firstIndex(where: { $0.type == .distance }) {
-            updated[index].isChecked = distanceCorrect
-        }
+            // Etapa 2: Verificação de distância
+            if let index = updated.firstIndex(where: { $0.type == .distance }) {
+                updated[index].isChecked = distanceCorrect
+            }
 
-        // Se a distância não estiver correta, todas as verificações subsequentes falham
-        if !distanceCorrect {
-            resetVerificationsAfter(.distance)
-            currentStep = .distance
-            verifications = updated
-            return
-        }
+            guard distanceCorrect else {
+                resetVerificationsAfter(.distance)
+                currentStep = .distance
+                verifications = updated
+                return
+            }
 
-        // Etapa 3: Centralização do rosto (depende da distância)
-        if let index = updated.firstIndex(where: { $0.type == .centering }) {
-            updated[index].isChecked = faceAligned
-        }
+            // Etapa 3: Centralização do rosto
+            if let index = updated.firstIndex(where: { $0.type == .centering }) {
+                updated[index].isChecked = faceAligned
+            }
 
-        // Se o rosto não estiver centralizado, as próximas falham
-        if !faceAligned {
-            resetVerificationsAfter(.centering)
-            currentStep = .centering
-            verifications = updated
-            return
-        }
+            guard faceAligned else {
+                resetVerificationsAfter(.centering)
+                currentStep = .centering
+                verifications = updated
+                return
+            }
 
-        // Etapa 4: Alinhamento da cabeça (depende da centralização)
-        if let index = updated.firstIndex(where: { $0.type == .headAlignment }) {
-            updated[index].isChecked = headAligned
-        }
+            // Etapa 4: Alinhamento da cabeça
+            if let index = updated.firstIndex(where: { $0.type == .headAlignment }) {
+                updated[index].isChecked = headAligned
+            }
 
-        // Se a cabeça não estiver alinhada, as próximas falham
-        if !headAligned {
-            resetVerificationsAfter(.headAlignment)
-            currentStep = .headAlignment
-            verifications = updated
-            return
-        }
+            guard headAligned else {
+                resetVerificationsAfter(.headAlignment)
+                currentStep = .headAlignment
+                verifications = updated
+                return
+            }
 
-        // Etapa 5: Detecção da armação (opcional, depende do alinhamento da cabeça)
-        if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
-            updated[index].isChecked = frameDetected
-        }
-        
-        // Se a armação for obrigatória mas não for detectada, as próximas falham
-        // Como é opcional para teste, continuamos mesmo se falhar
+            // Etapa 5: Detecção da armação (opcional)
+            if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
+                updated[index].isChecked = frameDetected
+            }
 
-        // Etapa 6: Alinhamento da armação (opcional, depende da detecção da armação)
-        if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
-            updated[index].isChecked = frameDetected && frameAligned
-        }
+            // Etapa 6: Inclinação da armação (opcional)
+            if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
+                updated[index].isChecked = frameDetected && frameAligned
+            }
 
-        // Etapa 7: Direção do olhar (depende de todas as anteriores)
-        if let index = updated.firstIndex(where: { $0.type == .gaze }) {
-            updated[index].isChecked = gazeCorrect
-        }
+            // Etapa 7: Direção do olhar
+            if let index = updated.firstIndex(where: { $0.type == .gaze }) {
+                updated[index].isChecked = gazeCorrect
+            }
 
-        currentStep = gazeCorrect ? .completed : .gaze
+            currentStep = gazeCorrect ? .completed : .gaze
 
-        // Atribui a cópia modificada para disparar atualização da interface
+            // Atualiza a propriedade publicada
             verifications = updated
         }
 
         if Thread.isMainThread {
-            work()
+            publishWork()
         } else {
-            DispatchQueue.main.async(execute: work)
+            DispatchQueue.main.async(execute: publishWork)
         }
     }
 
