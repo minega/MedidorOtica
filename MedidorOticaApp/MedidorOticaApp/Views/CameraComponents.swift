@@ -143,28 +143,35 @@ struct EllipticalProgressBar: Shape {
 }
 
 // MARK: - Destaque visual para a câmera
+/// Indica ao usuário a posição exata da lente frontal com um efeito pulsante.
 struct CameraHighlight: View {
     @State private var isAnimating = false
-    
+
     var body: some View {
-        ZStack {
-            // Círculo pulsante ao redor da posição da câmera
+        GeometryReader { geo in
             Circle()
-                .stroke(Color.green, lineWidth: 2)
+                .stroke(Color.green, lineWidth: 3)
                 .frame(width: 50, height: 50)
-                .scaleEffect(isAnimating ? 1.3 : 1.0)
-                .opacity(isAnimating ? 0.5 : 1.0)
-                // Posiciona o destaque onde está a câmera/Dynamic Island
-                .position(x: UIScreen.main.bounds.width / 2, y: 25) // Ajuste esta posição conforme necessário
-                .animation(
-                    Animation.easeInOut(duration: 1.2)
-                        .repeatForever(autoreverses: true),
-                    value: isAnimating
-                )
+                .scaleEffect(isAnimating ? 1.2 : 1.0)
+                .opacity(isAnimating ? 0.3 : 1.0)
+                .position(cameraPosition(in: geo))
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        isAnimating = true
+                    }
+                }
         }
-        .onAppear {
-            isAnimating = true
-        }
+        .allowsHitTesting(false)
+    }
+
+    /// Calcula a posição aproximada da câmera frontal considerando notch ou Dynamic Island.
+    private func cameraPosition(in geo: GeometryProxy) -> CGPoint {
+        let width = geo.size.width
+        let topInset = max(geo.safeAreaInsets.top, 44)
+        let isDynamicIsland = topInset > 47
+        let y = topInset - 14
+        let xOffset: CGFloat = isDynamicIsland ? 40 : 0
+        return CGPoint(x: width / 2 + xOffset, y: y)
     }
 }
 
