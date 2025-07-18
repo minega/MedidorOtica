@@ -72,18 +72,18 @@ struct CameraInstructions: View {
         
         // Determina a direção com base na posição atual
         if abs(xPos) > abs(yPos) {
-            // Movimento horizontal prioritário
+            // xPos representa o deslocamento vertical
             if xPos > 0.5 {
-                instruction = "➡️ Mova seu celular para a direita aproximadamente \(Int(abs(xPos))) cm"
+                instruction = "⬇️ Mova seu celular para baixo aproximadamente \(Int(abs(xPos))) cm"
             } else if xPos < -0.5 {
-                instruction = "⬅️ Mova seu celular para a esquerda aproximadamente \(Int(abs(xPos))) cm"
+                instruction = "⬆️ Mova seu celular para cima aproximadamente \(Int(abs(xPos))) cm"
             }
         } else {
-            // Movimento vertical prioritário
+            // yPos representa o deslocamento horizontal
             if yPos > 0.5 {
-                instruction = "⬆️ Mova seu celular para cima aproximadamente \(Int(abs(yPos))) cm"
+                instruction = "➡️ Mova seu celular para a direita aproximadamente \(Int(abs(yPos))) cm"
             } else if yPos < -0.5 {
-                instruction = "⬇️ Mova seu celular para baixo aproximadamente \(Int(abs(yPos))) cm"
+                instruction = "⬅️ Mova seu celular para a esquerda aproximadamente \(Int(abs(yPos))) cm"
             }
         }
         
