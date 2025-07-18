@@ -8,6 +8,7 @@
 
 import ARKit
 import Vision
+import simd
 
 // Extensão para verificação de alinhamento da cabeça
 extension VerificationManager {
@@ -26,7 +27,10 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            let euler = extractEulerAngles(from: anchor.transform)
+            // Converte a rotação do rosto para o sistema de coordenadas da câmera
+            let worldToCamera = simd_inverse(frame.camera.transform)
+            let headInCamera = simd_mul(worldToCamera, anchor.transform)
+            let euler = extractEulerAngles(from: headInCamera)
             rollDegrees = radiansToDegrees(euler.roll)
             yawDegrees = radiansToDegrees(euler.yaw)
             pitchDegrees = radiansToDegrees(euler.pitch)
@@ -72,30 +76,20 @@ extension VerificationManager {
         // A matriz de transformação do ARFaceAnchor contém informações de rotação
         // Os elementos da matriz 3x3 superior podem ser convertidos para ângulos de Euler
         
-        // Extrai a matriz de rotação 3x3 da transformação 4x4
-        let rotationMatrix = simd_float3x3(
-            simd_float3(transform.columns.0.x, transform.columns.0.y, transform.columns.0.z),
-            simd_float3(transform.columns.1.x, transform.columns.1.y, transform.columns.1.z),
-            simd_float3(transform.columns.2.x, transform.columns.2.y, transform.columns.2.z)
-        )
-        
-        // Converte a matriz de rotação para ângulos de Euler
-        var angles = EulerAngles(pitch: 0, yaw: 0, roll: 0)
-        
-        // Calcula pitch (rotação em X)
-        angles.pitch = asin(-rotationMatrix[2, 0])
-        
-        // Calcula yaw (rotação em Y)
-        if cos(angles.pitch) > 0.0001 {
-            angles.yaw = atan2(rotationMatrix[2, 1], rotationMatrix[2, 2])
-            angles.roll = atan2(rotationMatrix[1, 0], rotationMatrix[0, 0])
-        } else {
-            // Gimbal lock (quando pitch = ±90°)
-            angles.yaw = 0
-            angles.roll = atan2(-rotationMatrix[0, 1], rotationMatrix[1, 1])
-        }
-        
-        return angles
+        // Utiliza quaternions para evitar problemas de gimbal lock
+        let quat = simd_quatf(transform)
+
+        let qw = quat.real
+        let qx = quat.imag.x
+        let qy = quat.imag.y
+        let qz = quat.imag.z
+
+        // Fórmulas padrão de conversão quaternion -> ângulos de Euler
+        let pitch = atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy))
+        let yaw   = asin(max(-1, min(1, 2 * (qw * qy - qz * qx))))
+        let roll  = atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+
+        return EulerAngles(pitch: pitch, yaw: yaw, roll: roll)
     }
     
     // Converte ângulo de radianos para graus
