@@ -57,16 +57,7 @@ extension VerificationManager {
     ///   - vertical: Desvio vertical em centímetros
     /// - Returns: Desvios adaptados à orientação atual
     func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
-        switch UIDevice.current.orientation {
-        case .landscapeLeft:
-            // Eixo X da câmera corresponde ao eixo vertical da tela
-            return (vertical, -horizontal)
-        case .landscapeRight:
-            return (-vertical, horizontal)
-        case .portraitUpsideDown:
-            return (-horizontal, -vertical)
-        default:
-            return (horizontal, vertical)
-        }
+        // Orientação travada em retrato, não é necessário ajustar os eixos
+        return (horizontal, vertical)
     }
 }
