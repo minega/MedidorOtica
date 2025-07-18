@@ -92,7 +92,9 @@ extension VerificationManager {
         let midEyeY = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
 
         // Desvio horizontal do nariz em relação ao centro da lente
-        let horizontalOffset = noseCam.columns.3.x
+        // Para um ponto transformado (vetor 4D), o deslocamento em X é obtido
+        // diretamente da primeira coordenada
+        let horizontalOffset = noseCam.x
         // Desvio vertical levando em conta a altura das pupilas
         let verticalOffset = midEyeY
         let noseOffset = horizontalOffset
