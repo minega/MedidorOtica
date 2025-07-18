@@ -106,9 +106,7 @@ class VerificationManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self = self else { return }
             // Garante que o flag seja resetado mesmo em retornos antecipados
-            defer {
-                DispatchQueue.main.async { self.isProcessingFrame = false }
-            }
+            defer { isProcessingFrame = false }
             // MARK: Passo 1 - Detecção de rosto
             let facePresent = self.checkFaceDetection(using: frame)
             DispatchQueue.main.async { self.faceDetected = facePresent }
@@ -233,56 +231,56 @@ class VerificationManager: ObservableObject {
 
     // Reseta todas as verificações após um determinado tipo
     private func resetVerificationsAfter(_ type: VerificationType) {
-        // Encontra o índice da verificação especificada
         guard let typeIndex = verifications.firstIndex(where: { $0.type == type }) else { return }
 
-        // Obtemos os tipos das verificações subsequentes
         let subsequentTypes = VerificationType.allCases.filter { currentType in
             guard let currentIndex = verifications.firstIndex(where: { $0.type == currentType }) else { return false }
             return currentIndex > typeIndex
         }
 
-        // Reseta todas as verificações subsequentes usando uma cópia
-        var updated = verifications
-        for verificationType in subsequentTypes {
-            if let index = updated.firstIndex(where: { $0.type == verificationType }) {
-                updated[index].isChecked = false
+        DispatchQueue.main.async { [self] in
+            var updated = verifications
+
+            for verificationType in subsequentTypes {
+                if let index = updated.firstIndex(where: { $0.type == verificationType }) {
+                    updated[index].isChecked = false
+                }
+
+                switch verificationType {
+                case .distance:
+                    distanceCorrect = false
+                case .centering:
+                    faceAligned = false
+                case .headAlignment:
+                    headAligned = false
+                case .frameDetection:
+                    frameDetected = false
+                case .frameTilt:
+                    frameAligned = false
+                case .gaze:
+                    gazeCorrect = false
+                default:
+                    break
+                }
             }
 
-            // Reseta também os estados correspondentes
-            switch verificationType {
-            case .distance:
-                distanceCorrect = false
-            case .centering:
-                faceAligned = false
-            case .headAlignment:
-                headAligned = false
-            case .frameDetection:
-                frameDetected = false
-            case .frameTilt:
-                frameAligned = false
-            case .gaze:
-                gazeCorrect = false
-            default:
-                break
-            }
+            verifications = updated
         }
-
-        verifications = updated
     }
     
     // Atualiza o status das verificações com base nos estados atuais e na lógica sequencial
     // Atualiza o status das verificações e a máquina de estados
     private func updateVerificationStatus(throttled: Bool = false) {
-        if throttled {
-            let now = Date()
-            guard now.timeIntervalSince(lastPublishTime) >= publishInterval else { return }
-            lastPublishTime = now
-        }
+        let work = {
+            if throttled {
+                let now = Date()
+                guard now.timeIntervalSince(lastPublishTime) >= publishInterval else { return }
+                lastPublishTime = now
+            }
 
-        // Implementação da lógica sequencial - cada etapa depende da anterior
-        // Trabalhamos em uma cópia para garantir que o @Published notifique
-        var updated = verifications
+            // Implementação da lógica sequencial - cada etapa depende da anterior
+            // Trabalhamos em uma cópia para garantir que o @Published notifique
+            var updated = verifications
 
         // Etapa 1: Detecção de rosto (independente, sempre verificada)
         if let index = updated.firstIndex(where: { $0.type == .faceDetection }) {
@@ -357,7 +355,14 @@ class VerificationManager: ObservableObject {
         currentStep = gazeCorrect ? .completed : .gaze
 
         // Atribui a cópia modificada para disparar atualização da interface
-        verifications = updated
+            verifications = updated
+        }
+
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     /// Sincroniza `hasTrueDepth` e `hasLiDAR` com o `CameraManager`.
