@@ -27,8 +27,11 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Usa a rotação já fornecida pelo anchor, relativa à câmera
-            let euler = extractEulerAngles(from: anchor.transform)
+            // Calcula a rotação do rosto em relação à câmera
+            let cameraToWorld = frame.camera.transform
+            let worldToCamera = simd_inverse(cameraToWorld)
+            let relative = simd_mul(worldToCamera, anchor.transform)
+            let euler = extractEulerAngles(from: relative)
             rollDegrees = radiansToDegrees(euler.roll)
             yawDegrees = radiansToDegrees(euler.yaw)
             pitchDegrees = radiansToDegrees(euler.pitch)
@@ -46,17 +49,26 @@ extension VerificationManager {
         let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
 
         // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
-        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
+        // Verifica também se o dispositivo está alinhado (sem inclinação)
+        let camEuler = frame.camera.eulerAngles
+        let devicePitch = radiansToDegrees(camEuler.x)
+        let deviceRoll  = radiansToDegrees(camEuler.z)
+        let deviceAligned = abs(devicePitch) <= alignmentToleranceDegrees &&
+                            abs(deviceRoll)  <= alignmentToleranceDegrees
+
+        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned && deviceAligned
         
         DispatchQueue.main.async {
             // Armazena dados sobre o desalinhamento para feedback mais preciso
             self.alignmentData = [
                 "roll": rollDegrees,
                 "yaw": yawDegrees,
-                "pitch": pitchDegrees
+                "pitch": pitchDegrees,
+                "devicePitch": devicePitch,
+                "deviceRoll": deviceRoll
             ]
 
-            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
+            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, DispositivoPitch=\(devicePitch)°, DispositivoRoll=\(deviceRoll)°, Alinhado=\(isHeadAligned)")
         }
         
         return isHeadAligned
