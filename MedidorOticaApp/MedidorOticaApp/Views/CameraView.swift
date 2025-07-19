@@ -139,6 +139,11 @@ struct CameraView: View {
             // Oval centralizado com barra de progresso
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
+
+            // Destaque da posição da câmera durante a verificação do olhar
+            if verificationManager.currentStep == .gaze && !verificationManager.gazeCorrect {
+                CameraHighlight()
+            }
             
             // Overlay de controles (usando um VStack para elementos de interface)
             VStack {

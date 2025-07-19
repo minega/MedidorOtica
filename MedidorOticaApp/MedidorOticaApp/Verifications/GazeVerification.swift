@@ -3,12 +3,14 @@
 //  MedidorOticaApp
 //
 //  Verificação 7: Direção do olhar
-//  Utiliza ARKit para verificar se o olhar está perfeitamente alinhado com a câmera
+//  Utiliza ARKit/Vision para confirmar se o olhar converge para a lente
+//  Calcula o ângulo entre o vetor dos olhos e a posição da câmera
 //  Suporta câmera frontal (TrueDepth) e traseira (LiDAR)
 //
 
 import ARKit
 import Vision
+import simd
 
 // Extensão para verificação de direção do olhar
 extension VerificationManager {
@@ -19,7 +21,7 @@ extension VerificationManager {
     func checkGaze(using frame: ARFrame) -> Bool {
         if hasTrueDepth,
            let anchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
-            return checkGazeWithTrueDepth(faceAnchor: anchor)
+            return checkGazeWithTrueDepth(faceAnchor: anchor, frame: frame)
         }
         if hasLiDAR { return checkGazeWithLiDAR(frame: frame) }
 
@@ -28,7 +30,7 @@ extension VerificationManager {
     }
     
     // Implementação para a câmera frontal (TrueDepth)
-    private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor) -> Bool {
+    private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
         guard #available(iOS 12.0, *) else { return false }
 
         let shapes = faceAnchor.blendShapes
@@ -36,24 +38,34 @@ extension VerificationManager {
                       (shapes[.eyeBlinkRight]?.floatValue ?? 0) < 0.2
         guard blinkOk else { return false }
 
-        let limit: Float = 0.0001
-        let horizKeys: [ARFaceAnchor.BlendShapeLocation] = [.eyeLookInLeft, .eyeLookInRight, .eyeLookOutLeft, .eyeLookOutRight]
-        let vertKeys: [ARFaceAnchor.BlendShapeLocation] = [.eyeLookUpLeft, .eyeLookUpRight, .eyeLookDownLeft, .eyeLookDownRight]
+        // Utiliza a posição das lentes para calcular o vetor do olhar
+        let cameraPosition = simd_make_float3(frame.camera.transform.columns.3)
+        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
 
-        let horizontal = horizKeys.allSatisfy { (shapes[$0]?.floatValue ?? 0) < limit }
-        let vertical = vertKeys.allSatisfy { (shapes[$0]?.floatValue ?? 0) < limit }
-        let aligned = horizontal && vertical
+        let leftOrigin = simd_make_float3(leftEyeWorld.columns.3)
+        let rightOrigin = simd_make_float3(rightEyeWorld.columns.3)
+        let leftForward = simd_normalize(-simd_make_float3(leftEyeWorld.columns.2))
+        let rightForward = simd_normalize(-simd_make_float3(rightEyeWorld.columns.2))
+
+        let toCameraLeft = simd_normalize(cameraPosition - leftOrigin)
+        let toCameraRight = simd_normalize(cameraPosition - rightOrigin)
+
+        // Ângulo máximo em radianos permitido entre o vetor dos olhos e a posição da lente
+        // 3 graus fornece tolerância mínima para pequenos movimentos
+        let angleLimit: Float = .pi / 60
+
+        let leftDot = simd_dot(leftForward, toCameraLeft)
+        let rightDot = simd_dot(rightForward, toCameraRight)
+        let leftAngle = acos(clamp(leftDot, min: -1, max: 1))
+        let rightAngle = acos(clamp(rightDot, min: -1, max: 1))
+
+        let aligned = leftAngle < angleLimit && rightAngle < angleLimit
 
         DispatchQueue.main.async {
             self.gazeData = [
-                "leftIn": shapes[.eyeLookInLeft]?.floatValue ?? 0,
-                "rightIn": shapes[.eyeLookInRight]?.floatValue ?? 0,
-                "leftOut": shapes[.eyeLookOutLeft]?.floatValue ?? 0,
-                "rightOut": shapes[.eyeLookOutRight]?.floatValue ?? 0,
-                "leftUp": shapes[.eyeLookUpLeft]?.floatValue ?? 0,
-                "rightUp": shapes[.eyeLookUpRight]?.floatValue ?? 0,
-                "leftDown": shapes[.eyeLookDownLeft]?.floatValue ?? 0,
-                "rightDown": shapes[.eyeLookDownRight]?.floatValue ?? 0
+                "leftAngle": leftAngle,
+                "rightAngle": rightAngle
             ]
             print("Verificação de olhar (ARKit): \(aligned)")
         }
@@ -138,7 +150,14 @@ extension VerificationManager {
     }
     
     // Mantém a função original para compatibilidade com código existente
-    func checkGaze(using faceAnchor: ARFaceAnchor) -> Bool {
-        return checkGazeWithTrueDepth(faceAnchor: faceAnchor)
+    func checkGaze(using faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
+        return checkGazeWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
+    }
+
+    /// Limita um valor dentro de um intervalo fechado
+    private func clamp(_ value: Float, min: Float, max: Float) -> Float {
+        if value < min { return min }
+        if value > max { return max }
+        return value
     }
 }

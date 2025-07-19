@@ -116,12 +116,7 @@ struct CameraInstructions: View {
     
     // View específica para instruções de olhar
     private func gazeInstructionView() -> some View {
-        VStack(spacing: 12) {
-            instructionView(text: "👁️ Olhe diretamente para a lente da câmera, sem desviar o olhar")
-            
-            // Destaque visual para a câmera
-            CameraHighlight()
-        }
+        instructionView(text: "👁️ Olhe diretamente para a lente da câmera, sem desviar o olhar")
     }
 }
 
