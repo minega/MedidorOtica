@@ -140,4 +140,23 @@ extension CameraManager {
         session.commitConfiguration()
         videoDeviceInput = nil
     }
+
+    /// Reinicia a sessão atual após interrupções ou falhas
+    func restartSession() {
+        if isUsingARSession {
+            let configuration = createARConfiguration()
+            arSession?.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            isSessionRunning = true
+            print("Sessão AR reiniciada")
+        } else {
+            sessionQueue.async { [weak self] in
+                guard let self = self else { return }
+                if !self.session.isRunning {
+                    self.session.startRunning()
+                    DispatchQueue.main.async { self.isSessionRunning = true }
+                    print("Sessão da câmera reiniciada")
+                }
+            }
+        }
+    }
 }

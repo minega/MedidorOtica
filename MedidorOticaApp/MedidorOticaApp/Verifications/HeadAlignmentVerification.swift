@@ -27,11 +27,15 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Extrai os ângulos diretamente do anchor, método mais confiável
-            let euler = extractEulerAngles(from: anchor.transform)
+            // Extrai ângulos relativos à câmera para evitar desalinhamentos
+            let worldToCamera = simd_inverse(frame.camera.transform)
+            let faceToCamera = simd_mul(worldToCamera, anchor.transform)
+            let euler = extractEulerAngles(from: faceToCamera)
 
-            rollDegrees  = radiansToDegrees(euler.roll)
-            yawDegrees   = radiansToDegrees(euler.yaw)
+            let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+
+            rollDegrees  = radiansToDegrees(euler.roll) * sign
+            yawDegrees   = radiansToDegrees(euler.yaw) * sign
             pitchDegrees = radiansToDegrees(euler.pitch)
         } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
             rollDegrees = angles.roll

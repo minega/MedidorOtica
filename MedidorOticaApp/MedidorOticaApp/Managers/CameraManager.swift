@@ -136,9 +136,14 @@ extension CameraManager: ARSessionDelegate {
 
     func session(_ session: ARSession, didFailWithError error: Error) {
         publishARError("Sessão AR falhou: \(error.localizedDescription)")
+        restartSession()
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         publishARError("Sessão AR interrompida")
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        restartSession()
     }
 }

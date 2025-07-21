@@ -41,13 +41,19 @@ extension VerificationManager {
                        y: sumY / CGFloat(points.count))
     }
 
-    /// Retorna a orientação atual do dispositivo para uso no Vision
+    /// Retorna a orientação atual considerando a posição da câmera
     func currentCGOrientation() -> CGImagePropertyOrientation {
+        let position = CameraManager.shared.cameraPosition
+
         switch UIDevice.current.orientation {
-        case .landscapeLeft:  return .up
-        case .landscapeRight: return .down
-        case .portraitUpsideDown: return .left
-        default: return .right
+        case .landscapeLeft:
+            return position == .front ? .downMirrored : .up
+        case .landscapeRight:
+            return position == .front ? .upMirrored : .down
+        case .portraitUpsideDown:
+            return position == .front ? .rightMirrored : .left
+        default:
+            return position == .front ? .leftMirrored : .right
         }
     }
 

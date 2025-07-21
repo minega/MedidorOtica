@@ -39,7 +39,9 @@ extension CameraManager {
             return
         }
 
-        let image = UIImage(cgImage: cgImage)
+        // Ajusta a orientação da imagem conforme a posição da câmera
+        let orientation: UIImage.Orientation = cameraPosition == .front ? .leftMirrored : .right
+        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
         print("Imagem capturada da sessão AR com sucesso")
         DispatchQueue.main.async { completion(image) }
     }
