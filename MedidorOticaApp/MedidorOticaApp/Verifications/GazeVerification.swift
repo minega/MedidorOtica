@@ -11,6 +11,7 @@
 import ARKit
 import Vision
 import simd
+import UIKit
 
 // Extensão para verificação de direção do olhar
 extension VerificationManager {
@@ -37,6 +38,23 @@ extension VerificationManager {
         print("ERRO: Nenhum sensor de profundidade disponível para verificação do olhar")
         return false
     }
+
+    // MARK: - Atualização das Pupilas
+    /// Calcula e publica a posição das pupilas para depuração visual.
+    /// - Parameter frame: Frame atual processado pela sessão AR.
+    func updatePupilPoints(using frame: ARFrame) {
+        var left: CGPoint?
+        var right: CGPoint?
+
+        if hasTrueDepth || hasLiDAR {
+            (left, right) = visionPupilPoints(from: frame)
+        }
+
+        DispatchQueue.main.async {
+            self.leftPupilPoint = left
+            self.rightPupilPoint = right
+        }
+    }
     
     // Implementação para a câmera frontal (TrueDepth)
     private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
@@ -48,6 +66,9 @@ extension VerificationManager {
                       (shapes[.eyeBlinkRight]?.floatValue ?? 0) < 0.3
         guard blinkOk else { return false }
 
+        // Pontos normalizados das pupilas
+        let (leftNorm, rightNorm) = pupilPointsTrueDepth(anchor: faceAnchor, frame: frame)
+
         // Converte o ponto observado para o sistema da câmera
         let worldToCamera = simd_inverse(frame.camera.transform)
         let lookPointWorld = simd_make_float4(faceAnchor.lookAtPoint, 1)
@@ -57,12 +78,14 @@ extension VerificationManager {
         let lookVector = simd_normalize(simd_make_float3(lookPointCamera))
         let cameraForward = simd_float3(0, 0, -1)
 
-        let angle = acos(clamp(simd_dot(lookVector, cameraForward),
-                              min: -1, max: 1))
+        let angle = acos(clamp(simd_dot(lookVector, cameraForward), min: -1, max: 1))
         let aligned = angle < GazeConfig.angleLimit
 
         DispatchQueue.main.async {
+            self.leftPupilPoint = leftNorm
+            self.rightPupilPoint = rightNorm
             self.gazeData = ["angle": angle]
+            print("Pupila esquerda: \(leftNorm), direita: \(rightNorm)")
             print("Verificação de olhar (TrueDepth): \(aligned)")
         }
 
@@ -85,14 +108,27 @@ extension VerificationManager {
                 return false
             }
 
-            let leftDeviation = eyeDeviation(eye: leftEye, pupil: leftPupil)
-            let rightDeviation = eyeDeviation(eye: rightEye, pupil: rightPupil)
-            let aligned = leftDeviation < GazeConfig.deviationThreshold &&
-                          rightDeviation < GazeConfig.deviationThreshold &&
-                          headIsCentered(face)
+            let leftDev = eyeDeviation(eye: leftEye, pupil: leftPupil)
+            let rightDev = eyeDeviation(eye: rightEye, pupil: rightPupil)
+            let aligned = leftDev < GazeConfig.deviationThreshold &&
+                          rightDev < GazeConfig.deviationThreshold
+
+            let leftP = averagePoint(from: leftPupil.normalizedPoints)
+            let rightP = averagePoint(from: rightPupil.normalizedPoints)
+            let bounding = face.boundingBox
+            let leftAbs = CGPoint(x: bounding.origin.x + leftP.x * bounding.width,
+                                  y: bounding.origin.y + leftP.y * bounding.height)
+            let rightAbs = CGPoint(x: bounding.origin.x + rightP.x * bounding.width,
+                                   y: bounding.origin.y + rightP.y * bounding.height)
+            // Mantém a origem no canto superior esquerdo do overlay.
+            let leftNorm = CGPoint(x: leftAbs.x, y: leftAbs.y)
+            let rightNorm = CGPoint(x: rightAbs.x, y: rightAbs.y)
 
             DispatchQueue.main.async {
+                self.leftPupilPoint = leftNorm
+                self.rightPupilPoint = rightNorm
                 self.gazeData = ["aligned": aligned ? 1.0 : 0.0]
+                print("Pupila esquerda: \(leftNorm), direita: \(rightNorm)")
                 print("Verificação de olhar (LiDAR): \(aligned)")
             }
 
@@ -110,19 +146,53 @@ extension VerificationManager {
         return hypot(pupilCenter.x - eyeCenter.x, pupilCenter.y - eyeCenter.y)
     }
 
-    /// Verifica se a cabeça está centralizada (mínima rotação)
-    private func headIsCentered(_ face: VNFaceObservation) -> Bool {
-        let roll = face.roll?.doubleValue ?? 0.0
-        let yaw = face.yaw?.doubleValue ?? 0.0
-        let pitch = face.pitch?.doubleValue ?? 0.0
-        let limit = 0.1 // ~6 graus
-        return abs(roll) < limit && abs(yaw) < limit && abs(pitch) < limit
-    }
-
     /// Limita um valor dentro de um intervalo fechado
     private func clamp(_ value: Float, min: Float, max: Float) -> Float {
         if value < min { return min }
         if value > max { return max }
         return value
+    }
+
+    // MARK: - Cálculo dos Pontos das Pupilas
+    /// Extrai as pupilas do frame usando Vision e retorna pontos normalizados.
+    /// - Parameter frame: `ARFrame` capturado no momento.
+    /// - Returns: Tupla com os pontos das pupilas esquerda e direita.
+    private func visionPupilPoints(from frame: ARFrame) -> (CGPoint?, CGPoint?) {
+        let request = VNDetectFaceLandmarksRequest()
+        let orientation = currentCGOrientation()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: orientation,
+                                            options: [:])
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first as? VNFaceObservation,
+                  let left = face.landmarks?.leftPupil,
+                  let right = face.landmarks?.rightPupil else {
+                return (nil, nil)
+            }
+
+            let leftPoint = averagePoint(from: left.normalizedPoints)
+            let rightPoint = averagePoint(from: right.normalizedPoints)
+            let bounding = face.boundingBox
+            let leftAbs = CGPoint(x: bounding.origin.x + leftPoint.x * bounding.width,
+                                  y: bounding.origin.y + leftPoint.y * bounding.height)
+            let rightAbs = CGPoint(x: bounding.origin.x + rightPoint.x * bounding.width,
+                                   y: bounding.origin.y + rightPoint.y * bounding.height)
+            let leftNorm = CGPoint(x: leftAbs.x, y: 1.0 - leftAbs.y)
+            let rightNorm = CGPoint(x: rightAbs.x, y: 1.0 - rightAbs.y)
+            return (leftNorm, rightNorm)
+        } catch {
+            print("ERRO ao extrair pupilas: \(error)")
+            return (nil, nil)
+        }
+    }
+
+    private func pupilPointsTrueDepth(anchor: ARFaceAnchor, frame: ARFrame) -> (CGPoint?, CGPoint?) {
+        return visionPupilPoints(from: frame)
+    }
+
+    @available(iOS 13.4, *)
+    private func pupilPointsLiDAR(frame: ARFrame) -> (CGPoint?, CGPoint?) {
+        return visionPupilPoints(from: frame)
     }
 }
