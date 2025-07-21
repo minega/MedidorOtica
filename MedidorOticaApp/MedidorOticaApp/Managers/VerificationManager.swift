@@ -131,7 +131,7 @@ class VerificationManager: ObservableObject {
             }
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
-            self.updatePupilPoints(using: frame, faceAnchor: faceAnchor)
+            self.updatePupilPoints(using: frame)
 
             // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
