@@ -14,7 +14,16 @@ import simd
 
 // Extensão para verificação de direção do olhar
 extension VerificationManager {
-    
+
+    // MARK: - Configuração de Margem de Erro
+    /// Ajuste aqui os limites de tolerância para cada sensor
+    private enum GazeConfig {
+        /// Máximo em radianos para desvio do olhar no TrueDepth
+        static var angleLimit: Float = .pi / 12 // ±15 graus
+        /// Máximo em pontos normalizados para desvio da pupila no LiDAR
+        static var deviationThreshold: CGFloat = 0.08
+    }
+
     // MARK: - Verificação 7: Direção do Olhar
     
     /// Verifica a direção do olhar utilizando o sensor disponível
@@ -33,39 +42,27 @@ extension VerificationManager {
     private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
         guard #available(iOS 12.0, *) else { return false }
 
-        // Permite pequena margem para piscadas involuntárias
+        // Permite piscadas curtas sem invalidar a verificação
         let shapes = faceAnchor.blendShapes
         let blinkOk = (shapes[.eyeBlinkLeft]?.floatValue ?? 0) < 0.3 &&
                       (shapes[.eyeBlinkRight]?.floatValue ?? 0) < 0.3
         guard blinkOk else { return false }
 
-        // Posição do dispositivo
-        let cameraPos = simd_make_float3(frame.camera.transform.columns.3)
+        // Converte o ponto observado para o sistema da câmera
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let lookPointWorld = simd_make_float4(faceAnchor.lookAtPoint, 1)
+        let lookPointCamera = simd_mul(worldToCamera, lookPointWorld)
 
-        // Matriz dos olhos no sistema do mundo
-        let leftEyeMatrix = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
-        let rightEyeMatrix = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+        // Vetor de observação normalizado
+        let lookVector = simd_normalize(simd_make_float3(lookPointCamera))
+        let cameraForward = simd_float3(0, 0, -1)
 
-        // Vetores olhando para frente de cada olho (eixo -Z)
-        let leftForward = -simd_make_float3(leftEyeMatrix.columns.2)
-        let rightForward = -simd_make_float3(rightEyeMatrix.columns.2)
-
-        // Vetores dos olhos até a câmera
-        let leftToCamera = simd_normalize(cameraPos - simd_make_float3(leftEyeMatrix.columns.3))
-        let rightToCamera = simd_normalize(cameraPos - simd_make_float3(rightEyeMatrix.columns.3))
-
-        // Ângulo entre o vetor do olho e a câmera
-        let leftAngle = acos(clamp(simd_dot(simd_normalize(leftForward), leftToCamera), min: -1, max: 1))
-        let rightAngle = acos(clamp(simd_dot(simd_normalize(rightForward), rightToCamera), min: -1, max: 1))
-
-        let angleLimit: Float = .pi / 12 // ±15 graus
-        let aligned = leftAngle < angleLimit && rightAngle < angleLimit
+        let angle = acos(clamp(simd_dot(lookVector, cameraForward),
+                              min: -1, max: 1))
+        let aligned = angle < GazeConfig.angleLimit
 
         DispatchQueue.main.async {
-            self.gazeData = [
-                "left": leftAngle,
-                "right": rightAngle
-            ]
+            self.gazeData = ["angle": angle]
             print("Verificação de olhar (TrueDepth): \(aligned)")
         }
 
@@ -88,9 +85,11 @@ extension VerificationManager {
                 return false
             }
 
-            let aligned = checkEyeAlignment(leftEye: leftEye, rightEye: rightEye,
-                                            leftPupil: leftPupil, rightPupil: rightPupil) &&
-                           checkHeadRotation(faceObservation: face)
+            let leftDeviation = eyeDeviation(eye: leftEye, pupil: leftPupil)
+            let rightDeviation = eyeDeviation(eye: rightEye, pupil: rightPupil)
+            let aligned = leftDeviation < GazeConfig.deviationThreshold &&
+                          rightDeviation < GazeConfig.deviationThreshold &&
+                          headIsCentered(face)
 
             DispatchQueue.main.async {
                 self.gazeData = ["aligned": aligned ? 1.0 : 0.0]
@@ -103,54 +102,21 @@ extension VerificationManager {
             return false
         }
     }
-    
-    // Função auxiliar para verificar o alinhamento dos olhos
-    private func checkEyeAlignment(leftEye: VNFaceLandmarkRegion2D, rightEye: VNFaceLandmarkRegion2D,
-                                leftPupil: VNFaceLandmarkRegion2D, rightPupil: VNFaceLandmarkRegion2D) -> Bool {
-        
-        // Calcula os centros dos olhos
-        let leftEyePoints = leftEye.normalizedPoints
-        let rightEyePoints = rightEye.normalizedPoints
-        let leftPupilPoints = leftPupil.normalizedPoints
-        let rightPupilPoints = rightPupil.normalizedPoints
-        
-        // Calcula os centros médios
-        let leftEyeCenter = averagePoint(from: leftEyePoints)
-        let rightEyeCenter = averagePoint(from: rightEyePoints)
-        let leftPupilCenter = averagePoint(from: leftPupilPoints)
-        let rightPupilCenter = averagePoint(from: rightPupilPoints)
-        
-        // Calcula os desvios
-        let leftDeviationX = abs(leftPupilCenter.x - leftEyeCenter.x)
-        let rightDeviationX = abs(rightPupilCenter.x - rightEyeCenter.x)
-        let leftDeviationY = abs(leftPupilCenter.y - leftEyeCenter.y)
-        let rightDeviationY = abs(rightPupilCenter.y - rightEyeCenter.y)
-        
-        // Threshold mais permissivo para maior confiabilidade
-        let deviationThreshold: CGFloat = 0.08
-        
-        // O olhar está alinhado se as pupilas estiverem centradas
-        return leftDeviationX < deviationThreshold && rightDeviationX < deviationThreshold &&
-               leftDeviationY < deviationThreshold && rightDeviationY < deviationThreshold
+
+    /// Distância da pupila até o centro do olho
+    private func eyeDeviation(eye: VNFaceLandmarkRegion2D, pupil: VNFaceLandmarkRegion2D) -> CGFloat {
+        let eyeCenter = averagePoint(from: eye.normalizedPoints)
+        let pupilCenter = averagePoint(from: pupil.normalizedPoints)
+        return hypot(pupilCenter.x - eyeCenter.x, pupilCenter.y - eyeCenter.y)
     }
-    
-    // Função auxiliar para verificar a rotação da cabeça
-    private func checkHeadRotation(faceObservation: VNFaceObservation) -> Bool {
-        // Obtém os ângulos de rotação se disponíveis
-        let roll = faceObservation.roll?.doubleValue ?? 0.0
-        let yaw = faceObservation.yaw?.doubleValue ?? 0.0
-        let pitch = faceObservation.pitch?.doubleValue ?? 0.0
-        
-        // Threshold rigoroso para a rotação da cabeça (0.15 radianos ≈ 8.6 graus)
-        let rotationThreshold = 0.15
-        
-        // A cabeça está alinhada se todas as rotações forem mínimas
-        return abs(roll) < rotationThreshold && abs(yaw) < rotationThreshold && abs(pitch) < rotationThreshold
-    }
-    
-    // Mantém a função original para compatibilidade com código existente
-    func checkGaze(using faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
-        return checkGazeWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
+
+    /// Verifica se a cabeça está centralizada (mínima rotação)
+    private func headIsCentered(_ face: VNFaceObservation) -> Bool {
+        let roll = face.roll?.doubleValue ?? 0.0
+        let yaw = face.yaw?.doubleValue ?? 0.0
+        let pitch = face.pitch?.doubleValue ?? 0.0
+        let limit = 0.1 // ~6 graus
+        return abs(roll) < limit && abs(yaw) < limit && abs(pitch) < limit
     }
 
     /// Limita um valor dentro de um intervalo fechado

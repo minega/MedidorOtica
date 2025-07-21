@@ -27,10 +27,8 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Matriz do rosto relativa à câmera
-            let relative = simd_mul(simd_inverse(frame.camera.transform),
-                                   anchor.transform)
-            let euler = extractEulerAngles(from: relative)
+            // Extrai os ângulos diretamente do anchor, método mais confiável
+            let euler = extractEulerAngles(from: anchor.transform)
 
             rollDegrees  = radiansToDegrees(euler.roll)
             yawDegrees   = radiansToDegrees(euler.yaw)
