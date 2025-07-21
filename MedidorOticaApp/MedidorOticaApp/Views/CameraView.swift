@@ -140,6 +140,9 @@ struct CameraView: View {
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
 
+            // Overlay para visualizar as pupilas detectadas
+            PupilOverlay(verificationManager: verificationManager)
+
             // Destaque da posição da câmera durante a verificação do olhar
             if verificationManager.currentStep == .gaze && !verificationManager.gazeCorrect {
                 CameraHighlight()

@@ -44,6 +44,10 @@ class VerificationManager: ObservableObject {
     @Published var gazeData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
+
+    // Pontos normalizados das pupilas para depuração visual
+    @Published var leftPupilPoint: CGPoint?
+    @Published var rightPupilPoint: CGPoint?
     
     // Configurações
     /// Distância mínima permitida em centímetros
@@ -114,6 +118,10 @@ class VerificationManager: ObservableObject {
             DispatchQueue.main.async { self.faceDetected = facePresent }
 
             guard facePresent else {
+                DispatchQueue.main.async {
+                    self.leftPupilPoint = nil
+                    self.rightPupilPoint = nil
+                }
                 self.resetNonFaceVerifications()
                 DispatchQueue.main.async { [weak self] in
                     self?.updateVerificationStatus(throttled: true)
@@ -123,6 +131,7 @@ class VerificationManager: ObservableObject {
             }
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
+            self.updatePupilPoints(using: frame, faceAnchor: faceAnchor)
 
             // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
