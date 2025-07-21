@@ -27,13 +27,17 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Calcula a rotação do rosto em relação à câmera
-            let cameraToWorld = frame.camera.transform
-            let worldToCamera = simd_inverse(cameraToWorld)
-            let relative = simd_mul(worldToCamera, anchor.transform)
+            // Quaternions do rosto e da câmera
+            let faceQuat = simd_quatf(anchor.transform)
+            let camQuat  = simd_quatf(frame.camera.transform)
+
+            // Rotação relativa rosto -> câmera
+            let relativeQuat = simd_normalize(camQuat.inverse * faceQuat)
+            let relative = simd_float4x4(relativeQuat)
             let euler = extractEulerAngles(from: relative)
-            rollDegrees = radiansToDegrees(euler.roll)
-            yawDegrees = radiansToDegrees(euler.yaw)
+
+            rollDegrees  = radiansToDegrees(euler.roll)
+            yawDegrees   = radiansToDegrees(euler.yaw)
             pitchDegrees = radiansToDegrees(euler.pitch)
         } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
             rollDegrees = angles.roll
@@ -49,26 +53,17 @@ extension VerificationManager {
         let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
 
         // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
-        // Verifica também se o dispositivo está alinhado (sem inclinação)
-        let camEuler = frame.camera.eulerAngles
-        let devicePitch = radiansToDegrees(camEuler.x)
-        let deviceRoll  = radiansToDegrees(camEuler.z)
-        let deviceAligned = abs(devicePitch) <= alignmentToleranceDegrees &&
-                            abs(deviceRoll)  <= alignmentToleranceDegrees
-
-        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned && deviceAligned
+        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
         
         DispatchQueue.main.async {
             // Armazena dados sobre o desalinhamento para feedback mais preciso
             self.alignmentData = [
                 "roll": rollDegrees,
                 "yaw": yawDegrees,
-                "pitch": pitchDegrees,
-                "devicePitch": devicePitch,
-                "deviceRoll": deviceRoll
+                "pitch": pitchDegrees
             ]
 
-            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, DispositivoPitch=\(devicePitch)°, DispositivoRoll=\(deviceRoll)°, Alinhado=\(isHeadAligned)")
+            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
         }
         
         return isHeadAligned
