@@ -33,29 +33,40 @@ extension VerificationManager {
     private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
         guard #available(iOS 12.0, *) else { return false }
 
+        // Permite pequena margem para piscadas involuntárias
         let shapes = faceAnchor.blendShapes
-        let blinkOk = (shapes[.eyeBlinkLeft]?.floatValue ?? 0) < 0.2 &&
-                      (shapes[.eyeBlinkRight]?.floatValue ?? 0) < 0.2
+        let blinkOk = (shapes[.eyeBlinkLeft]?.floatValue ?? 0) < 0.3 &&
+                      (shapes[.eyeBlinkRight]?.floatValue ?? 0) < 0.3
         guard blinkOk else { return false }
 
-        // Vetor de onde o usuário está olhando
-        let cameraPosition = simd_make_float3(frame.camera.transform.columns.3)
-        let facePosition = simd_make_float3(faceAnchor.transform.columns.3)
-        let lookAt = faceAnchor.lookAtPoint
+        // Posição do dispositivo
+        let cameraPos = simd_make_float3(frame.camera.transform.columns.3)
 
-        // Calcula o ângulo entre o vetor olhar -> ponto e o vetor olhar -> câmera
-        let toCamera = simd_normalize(cameraPosition - facePosition)
-        let gazeDir  = simd_normalize(lookAt - facePosition)
+        // Matriz dos olhos no sistema do mundo
+        let leftEyeMatrix = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeMatrix = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
 
-        let angleLimit: Float = .pi / 60 // ±3 graus
-        let dotValue   = simd_dot(toCamera, gazeDir)
-        let angle      = acos(clamp(dotValue, min: -1, max: 1))
+        // Vetores olhando para frente de cada olho (eixo -Z)
+        let leftForward = -simd_make_float3(leftEyeMatrix.columns.2)
+        let rightForward = -simd_make_float3(rightEyeMatrix.columns.2)
 
-        let aligned = angle < angleLimit
+        // Vetores dos olhos até a câmera
+        let leftToCamera = simd_normalize(cameraPos - simd_make_float3(leftEyeMatrix.columns.3))
+        let rightToCamera = simd_normalize(cameraPos - simd_make_float3(rightEyeMatrix.columns.3))
+
+        // Ângulo entre o vetor do olho e a câmera
+        let leftAngle = acos(clamp(simd_dot(simd_normalize(leftForward), leftToCamera), min: -1, max: 1))
+        let rightAngle = acos(clamp(simd_dot(simd_normalize(rightForward), rightToCamera), min: -1, max: 1))
+
+        let angleLimit: Float = .pi / 12 // ±15 graus
+        let aligned = leftAngle < angleLimit && rightAngle < angleLimit
 
         DispatchQueue.main.async {
-            self.gazeData = ["angle": angle]
-            print("Verificação de olhar (ARKit): \(aligned)")
+            self.gazeData = [
+                "left": leftAngle,
+                "right": rightAngle
+            ]
+            print("Verificação de olhar (TrueDepth): \(aligned)")
         }
 
         return aligned
@@ -115,8 +126,8 @@ extension VerificationManager {
         let leftDeviationY = abs(leftPupilCenter.y - leftEyeCenter.y)
         let rightDeviationY = abs(rightPupilCenter.y - rightEyeCenter.y)
         
-        // Threshold rigoroso para o olhar
-        let deviationThreshold: CGFloat = 0.05
+        // Threshold mais permissivo para maior confiabilidade
+        let deviationThreshold: CGFloat = 0.08
         
         // O olhar está alinhado se as pupilas estiverem centradas
         return leftDeviationX < deviationThreshold && rightDeviationX < deviationThreshold &&
