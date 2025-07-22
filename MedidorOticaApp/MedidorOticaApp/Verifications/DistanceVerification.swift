@@ -142,7 +142,6 @@ extension VerificationManager {
     /// Mede a distância usando o sensor LiDAR
     /// - Parameter frame: O frame AR atual para análise
     /// - Returns: Distância em metros ou 0 se inválida
-    @available(iOS 13.4, *)
     private func getMeasuredDistanceWithLiDAR(frame: ARFrame) -> Float {
         // Obtém os dados de profundidade do frame AR
         guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else {
@@ -151,9 +150,8 @@ extension VerificationManager {
         }
         
         // Requisição usando a revisão mais recente do Vision
-        let request = VNDetectFaceLandmarksRequest(
-            revision: VNDetectFaceLandmarksRequestRevision3
-        )
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: currentCGOrientation(),
                                             options: [:])

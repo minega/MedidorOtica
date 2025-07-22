@@ -47,7 +47,6 @@ extension VerificationManager {
     }
     
     // MARK: - Detecção com LiDAR (Câmera Traseira)
-    @available(iOS 13.4, *)
     private func checkFaceDetectionWithLiDAR(frame: ARFrame) -> Bool {
         // Acessa dados de profundidade do LiDAR
         guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else {
@@ -62,9 +61,8 @@ extension VerificationManager {
         
         // Configura a detecção de rosto usando Vision
         // Usa a revisão mais recente para melhor precisão (iOS 17+)
-        let request = VNDetectFaceRectanglesRequest(
-            revision: VNDetectFaceRectanglesRequestRevision3
-        )
+        let request = VNDetectFaceRectanglesRequest()
+        request.revision = VNDetectFaceRectanglesRequestRevision3
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
             orientation: currentCGOrientation(),

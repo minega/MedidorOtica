@@ -67,8 +67,10 @@ class VerificationManager: ObservableObject {
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
     /// Histórico de resultados da detecção de armação para evitar oscilações
-    private var frameDetectionHistory: [Bool] = []
-    private let frameHistoryLimit = 5
+    /// Histórico recente das detecções de armação para reduzir falsos positivos
+    var frameDetectionHistory: [Bool] = []
+    /// Tamanho máximo do histórico utilizado para a média
+    var frameHistoryLimit = 5
 
     private init() {
         // Inicializa as verificações

@@ -10,7 +10,9 @@
 
 import ARKit
 import Vision
+#if canImport(VisionKit)
 import VisionKit
+#endif
 import simd
 import UIKit
 
@@ -31,9 +33,12 @@ extension VerificationManager {
     /// Verifica a direção do olhar utilizando o sensor disponível.
     /// Para iOS 17+ é utilizado `VNGazeTrackingRequest` para melhor precisão.
     func checkGaze(using frame: ARFrame) -> Bool {
-        if #available(iOS 17.0, *), let gazeResult = checkGazeWithVisionKit(frame: frame) {
+#if canImport(VisionKit)
+        if #available(iOS 17, *),
+           let gazeResult = checkGazeWithVisionKit(frame: frame) {
             return gazeResult
         }
+#endif
 
         if hasTrueDepth,
            let anchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
@@ -64,8 +69,6 @@ extension VerificationManager {
     
     // Implementação para a câmera frontal (TrueDepth)
     private func checkGazeWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
-        guard #available(iOS 12.0, *) else { return false }
-
         // Permite piscadas curtas sem invalidar a verificação
         let shapes = faceAnchor.blendShapes
         let blinkOk = (shapes[.eyeBlinkLeft]?.floatValue ?? 0) < 0.3 &&
@@ -99,9 +102,9 @@ extension VerificationManager {
     }
     
     // Implementação para a câmera traseira (LiDAR)
-    @available(iOS 13.4, *)
     private func checkGazeWithLiDAR(frame: ARFrame) -> Bool {
-        let request = VNDetectFaceLandmarksRequest(revision: VNDetectFaceLandmarksRequestRevision3)
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: currentCGOrientation(),
                                             options: [:])
@@ -146,8 +149,12 @@ extension VerificationManager {
     }
 
     // MARK: - Novidade iOS 17
-    /// Utiliza VisionKit para rastrear o olhar com maior precisão.
-    @available(iOS 17.0, *)
+#if canImport(VisionKit)
+    /// Utiliza VisionKit para rastrear o olhar quando disponível.
+    /// - Note: `VNGazeTrackingRequest` e `VNGazeTrackingObservation` foram
+    /// introduzidos no iOS 17. Caso o SDK seja mais antigo, o código é
+    /// ignorado pelo `canImport`.
+    @available(iOS 17, *)
     private func checkGazeWithVisionKit(frame: ARFrame) -> Bool? {
         let request = VNGazeTrackingRequest()
         let handler = VNImageRequestHandler(
@@ -160,7 +167,8 @@ extension VerificationManager {
             guard let observation = request.results?.first as? VNGazeTrackingObservation else {
                 return nil
             }
-            let deviation = hypot(observation.origin.x - 0.5, observation.origin.y - 0.5)
+            let deviation = hypot(observation.origin.x - 0.5,
+                                  observation.origin.y - 0.5)
             let aligned = deviation < Double(GazeConfig.deviationThreshold)
             return aligned
         } catch {
@@ -168,6 +176,7 @@ extension VerificationManager {
             return nil
         }
     }
+#endif
 
     /// Distância da pupila até o centro do olho
     private func eyeDeviation(eye: VNFaceLandmarkRegion2D, pupil: VNFaceLandmarkRegion2D) -> CGFloat {
@@ -188,7 +197,8 @@ extension VerificationManager {
     /// - Parameter frame: `ARFrame` capturado no momento.
     /// - Returns: Tupla com os pontos das pupilas esquerda e direita.
     private func visionPupilPoints(from frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        let request = VNDetectFaceLandmarksRequest(revision: VNDetectFaceLandmarksRequestRevision3)
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
         let orientation = currentCGOrientation()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: orientation,
@@ -217,5 +227,4 @@ extension VerificationManager {
         }
     }
 
-    // As funções a seguir eram duplicadas e foram removidas.
 }
