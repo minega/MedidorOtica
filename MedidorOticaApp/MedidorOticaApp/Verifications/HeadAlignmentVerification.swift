@@ -102,8 +102,7 @@ extension VerificationManager {
 
     // Obtém ângulos de rotação da cabeça usando Vision (para LiDAR)
     private func headAnglesWithVision(from frame: ARFrame) -> (roll: Float, yaw: Float, pitch: Float)? {
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
+        let request = makeLandmarksRequest()
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
             orientation: currentCGOrientation(),

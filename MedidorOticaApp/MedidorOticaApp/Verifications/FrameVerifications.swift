@@ -21,6 +21,7 @@ extension VerificationManager {
     // MARK: - Verificação 5: Detecção de Armação
     /// Utiliza o `VNRecognizeObjectsRequest` para identificar se o usuário está usando
     /// algum tipo de armação de óculos.
+    @available(iOS 13, *)
     func checkFrameDetection(in image: CVPixelBuffer) -> Bool {
         var detected = false
 
@@ -60,7 +61,7 @@ extension VerificationManager {
     // MARK: - Verificação 6: Alinhamento da Armação
     /// Analisa a inclinação entre os olhos para determinar se a armação está alinhada.
     func checkFrameAlignment(in image: CVPixelBuffer) -> Bool {
-        let request = VNDetectFaceLandmarksRequest()
+        let request = makeLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: image,
                                             orientation: currentCGOrientation(),
                                             options: [:])

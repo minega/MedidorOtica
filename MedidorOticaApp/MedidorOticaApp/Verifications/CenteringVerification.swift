@@ -124,8 +124,7 @@ extension VerificationManager {
             return false
         }
 
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
+        let request = makeLandmarksRequest()
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
             orientation: currentCGOrientation(),
