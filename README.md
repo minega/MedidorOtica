@@ -6,10 +6,17 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 - `MedidorOticaApp/` – Projeto Xcode com o código do aplicativo. Dentro dele há um `README.md` mais detalhado. O gerenciamento da câmera foi organizado em extensões, deixando o arquivo `CameraManager.swift` mais simples.
 
+## Novidades
+
+- Suporte a iOS 17+ com uso do `VNGazeTrackingRequest` para rastrear o olhar de forma mais precisa.
+- Todas as demais verificações agora utilizam as revisões mais recentes das requisições do Vision para detecção facial.
+- Código modernizado e otimizado, removendo duplicações.
+
 ## Requisitos
 
-- Swift 5.5 ou superior
-- Xcode 13 ou superior
+- Swift 5.9 ou superior
+- Xcode 15 ou superior
+- iOS 17 ou superior
 - Dispositivo com sensor **TrueDepth** ou **LiDAR**
 
 O aplicativo detecta automaticamente qual sensor está disponível e ajusta as verificações.

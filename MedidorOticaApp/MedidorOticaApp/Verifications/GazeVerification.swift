@@ -10,6 +10,7 @@
 
 import ARKit
 import Vision
+import VisionKit
 import simd
 import UIKit
 
@@ -27,8 +28,13 @@ extension VerificationManager {
 
     // MARK: - Verificação 7: Direção do Olhar
     
-    /// Verifica a direção do olhar utilizando o sensor disponível
+    /// Verifica a direção do olhar utilizando o sensor disponível.
+    /// Para iOS 17+ é utilizado `VNGazeTrackingRequest` para melhor precisão.
     func checkGaze(using frame: ARFrame) -> Bool {
+        if #available(iOS 17.0, *), let gazeResult = checkGazeWithVisionKit(frame: frame) {
+            return gazeResult
+        }
+
         if hasTrueDepth,
            let anchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
             return checkGazeWithTrueDepth(faceAnchor: anchor, frame: frame)
@@ -67,7 +73,7 @@ extension VerificationManager {
         guard blinkOk else { return false }
 
         // Pontos normalizados das pupilas
-        let (leftNorm, rightNorm) = pupilPointsTrueDepth(anchor: faceAnchor, frame: frame)
+        let (leftNorm, rightNorm) = visionPupilPoints(from: frame)
 
         // Converte o ponto observado para o sistema da câmera
         let worldToCamera = simd_inverse(frame.camera.transform)
@@ -95,7 +101,7 @@ extension VerificationManager {
     // Implementação para a câmera traseira (LiDAR)
     @available(iOS 13.4, *)
     private func checkGazeWithLiDAR(frame: ARFrame) -> Bool {
-        let request = VNDetectFaceLandmarksRequest()
+        let request = VNDetectFaceLandmarksRequest(revision: VNDetectFaceLandmarksRequestRevision3)
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: currentCGOrientation(),
                                             options: [:])
@@ -139,6 +145,30 @@ extension VerificationManager {
         }
     }
 
+    // MARK: - Novidade iOS 17
+    /// Utiliza VisionKit para rastrear o olhar com maior precisão.
+    @available(iOS 17.0, *)
+    private func checkGazeWithVisionKit(frame: ARFrame) -> Bool? {
+        let request = VNGazeTrackingRequest()
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: frame.capturedImage,
+            orientation: currentCGOrientation(),
+            options: [:]
+        )
+        do {
+            try handler.perform([request])
+            guard let observation = request.results?.first as? VNGazeTrackingObservation else {
+                return nil
+            }
+            let deviation = hypot(observation.origin.x - 0.5, observation.origin.y - 0.5)
+            let aligned = deviation < Double(GazeConfig.deviationThreshold)
+            return aligned
+        } catch {
+            print("Erro no VNGazeTrackingRequest: \(error)")
+            return nil
+        }
+    }
+
     /// Distância da pupila até o centro do olho
     private func eyeDeviation(eye: VNFaceLandmarkRegion2D, pupil: VNFaceLandmarkRegion2D) -> CGFloat {
         let eyeCenter = averagePoint(from: eye.normalizedPoints)
@@ -158,7 +188,7 @@ extension VerificationManager {
     /// - Parameter frame: `ARFrame` capturado no momento.
     /// - Returns: Tupla com os pontos das pupilas esquerda e direita.
     private func visionPupilPoints(from frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        let request = VNDetectFaceLandmarksRequest()
+        let request = VNDetectFaceLandmarksRequest(revision: VNDetectFaceLandmarksRequestRevision3)
         let orientation = currentCGOrientation()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: orientation,
@@ -187,12 +217,5 @@ extension VerificationManager {
         }
     }
 
-    private func pupilPointsTrueDepth(anchor: ARFaceAnchor, frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        return visionPupilPoints(from: frame)
-    }
-
-    @available(iOS 13.4, *)
-    private func pupilPointsLiDAR(frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        return visionPupilPoints(from: frame)
-    }
+    // As funções a seguir eram duplicadas e foram removidas.
 }

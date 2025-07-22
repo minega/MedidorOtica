@@ -150,7 +150,10 @@ extension VerificationManager {
             return 0
         }
         
-        let request = VNDetectFaceLandmarksRequest()
+        // Requisição usando a revisão mais recente do Vision
+        let request = VNDetectFaceLandmarksRequest(
+            revision: VNDetectFaceLandmarksRequestRevision3
+        )
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: currentCGOrientation(),
                                             options: [:])

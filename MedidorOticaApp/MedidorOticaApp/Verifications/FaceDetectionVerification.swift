@@ -61,7 +61,10 @@ extension VerificationManager {
         let height = CVPixelBufferGetHeight(depthMap)
         
         // Configura a detecção de rosto usando Vision
-        let request = VNDetectFaceRectanglesRequest()
+        // Usa a revisão mais recente para melhor precisão (iOS 17+)
+        let request = VNDetectFaceRectanglesRequest(
+            revision: VNDetectFaceRectanglesRequestRevision3
+        )
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
             orientation: currentCGOrientation(),

@@ -1,7 +1,7 @@
 # AGENT Guidelines
 
 ## Code Style
-- Utilize Swift 5 e organize o código com `// MARK:` para seções.
+- Utilize Swift 5.9 e organize o código com `// MARK:` para seções.
 - Documente funções públicas usando comentários `///`.
 - Remova código duplicado ou não utilizado sempre que possível.
 - Prefira variáveis e funções em `camelCase` e tipos em `PascalCase`.
@@ -19,6 +19,9 @@
 - Garanta que todas as verificações funcionem tanto com a câmera frontal (TrueDepth) quanto com a traseira (LiDAR).
 - Bloqueie o uso da câmera em dispositivos que não possuam o sensor necessário.
 - Otimize o código ao máximo, identificando claramente cada trecho e removendo qualquer duplicação ou funcionalidade sem uso.
+- Utilize sempre as APIs mais recentes, priorizando recursos de iOS 17 ou superior.
+- Para rastreamento de olhar, prefira `VNGazeTrackingRequest` quando disponível.
+- Ao usar `VNDetectFace*`, defina a revisão mais atual para obter melhores resultados.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.
