@@ -10,22 +10,21 @@
 
 import ARKit
 import Vision
-#if canImport(VisionKit)
 import VisionKit
-#endif
 import simd
 import UIKit
 
 // Extensão para verificação de direção do olhar
+@MainActor
 extension VerificationManager {
 
     // MARK: - Configuração de Margem de Erro
     /// Ajuste aqui os limites de tolerância para cada sensor
     private enum GazeConfig {
         /// Máximo em radianos para desvio do olhar no TrueDepth
-        static var angleLimit: Float = .pi / 12 // ±15 graus
+        static let angleLimit: Float = .pi / 12 // ±15 graus
         /// Máximo em pontos normalizados para desvio da pupila no LiDAR
-        static var deviationThreshold: CGFloat = 0.08
+        static let deviationThreshold: CGFloat = 0.08
     }
 
     // MARK: - Verificação 7: Direção do Olhar
@@ -33,12 +32,10 @@ extension VerificationManager {
     /// Verifica a direção do olhar utilizando o sensor disponível.
     /// Para iOS 17+ é utilizado `VNGazeTrackingRequest` para melhor precisão.
     func checkGaze(using frame: ARFrame) -> Bool {
-#if canImport(VisionKit)
         if #available(iOS 17, *),
            let gazeResult = checkGazeWithVisionKit(frame: frame) {
             return gazeResult
         }
-#endif
 
         if hasTrueDepth,
            let anchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
@@ -103,8 +100,7 @@ extension VerificationManager {
     
     // Implementação para a câmera traseira (LiDAR)
     private func checkGazeWithLiDAR(frame: ARFrame) -> Bool {
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
+        let request = makeLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: currentCGOrientation(),
                                             options: [:])
@@ -149,11 +145,10 @@ extension VerificationManager {
     }
 
     // MARK: - Novidade iOS 17
-#if canImport(VisionKit)
     /// Utiliza VisionKit para rastrear o olhar quando disponível.
     /// - Note: `VNGazeTrackingRequest` e `VNGazeTrackingObservation` foram
     /// introduzidos no iOS 17. Caso o SDK seja mais antigo, o código é
-    /// ignorado pelo `canImport`.
+    /// ignorado caso o dispositivo esteja em versão anterior.
     @available(iOS 17, *)
     private func checkGazeWithVisionKit(frame: ARFrame) -> Bool? {
         let request = VNGazeTrackingRequest()
@@ -176,7 +171,6 @@ extension VerificationManager {
             return nil
         }
     }
-#endif
 
     /// Distância da pupila até o centro do olho
     private func eyeDeviation(eye: VNFaceLandmarkRegion2D, pupil: VNFaceLandmarkRegion2D) -> CGFloat {
@@ -197,8 +191,7 @@ extension VerificationManager {
     /// - Parameter frame: `ARFrame` capturado no momento.
     /// - Returns: Tupla com os pontos das pupilas esquerda e direita.
     private func visionPupilPoints(from frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
+        let request = makeLandmarksRequest()
         let orientation = currentCGOrientation()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: orientation,

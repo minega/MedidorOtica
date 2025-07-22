@@ -7,6 +7,7 @@
 
 import ARKit
 import CoreGraphics
+import Vision
 import UIKit
 
 extension VerificationManager {
@@ -39,6 +40,14 @@ extension VerificationManager {
 
         return CGPoint(x: sumX / CGFloat(points.count),
                        y: sumY / CGFloat(points.count))
+    }
+
+    /// Cria uma `VNDetectFaceLandmarksRequest` com a revisão mais recente.
+    /// - Returns: Requisição configurada para iOS 17 ou superior.
+    func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
+        return request
     }
 
     /// Retorna a orientação atual considerando a posição da câmera
