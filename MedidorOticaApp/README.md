@@ -12,6 +12,12 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - **Suporte a Múltiplos Sensores**: TrueDepth (câmera frontal) e LiDAR (câmera traseira)
 - **Processamento em Tempo Real**: Análise de imagens e dados de profundidade
 
+## 🆕 Novidades
+
+- Detecção de olhar aprimorada usando `VNGazeTrackingRequest` (iOS 17+).
+- Demais verificações adaptadas para usar as revisões mais recentes de `VNDetectFace*`.
+- Requisitos mínimos atualizados para iOS 17 e Swift 5.9.
+
 ## 📂 Estrutura do Projeto
 
 ### Core
@@ -69,11 +75,11 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 ## 🛠️ Requisitos Técnicos
 
-- iOS 15.0+
+- iOS 17.0 ou superior
 - Dispositivo com suporte a ARKit
 - Câmera traseira (LiDAR) ou frontal (TrueDepth) recomendado
-- Xcode 13.0+
-- Swift 5.5+
+- Xcode 15+
+- Swift 5.9+
 
 ## 📱 Compatibilidade
 

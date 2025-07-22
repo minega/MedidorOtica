@@ -57,16 +57,6 @@ extension VerificationManager {
         }
     }
 
-    /// Orientação atual para projeção de pontos na tela
-    func currentUIOrientation() -> UIInterfaceOrientation {
-        switch UIDevice.current.orientation {
-        case .landscapeLeft:  return .landscapeRight
-        case .landscapeRight: return .landscapeLeft
-        case .portraitUpsideDown: return .portraitUpsideDown
-        default: return .portrait
-        }
-    }
-
     /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo
     /// - Parameters:
     ///   - horizontal: Desvio horizontal em centímetros
