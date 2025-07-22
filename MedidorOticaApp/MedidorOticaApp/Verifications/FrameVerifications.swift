@@ -24,7 +24,7 @@ extension VerificationManager {
     func checkFrameDetection(in image: CVPixelBuffer) -> Bool {
         var detected = false
 
-        let request = VNRecognizeObjectsRequest { request, _ in
+        let completion: VNRequestCompletionHandler = { request, _ in
             if let results = request.results as? [VNRecognizedObjectObservation] {
                 for observation in results {
                     guard let label = observation.labels.first else { continue }
@@ -38,6 +38,7 @@ extension VerificationManager {
             }
         }
 
+        let request = VNRecognizeObjectsRequest(completionHandler: completion)
         request.usesCPUOnly = true
         let handler = VNImageRequestHandler(cvPixelBuffer: image,
                                             orientation: currentCGOrientation(),

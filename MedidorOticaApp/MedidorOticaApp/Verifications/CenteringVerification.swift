@@ -118,16 +118,14 @@ extension VerificationManager {
         return isCentered
     }
 
-    @available(iOS 13.0, *)
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
         guard let depthMap = frame.sceneDepth?.depthMap ?? frame.smoothedSceneDepth?.depthMap else {
             print("❌ Dados de profundidade LiDAR não disponíveis")
             return false
         }
 
-        let request = VNDetectFaceLandmarksRequest(
-            revision: VNDetectFaceLandmarksRequestRevision3
-        )
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
         let handler = VNImageRequestHandler(
             cvPixelBuffer: frame.capturedImage,
             orientation: currentCGOrientation(),
