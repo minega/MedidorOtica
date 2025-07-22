@@ -66,6 +66,10 @@ class VerificationManager: ObservableObject {
     private var lastFrameTime = Date.distantPast
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
+    /// Histórico de resultados da detecção de armação para evitar oscilações
+    private var frameDetectionHistory: [Bool] = []
+    private let frameHistoryLimit = 5
+
     private init() {
         // Inicializa as verificações
         setupVerifications()
@@ -166,7 +170,15 @@ class VerificationManager: ObservableObject {
                 return
             }
 
-            // MARK: Passo 5 - Direção do olhar
+            // MARK: Passo 5 - Detecção da armação (opcional)
+            let frameOk = self.checkFrameDetection(in: frame.capturedImage)
+            DispatchQueue.main.async { self.frameDetected = frameOk }
+
+            // MARK: Passo 6 - Inclinação da armação (opcional)
+            let frameAlignedOk = self.checkFrameAlignment(in: frame.capturedImage)
+            DispatchQueue.main.async { self.frameAligned = frameAlignedOk }
+
+            // MARK: Passo 7 - Direção do olhar
             let gazeOk = self.checkGaze(using: frame)
             DispatchQueue.main.async { self.gazeCorrect = gazeOk }
 
@@ -176,6 +188,8 @@ class VerificationManager: ObservableObject {
                   "Distância=\(distanceOk), " +
                   "Centralizado=\(centeredOk), " +
                   "Cabeça=\(headAlignedOk), " +
+                  "Armação=\(frameOk), " +
+                  "AlinhamentoArmação=\(frameAlignedOk), " +
                   "Olhar=\(gazeOk)")
             #endif
 
@@ -347,7 +361,7 @@ class VerificationManager: ObservableObject {
 
             // Etapa 6: Inclinação da armação (opcional)
             if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
-                updated[index].isChecked = frameDetected && frameAligned
+                updated[index].isChecked = frameAligned
             }
 
             // Etapa 7: Direção do olhar
