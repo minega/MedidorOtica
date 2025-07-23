@@ -175,15 +175,25 @@ extension VerificationManager {
                 return (nil, nil)
             }
 
-            let leftPoint = averagePoint(from: left.normalizedPoints)
-            let rightPoint = averagePoint(from: right.normalizedPoints)
-            let bounding = face.boundingBox
-            let leftAbs = CGPoint(x: bounding.origin.x + leftPoint.x * bounding.width,
-                                  y: bounding.origin.y + leftPoint.y * bounding.height)
-            let rightAbs = CGPoint(x: bounding.origin.x + rightPoint.x * bounding.width,
-                                   y: bounding.origin.y + rightPoint.y * bounding.height)
-            let leftNorm = CGPoint(x: leftAbs.x, y: 1.0 - leftAbs.y)
-            let rightNorm = CGPoint(x: rightAbs.x, y: 1.0 - rightAbs.y)
+            let width = CGFloat(CVPixelBufferGetWidth(frame.capturedImage))
+            let height = CGFloat(CVPixelBufferGetHeight(frame.capturedImage))
+
+            let leftP = averagePoint(from: left.normalizedPoints)
+            let rightP = averagePoint(from: right.normalizedPoints)
+
+            // `VNImagePointForNormalizedPoint` espera coordenadas normalizadas
+            // e retorna pontos em pixels considerando largura e altura da imagem
+            let leftPixel = VNImagePointForNormalizedPoint(leftP, Int(width), Int(height))
+            let rightPixel = VNImagePointForNormalizedPoint(rightP, Int(width), Int(height))
+
+            var leftNorm = CGPoint(x: leftPixel.x / width, y: 1.0 - (leftPixel.y / height))
+            var rightNorm = CGPoint(x: rightPixel.x / width, y: 1.0 - (rightPixel.y / height))
+
+            if CameraManager.shared.cameraPosition == .front {
+                leftNorm.x = 1.0 - leftNorm.x
+                rightNorm.x = 1.0 - rightNorm.x
+            }
+
             return (leftNorm, rightNorm)
         } catch {
             print("ERRO ao extrair pupilas: \(error)")
