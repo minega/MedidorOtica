@@ -20,17 +20,25 @@ extension VerificationManager {
 
     // MARK: - Verificação 5: Detecção de Armação
     /// Identifica armações de óculos na imagem usando Vision.
-    /// Utiliza `VNClassifyImageRequest` para garantir compatibilidade ampla.
-    @available(iOS 17, *)
+    /// Dá preferência ao `VNRecognizeObjectsRequest` por maior precisão.
     func checkFrameDetection(in image: CVPixelBuffer) -> Bool {
         var detected = false
 
         let completion: VNRequestCompletionHandler = { request, _ in
-            if let classResults = request.results as? [VNClassificationObservation] {
-                for observation in classResults {
-                    let name = observation.identifier.lowercased()
+            if let objects = request.results as? [VNRecognizedObjectObservation] {
+                for obj in objects {
+                    let label = obj.labels.first?.identifier.lowercased() ?? ""
+                    if (label.contains("glass") || label.contains("sunglass")) &&
+                        obj.confidence >= FrameConfig.minConfidence {
+                        detected = true
+                        break
+                    }
+                }
+            } else if let classes = request.results as? [VNClassificationObservation] {
+                for obs in classes {
+                    let name = obs.identifier.lowercased()
                     if (name.contains("glass") || name.contains("sunglass")) &&
-                        observation.confidence >= FrameConfig.minConfidence {
+                        obs.confidence >= FrameConfig.minConfidence {
                         detected = true
                         break
                     }
@@ -38,8 +46,17 @@ extension VerificationManager {
             }
         }
 
-        let request = VNClassifyImageRequest(completionHandler: completion)
-        request.preferBackgroundProcessing = true
+        let request: VNImageBasedRequest
+        if #available(iOS 17, *) {
+            let objRequest = VNRecognizeObjectsRequest(completionHandler: completion)
+            objRequest.revision = VNRecognizeObjectsRequestRevision1
+            objRequest.usesCPUOnly = true
+            request = objRequest
+        } else {
+            let classify = VNClassifyImageRequest(completionHandler: completion)
+            classify.preferBackgroundProcessing = true
+            request = classify
+        }
         let handler = VNImageRequestHandler(cvPixelBuffer: image,
                                             orientation: currentCGOrientation(),
                                             options: [:])

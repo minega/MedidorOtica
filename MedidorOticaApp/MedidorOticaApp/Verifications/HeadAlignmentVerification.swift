@@ -27,16 +27,13 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Extrai ângulos relativos à câmera para evitar desalinhamentos
-            let worldToCamera = simd_inverse(frame.camera.transform)
-            let faceToCamera = simd_mul(worldToCamera, anchor.transform)
-            let euler = extractEulerAngles(from: faceToCamera)
-
+            // Usa diretamente os ângulos do ARFaceAnchor, que já estão no referencial da câmera
+            let euler = anchor.eulerAngles
             let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
 
-            rollDegrees  = radiansToDegrees(euler.roll) * sign
-            yawDegrees   = radiansToDegrees(euler.yaw) * sign
-            pitchDegrees = radiansToDegrees(euler.pitch)
+            rollDegrees  = radiansToDegrees(euler.z) * sign
+            yawDegrees   = radiansToDegrees(euler.y) * sign
+            pitchDegrees = radiansToDegrees(euler.x)
         } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
             rollDegrees = angles.roll
             yawDegrees = angles.yaw
@@ -94,6 +91,21 @@ extension VerificationManager {
 
         return EulerAngles(pitch: pitch, yaw: yaw, roll: roll)
     }
+
+    // MARK: - Compensação de orientação
+    /// Retorna um quaternion que ajusta o referencial conforme a orientação atual
+    private func orientationCompensation() -> simd_quatf {
+        switch currentCGOrientation() {
+        case .left, .leftMirrored:
+            return simd_quaternion(Float.pi / 2, SIMD3<Float>(0, 0, 1))
+        case .right, .rightMirrored:
+            return simd_quaternion(-Float.pi / 2, SIMD3<Float>(0, 0, 1))
+        case .down, .downMirrored:
+            return simd_quaternion(Float.pi, SIMD3<Float>(0, 0, 1))
+        default:
+            return simd_quaternion(0, SIMD3<Float>(0, 0, 1))
+        }
+    }
     
     // Converte ângulo de radianos para graus
     private func radiansToDegrees(_ radians: Float) -> Float {
@@ -114,7 +126,20 @@ extension VerificationManager {
             let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
             let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
             let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
-            return (roll, yaw, pitch)
+
+            // Ajusta para a orientação atual da tela
+            let rollRad = roll * .pi / 180
+            let yawRad = yaw * .pi / 180
+            let pitchRad = pitch * .pi / 180
+            let faceQuat = simd_quaternion(pitchRad, SIMD3<Float>(1,0,0)) *
+                           simd_quaternion(yawRad,   SIMD3<Float>(0,1,0)) *
+                           simd_quaternion(rollRad,  SIMD3<Float>(0,0,1))
+            let adjusted = simd_mul(orientationCompensation(), faceQuat)
+            let euler = extractEulerAngles(from: simd_float4x4(adjusted))
+
+            return (radiansToDegrees(euler.roll),
+                    radiansToDegrees(euler.yaw),
+                    radiansToDegrees(euler.pitch))
         } catch {
             print("Erro ao calcular ângulos com Vision: \(error)")
             return nil

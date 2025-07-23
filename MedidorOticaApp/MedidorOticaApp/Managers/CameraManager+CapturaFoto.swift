@@ -33,15 +33,38 @@ extension CameraManager {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
 
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+        guard let cgImageFull = context.createCGImage(ciImage, from: ciImage.extent) else {
             print("ERRO: Falha ao criar CGImage a partir do buffer de pixel")
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+
+        let width = CGFloat(cgImageFull.width)
+        let height = CGFloat(cgImageFull.height)
+        let viewSize = UIScreen.main.bounds.size
+        let viewAspect = viewSize.width / viewSize.height
+        let imageAspect = width / height
+        var cropRect = CGRect(x: 0, y: 0, width: width, height: height)
+
+        if imageAspect > viewAspect {
+            let newWidth = height * viewAspect
+            cropRect.origin.x = (width - newWidth) / 2
+            cropRect.size.width = newWidth
+        } else {
+            let newHeight = width / viewAspect
+            cropRect.origin.y = (height - newHeight) / 2
+            cropRect.size.height = newHeight
+        }
+
+        guard let croppedCG = cgImageFull.cropping(to: cropRect) else {
+            print("ERRO: Falha ao recortar a imagem capturada")
             DispatchQueue.main.async { completion(nil) }
             return
         }
 
         // Ajusta a orientação da imagem conforme a posição da câmera
         let orientation: UIImage.Orientation = cameraPosition == .front ? .leftMirrored : .right
-        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+        let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: orientation)
         print("Imagem capturada da sessão AR com sucesso")
         DispatchQueue.main.async { completion(image) }
     }

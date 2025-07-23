@@ -119,6 +119,14 @@ class VerificationManager: ObservableObject {
             guard let self = self else { return }
             // Garante que o flag seja resetado mesmo em retornos antecipados
             defer { isProcessingFrame = false }
+            // MARK: Passo extra 1 - Detecção de armação
+            let frameOk = self.checkFrameDetection(in: frame.capturedImage)
+            DispatchQueue.main.async { self.frameDetected = frameOk }
+
+            // MARK: Passo extra 2 - Inclinação da armação
+            let frameAlignedOk = self.checkFrameAlignment(in: frame.capturedImage)
+            DispatchQueue.main.async { self.frameAligned = frameAlignedOk }
+
             // MARK: Passo 1 - Detecção de rosto
             let facePresent = self.checkFaceDetection(using: frame)
             DispatchQueue.main.async { self.faceDetected = facePresent }
@@ -172,15 +180,7 @@ class VerificationManager: ObservableObject {
                 return
             }
 
-            // MARK: Passo 5 - Detecção da armação (opcional)
-            let frameOk = self.checkFrameDetection(in: frame.capturedImage)
-            DispatchQueue.main.async { self.frameDetected = frameOk }
-
-            // MARK: Passo 6 - Inclinação da armação (opcional)
-            let frameAlignedOk = self.checkFrameAlignment(in: frame.capturedImage)
-            DispatchQueue.main.async { self.frameAligned = frameAlignedOk }
-
-            // MARK: Passo 7 - Direção do olhar
+            // MARK: Passo 5 - Direção do olhar
             Task { @MainActor in
                 let gazeOk = self.checkGaze(using: frame)
                 self.gazeCorrect = gazeOk
@@ -311,6 +311,16 @@ class VerificationManager: ObservableObject {
                 updated[index].isChecked = faceDetected
             }
 
+            // Detecção de armação sempre atualizada
+            if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
+                updated[index].isChecked = frameDetected
+            }
+
+            // Inclinação da armação sempre atualizada
+            if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
+                updated[index].isChecked = frameAligned
+            }
+
             guard faceDetected else {
                 resetVerificationsAfter(.faceDetection)
                 currentStep = .faceDetection
@@ -354,17 +364,7 @@ class VerificationManager: ObservableObject {
                 return
             }
 
-            // Etapa 5: Detecção da armação (opcional)
-            if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
-                updated[index].isChecked = frameDetected
-            }
-
-            // Etapa 6: Inclinação da armação (opcional)
-            if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
-                updated[index].isChecked = frameAligned
-            }
-
-            // Etapa 7: Direção do olhar
+            // Etapa 5: Direção do olhar
             if let index = updated.firstIndex(where: { $0.type == .gaze }) {
                 updated[index].isChecked = gazeCorrect
             }
