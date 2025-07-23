@@ -133,14 +133,16 @@ extension CameraManager {
         }
 
         session.addOutput(videoOutput)
-        videoOutput.isHighResolutionCaptureEnabled = true
+        if #available(iOS 16, *) {
+            videoOutput.maxPhotoDimensions = CMVideoDimensions(width: 0, height: 0)
+        } else {
+            videoOutput.isHighResolutionCaptureEnabled = true
+        }
         print("Output de foto adicionado com sucesso")
 
         if let connection = videoOutput.connection(with: .video) {
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
-                print("Orientação de vídeo configurada para portrait")
-            }
+            connection.setPortraitOrientation()
+            print("Orientação de vídeo configurada para portrait")
             if connection.isVideoMirroringSupported {
                 connection.isVideoMirrored = (cameraPosition == .front)
                 print("Espelhamento de vídeo configurado: \(cameraPosition == .front)")
@@ -188,9 +190,7 @@ extension CameraManager {
                 self.videoDeviceInput = videoDeviceInput
 
                 if let connection = videoOutput.connection(with: .video) {
-                    if connection.isVideoOrientationSupported {
-                        connection.videoOrientation = .portrait
-                    }
+                    connection.setPortraitOrientation()
                     if connection.isVideoMirroringSupported {
                         connection.isVideoMirrored = (cameraPosition == .front)
                     }

@@ -19,19 +19,18 @@ extension VerificationManager {
     }
 
     // MARK: - Verificação 5: Detecção de Armação
-    /// Utiliza o `VNRecognizeObjectsRequest` para identificar se o usuário está usando
-    /// algum tipo de armação de óculos.
-    @available(iOS 13, *)
+    /// Identifica armações de óculos na imagem usando Vision.
+    /// Utiliza `VNClassifyImageRequest` para garantir compatibilidade ampla.
+    @available(iOS 17, *)
     func checkFrameDetection(in image: CVPixelBuffer) -> Bool {
         var detected = false
 
         let completion: VNRequestCompletionHandler = { request, _ in
-            if let results = request.results as? [VNRecognizedObjectObservation] {
-                for observation in results {
-                    guard let label = observation.labels.first else { continue }
-                    let name = label.identifier.lowercased()
+            if let classResults = request.results as? [VNClassificationObservation] {
+                for observation in classResults {
+                    let name = observation.identifier.lowercased()
                     if (name.contains("glass") || name.contains("sunglass")) &&
-                        label.confidence >= FrameConfig.minConfidence {
+                        observation.confidence >= FrameConfig.minConfidence {
                         detected = true
                         break
                     }
@@ -39,8 +38,8 @@ extension VerificationManager {
             }
         }
 
-        let request = VNRecognizeObjectsRequest(completionHandler: completion)
-        request.usesCPUOnly = true
+        let request = VNClassifyImageRequest(completionHandler: completion)
+        request.preferBackgroundProcessing = true
         let handler = VNImageRequestHandler(cvPixelBuffer: image,
                                             orientation: currentCGOrientation(),
                                             options: [:])

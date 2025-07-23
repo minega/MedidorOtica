@@ -25,8 +25,8 @@ struct CameraPreview: UIViewRepresentable {
         previewLayer.name = "CameraPreviewLayer"
         
         // Configura a orientação
-        if let connection = previewLayer.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+        if let connection = previewLayer.connection {
+            connection.setPortraitOrientation()
         }
         
         // Adiciona a camada à view
@@ -46,8 +46,8 @@ struct CameraPreview: UIViewRepresentable {
             layer.frame = uiView.bounds
             
             // Atualiza a orientação
-            if let connection = layer.connection, connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
+            if let connection = layer.connection {
+                connection.setPortraitOrientation()
             }
         } else {
             // Se não encontrou a camada, cria uma nova
@@ -60,8 +60,8 @@ struct CameraPreview: UIViewRepresentable {
             newLayer.videoGravity = .resizeAspectFill
             newLayer.name = "CameraPreviewLayer"
             
-            if let connection = newLayer.connection, connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
+            if let connection = newLayer.connection {
+                connection.setPortraitOrientation()
             }
             
             uiView.layer.addSublayer(newLayer)

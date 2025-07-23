@@ -8,15 +8,15 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 ## Novidades
 
-- Suporte a iOS 17+ com uso do `VNGazeTrackingRequest` para rastrear o olhar de forma mais precisa.
-- Todas as demais verificações agora utilizam as revisões mais recentes das requisições do Vision para detecção facial.
+- Rastreamento de olhar unificado usando detecção de pupilas via Vision.
+- Todas as verificações utilizam as revisões mais recentes do Vision.
 - Código modernizado e otimizado, removendo duplicações.
 
 ## Requisitos
 
 - Swift 5.9 ou superior
 - Xcode 15 ou superior
-- iOS 17 ou superior
+- iOS 13 ou superior (recomendado iOS 17+)
 - Dispositivo com sensor **TrueDepth** ou **LiDAR**
 
 O aplicativo detecta automaticamente qual sensor está disponível e ajusta as verificações.
