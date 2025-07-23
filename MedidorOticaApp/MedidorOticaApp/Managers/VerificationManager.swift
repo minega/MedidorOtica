@@ -137,7 +137,7 @@ class VerificationManager: ObservableObject {
             }
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
-            self.updatePupilPoints(using: frame)
+            Task { await self.updatePupilPoints(using: frame) }
 
             // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
@@ -181,22 +181,20 @@ class VerificationManager: ObservableObject {
             DispatchQueue.main.async { self.frameAligned = frameAlignedOk }
 
             // MARK: Passo 7 - Direção do olhar
-            let gazeOk = self.checkGaze(using: frame)
-            DispatchQueue.main.async { self.gazeCorrect = gazeOk }
-
-            #if DEBUG
-            print("Verificações sequenciais: " +
-                  "Rosto=\(facePresent), " +
-                  "Distância=\(distanceOk), " +
-                  "Centralizado=\(centeredOk), " +
-                  "Cabeça=\(headAlignedOk), " +
-                  "Armação=\(frameOk), " +
-                  "AlinhamentoArmação=\(frameAlignedOk), " +
-                  "Olhar=\(gazeOk)")
-            #endif
-
-            DispatchQueue.main.async { [weak self] in
-                self?.updateVerificationStatus(throttled: true)
+            Task { @MainActor in
+                let gazeOk = self.checkGaze(using: frame)
+                self.gazeCorrect = gazeOk
+#if DEBUG
+                print("Verificações sequenciais: " +
+                      "Rosto=\(facePresent), " +
+                      "Distância=\(distanceOk), " +
+                      "Centralizado=\(centeredOk), " +
+                      "Cabeça=\(headAlignedOk), " +
+                      "Armação=\(frameOk), " +
+                      "AlinhamentoArmação=\(frameAlignedOk), " +
+                      "Olhar=\(gazeOk)")
+#endif
+                self.updateVerificationStatus(throttled: true)
             }
         }
     }

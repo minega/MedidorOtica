@@ -10,7 +10,6 @@
 
 import ARKit
 import Vision
-import VisionKit
 import simd
 import UIKit
 
@@ -30,12 +29,7 @@ extension VerificationManager {
     // MARK: - Verificação 7: Direção do Olhar
     
     /// Verifica a direção do olhar utilizando o sensor disponível.
-    /// Para iOS 17+ é utilizado `VNGazeTrackingRequest` para melhor precisão.
     func checkGaze(using frame: ARFrame) -> Bool {
-        if #available(iOS 17, *),
-           let gazeResult = checkGazeWithVisionKit(frame: frame) {
-            return gazeResult
-        }
 
         if hasTrueDepth,
            let anchor = frame.anchors.first(where: { $0 is ARFaceAnchor }) as? ARFaceAnchor {
@@ -91,7 +85,9 @@ extension VerificationManager {
             self.leftPupilPoint = leftNorm
             self.rightPupilPoint = rightNorm
             self.gazeData = ["angle": angle]
-            print("Pupila esquerda: \(leftNorm), direita: \(rightNorm)")
+            let leftDesc = leftNorm.map { "\($0.x),\($0.y)" } ?? "nil"
+            let rightDesc = rightNorm.map { "\($0.x),\($0.y)" } ?? "nil"
+            print("Pupila esquerda: \(leftDesc), direita: \(rightDesc)")
             print("Verificação de olhar (TrueDepth): \(aligned)")
         }
 
@@ -133,7 +129,9 @@ extension VerificationManager {
                 self.leftPupilPoint = leftNorm
                 self.rightPupilPoint = rightNorm
                 self.gazeData = ["aligned": aligned ? 1.0 : 0.0]
-                print("Pupila esquerda: \(leftNorm), direita: \(rightNorm)")
+                let leftDesc = "\(leftNorm.x),\(leftNorm.y)"
+                let rightDesc = "\(rightNorm.x),\(rightNorm.y)"
+                print("Pupila esquerda: \(leftDesc), direita: \(rightDesc)")
                 print("Verificação de olhar (LiDAR): \(aligned)")
             }
 
@@ -144,33 +142,6 @@ extension VerificationManager {
         }
     }
 
-    // MARK: - Novidade iOS 17
-    /// Utiliza VisionKit para rastrear o olhar quando disponível.
-    /// - Note: `VNGazeTrackingRequest` e `VNGazeTrackingObservation` foram
-    /// introduzidos no iOS 17. Caso o SDK seja mais antigo, o código é
-    /// ignorado caso o dispositivo esteja em versão anterior.
-    @available(iOS 17, *)
-    private func checkGazeWithVisionKit(frame: ARFrame) -> Bool? {
-        let request = VNGazeTrackingRequest()
-        let handler = VNImageRequestHandler(
-            cvPixelBuffer: frame.capturedImage,
-            orientation: currentCGOrientation(),
-            options: [:]
-        )
-        do {
-            try handler.perform([request])
-            guard let observation = request.results?.first as? VNGazeTrackingObservation else {
-                return nil
-            }
-            let deviation = hypot(observation.origin.x - 0.5,
-                                  observation.origin.y - 0.5)
-            let aligned = deviation < Double(GazeConfig.deviationThreshold)
-            return aligned
-        } catch {
-            print("Erro no VNGazeTrackingRequest: \(error)")
-            return nil
-        }
-    }
 
     /// Distância da pupila até o centro do olho
     private func eyeDeviation(eye: VNFaceLandmarkRegion2D, pupil: VNFaceLandmarkRegion2D) -> CGFloat {

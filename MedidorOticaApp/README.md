@@ -14,9 +14,9 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 
 ## 🆕 Novidades
 
-- Detecção de olhar aprimorada usando `VNGazeTrackingRequest` (iOS 17+).
-- Demais verificações adaptadas para usar as revisões mais recentes de `VNDetectFace*`.
-- Requisitos mínimos atualizados para iOS 17 e Swift 5.9.
+- Detecção de olhar baseada em pupilas compatível com iOS 13 ou superior (iOS 17+ recomendado).
+- Demais verificações utilizam as revisões mais recentes de `VNDetectFace*`.
+- Requisitos mínimos atualizados para Swift 5.9.
 
 ## 📂 Estrutura do Projeto
 
@@ -75,7 +75,7 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 ## 🛠️ Requisitos Técnicos
 
-- iOS 17.0 ou superior
+- iOS 13.0 ou superior (iOS 17+ recomendado)
 - Dispositivo com suporte a ARKit
 - Câmera traseira (LiDAR) ou frontal (TrueDepth) recomendado
 - Xcode 15+
