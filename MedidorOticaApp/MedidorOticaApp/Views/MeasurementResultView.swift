@@ -6,20 +6,26 @@
 //
 
 import SwiftUI
+import Vision
 
 struct MeasurementResultView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyManager: HistoryManager
-    
+
+    // MARK: - Propriedades
     @State private var clientName: String = ""
     @State private var distanciaPupilar: Double = 65.0
     @State private var showingShareSheet = false
     @State private var showingAdjustmentView = false
     @State private var showingSaveAlert = false
     @State private var isSaved = false
-    
+
+    /// Pontos detectados automaticamente na imagem
+    @State private var landmarks: FrameLandmarks?
+
     let capturedImage: UIImage
-    
+
+    // MARK: - View
     var body: some View {
         NavigationView {
             ScrollView {
@@ -31,31 +37,48 @@ struct MeasurementResultView: View {
                             .aspectRatio(contentMode: .fit)
                             .cornerRadius(12)
                             .padding(.horizontal)
-                        
-                        // Pontos de medição (simulados)
-                        GeometryReader { geometry in
-                            let width = geometry.size.width
-                            let height = geometry.size.height
-                            
-                            ZStack {
-                                // Ponto esquerdo
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 10, height: 10)
-                                    .position(x: width * 0.35, y: height * 0.5)
-                                
-                                // Ponto direito
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 10, height: 10)
-                                    .position(x: width * 0.65, y: height * 0.5)
-                                
-                                // Linha entre os pontos
+
+                        // Pontos detectados automaticamente
+                        if let landmarks {
+                            GeometryReader { geo in
+                                let w = geo.size.width
+                                let h = geo.size.height
+
+                                // Linhas de extremidades
                                 Path { path in
-                                    path.move(to: CGPoint(x: width * 0.35, y: height * 0.5))
-                                    path.addLine(to: CGPoint(x: width * 0.65, y: height * 0.5))
+                                    path.move(to: CGPoint(x: landmarks.leftPoint.x * w, y: 0))
+                                    path.addLine(to: CGPoint(x: landmarks.leftPoint.x * w, y: h))
                                 }
-                                .stroke(Color.yellow, lineWidth: 2)
+                                .stroke(Color.green, lineWidth: 2)
+
+                                Path { path in
+                                    path.move(to: CGPoint(x: landmarks.rightPoint.x * w, y: 0))
+                                    path.addLine(to: CGPoint(x: landmarks.rightPoint.x * w, y: h))
+                                }
+                                .stroke(Color.green, lineWidth: 2)
+
+                                Path { path in
+                                    path.move(to: CGPoint(x: 0, y: landmarks.topPoint.y * h))
+                                    path.addLine(to: CGPoint(x: w, y: landmarks.topPoint.y * h))
+                                }
+                                .stroke(Color.green, lineWidth: 2)
+
+                                Path { path in
+                                    path.move(to: CGPoint(x: 0, y: landmarks.bottomPoint.y * h))
+                                    path.addLine(to: CGPoint(x: w, y: landmarks.bottomPoint.y * h))
+                                }
+                                .stroke(Color.green, lineWidth: 2)
+
+                                // Pupilas
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 10, height: 10)
+                                    .position(x: landmarks.leftPupil.x * w, y: landmarks.leftPupil.y * h)
+
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 10, height: 10)
+                                    .position(x: landmarks.rightPupil.x * w, y: landmarks.rightPupil.y * h)
                             }
                         }
                     }
@@ -65,25 +88,29 @@ struct MeasurementResultView: View {
                     VStack(spacing: 15) {
                         Text("Distância Pupilar")
                             .font(.headline)
-                        
+
                         Text(String(format: "%.1f mm", distanciaPupilar))
                             .font(.title)
                             .fontWeight(.bold)
                             .foregroundColor(.blue)
-                        
+
                         // Ajuste manual da distância
                         HStack {
                             Text("Ajuste fino:")
                                 .font(.subheadline)
-                            
+
                             Slider(value: $distanciaPupilar, in: 50...80, step: 0.1)
                                 .accentColor(.blue)
-                            
+
                             Text(String(format: "%.1f", distanciaPupilar))
                                 .font(.subheadline)
                                 .frame(width: 40)
                         }
                         .padding(.horizontal)
+
+                        if let landmarks {
+                            MeasurementTable(landmarks: landmarks, imageSize: capturedImage.size)
+                        }
                     }
                     .padding()
                     .background(Color.gray.opacity(0.1))
@@ -156,6 +183,9 @@ struct MeasurementResultView: View {
                 }
                 .padding(.bottom, 30)
             }
+            .onAppear {
+                detectLandmarks()
+            }
             .navigationBarTitle("Resultado da Medição", displayMode: .inline)
             .navigationBarItems(
                 leading: Button(action: {
@@ -171,6 +201,17 @@ struct MeasurementResultView: View {
                 let text = "Medição de Distância Pupilar: \(String(format: "%.1f mm", distanciaPupilar))"
                 ShareSheet(items: [image, text])
             }
+            .sheet(isPresented: $showingAdjustmentView) {
+                if let _ = landmarks {
+                    ManualAdjustmentView(
+                        landmarks: Binding(
+                            get: { landmarks! },
+                            set: { landmarks = $0 }
+                        ),
+                        image: capturedImage
+                    )
+                }
+            }
             .alert(isPresented: $showingSaveAlert) {
                 Alert(
                     title: Text("Nome do Cliente"),
@@ -181,7 +222,9 @@ struct MeasurementResultView: View {
         }
     }
     
-    // Salva a medição no histórico
+    // MARK: - Métodos
+
+    /// Salva a medição no histórico
     private func saveMeasurement() {
         guard !clientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             showingSaveAlert = true
@@ -200,55 +243,127 @@ struct MeasurementResultView: View {
         }
     }
     
-    // Renderiza a imagem com as medidas para compartilhamento
+    /// Renderiza a imagem com as medidas para compartilhamento
     private func renderMeasurementImage() -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: capturedImage.size)
-        
+
         let image = renderer.image { context in
             // Desenha a imagem original
             capturedImage.draw(in: CGRect(origin: .zero, size: capturedImage.size))
-            
+
             let ctx = context.cgContext
-            
-            // Configura o estilo de desenho
             ctx.setStrokeColor(UIColor.yellow.cgColor)
             ctx.setLineWidth(5)
-            
-            // Posições dos pontos (simuladas)
-            let leftX = capturedImage.size.width * 0.35
-            let rightX = capturedImage.size.width * 0.65
-            let y = capturedImage.size.height * 0.5
-            
-            // Desenha a linha entre os pontos
-            ctx.move(to: CGPoint(x: leftX, y: y))
-            ctx.addLine(to: CGPoint(x: rightX, y: y))
-            ctx.strokePath()
-            
-            // Desenha os pontos
-            ctx.setFillColor(UIColor.red.cgColor)
-            ctx.fillEllipse(in: CGRect(x: leftX - 5, y: y - 5, width: 10, height: 10))
-            ctx.fillEllipse(in: CGRect(x: rightX - 5, y: y - 5, width: 10, height: 10))
-            
-            // Adiciona o texto com a medida
+
+            // Utiliza os pontos detectados para desenhar a linha e marcadores
+            if let marks = landmarks {
+                let w = capturedImage.size.width
+                let h = capturedImage.size.height
+
+                let leftX = marks.leftPupil.x * w
+                let rightX = marks.rightPupil.x * w
+                let y = marks.leftPupil.y * h
+
+                ctx.move(to: CGPoint(x: leftX, y: y))
+                ctx.addLine(to: CGPoint(x: rightX, y: y))
+                ctx.strokePath()
+
+                ctx.setFillColor(UIColor.red.cgColor)
+                ctx.fillEllipse(in: CGRect(x: leftX - 5, y: y - 5, width: 10, height: 10))
+                ctx.fillEllipse(in: CGRect(x: rightX - 5, y: y - 5, width: 10, height: 10))
+            }
+
+            // Texto com a medida final
             let text = "DP: \(String(format: "%.1f mm", distanciaPupilar))"
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: 36),
                 .foregroundColor: UIColor.white,
                 .backgroundColor: UIColor.black.withAlphaComponent(0.5)
             ]
-            
+
             let textSize = text.size(withAttributes: attributes)
             let textRect = CGRect(
                 x: (capturedImage.size.width - textSize.width) / 2,
-                y: y + 20,
+                y: capturedImage.size.height * 0.55,
                 width: textSize.width,
                 height: textSize.height
             )
-            
+
             text.draw(in: textRect, withAttributes: attributes)
         }
-        
+
         return image
+    }
+
+    /// Detecta automaticamente pontos relevantes utilizando Vision
+    private func detectLandmarks() {
+        guard let cgImage = capturedImage.cgImage else { return }
+        let orientation = CGImagePropertyOrientation(capturedImage.imageOrientation)
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
+
+        let handler = VNImageRequestHandler(cgImage: cgImage,
+                                            orientation: orientation)
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first,
+                  let all = face.landmarks?.allPoints,
+                  let leftPupil = face.landmarks?.leftPupil,
+                  let rightPupil = face.landmarks?.rightPupil else { return }
+
+            let width = CGFloat(cgImage.width)
+            let height = CGFloat(cgImage.height)
+
+            let points = all.normalizedPoints.map {
+                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+            }
+            let leftPixels = leftPupil.normalizedPoints.map {
+                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+            }
+            let rightPixels = rightPupil.normalizedPoints.map {
+                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+            }
+
+            var minX = CGFloat.greatestFiniteMagnitude
+            var maxX: CGFloat = 0
+            var minY = CGFloat.greatestFiniteMagnitude
+            var maxY: CGFloat = 0
+            for p in points {
+                minX = min(minX, p.x)
+                maxX = max(maxX, p.x)
+                minY = min(minY, p.y)
+                maxY = max(maxY, p.y)
+            }
+
+            let lp = average(points: leftPixels)
+            let rp = average(points: rightPixels)
+
+            let leftPoint = CGPoint(x: minX / width, y: 1 - (minY / height))
+            let rightPoint = CGPoint(x: maxX / width, y: 1 - (minY / height))
+            let topPoint = CGPoint(x: 0.5, y: 1 - (maxY / height))
+            let bottomPoint = CGPoint(x: 0.5, y: 1 - (minY / height))
+
+            let leftP = CGPoint(x: lp.x / width, y: 1 - (lp.y / height))
+            let rightP = CGPoint(x: rp.x / width, y: 1 - (rp.y / height))
+
+            landmarks = FrameLandmarks(leftPoint: leftPoint,
+                                       rightPoint: rightPoint,
+                                       topPoint: topPoint,
+                                       bottomPoint: bottomPoint,
+                                       leftPupil: leftP,
+                                       rightPupil: rightP)
+        } catch {
+            print("Erro ao detectar pontos: \(error.localizedDescription)")
+        }
+    }
+
+    /// Calcula a média de uma lista de pontos
+    private func average(points: [CGPoint]) -> CGPoint {
+        guard !points.isEmpty else { return .zero }
+        let sumX = points.reduce(0) { $0 + $1.x }
+        let sumY = points.reduce(0) { $0 + $1.y }
+        return CGPoint(x: sumX / CGFloat(points.count),
+                       y: sumY / CGFloat(points.count))
     }
 }
 
@@ -264,6 +379,7 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
+// MARK: - Preview
 struct MeasurementResultView_Previews: PreviewProvider {
     static var previews: some View {
         MeasurementResultView(capturedImage: UIImage(systemName: "person.fill")!)

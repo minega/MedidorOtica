@@ -22,6 +22,8 @@
 - Utilize sempre as APIs mais recentes, priorizando recursos de iOS 17 ou superior.
 - Para rastreamento de olhar, prefira `VNGazeTrackingRequest` quando disponível.
 - Ao usar `VNDetectFace*`, defina a revisão mais atual para obter melhores resultados.
+- Novas funcionalidades de detecção de armação devem manter a precisão mínima de 0.5 mm e permitir ajuste manual.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.
+- Mostre tabela de medidas no resultado, com distâncias em milímetros.

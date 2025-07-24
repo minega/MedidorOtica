@@ -17,6 +17,9 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - Detecção de olhar baseada em pupilas compatível com iOS 13 ou superior (iOS 17+ recomendado).
 - Demais verificações utilizam as revisões mais recentes de `VNDetectFace*`.
 - Requisitos mínimos atualizados para Swift 5.9.
+- Detecção automática dos limites da armação após a captura.
+- Ajuste manual dos pontos com gestos de arrastar.
+- Exibição de tabela de medidas (largura, altura e diagonais) diretamente na prévia.
 
 ## 📂 Estrutura do Projeto
 
@@ -175,6 +178,9 @@ MedidorOticaApp/
    - ✅ Boa iluminação
 4. Toque em "Capturar" quando todas as verificações estiverem verdes
 5. Revise a prévia e salve a medição
+6. Utilize o botão **Ajuste Manual** para reposicionar linhas e pontos caso necessário
+
+Na prévia é exibida uma tabela com largura, altura, diagonal e distância pupilar calculadas automaticamente.
 
 ### Dicas para Melhor Captura
 - Mantenha o dispositivo estável
