@@ -27,13 +27,13 @@ extension VerificationManager {
         let pitchDegrees: Float
 
         if hasTrueDepth, let anchor = faceAnchor {
-            // Usa diretamente os ângulos do ARFaceAnchor, que já estão no referencial da câmera
-            let euler = anchor.eulerAngles
+            // Converte a matriz de transformação em ângulos de Euler
+            let euler = extractEulerAngles(from: anchor.transform)
             let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
 
-            rollDegrees  = radiansToDegrees(euler.z) * sign
-            yawDegrees   = radiansToDegrees(euler.y) * sign
-            pitchDegrees = radiansToDegrees(euler.x)
+            rollDegrees  = radiansToDegrees(euler.roll) * sign
+            yawDegrees   = radiansToDegrees(euler.yaw) * sign
+            pitchDegrees = radiansToDegrees(euler.pitch)
         } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
             rollDegrees = angles.roll
             yawDegrees = angles.yaw
