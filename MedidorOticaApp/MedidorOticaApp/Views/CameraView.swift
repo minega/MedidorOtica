@@ -16,6 +16,7 @@ struct CameraView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager.shared
     @StateObject private var verificationManager = VerificationManager.shared
+    @EnvironmentObject private var historyManager: HistoryManager
     
     // Estados da interface
     @State private var isAutoCaptureEnabled = false
@@ -272,19 +273,9 @@ struct CameraView: View {
         }
         // Navegação para a tela de resultados após captura
         .sheet(isPresented: $showingResultView) {
-            // Implementação simplificada - apenas mostra a imagem capturada
-            VStack {
-                if let image = capturedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .padding()
-                }
-                
-                Button("Fechar") {
-                    showingResultView = false
-                }
-                .padding()
+            if let image = capturedImage {
+                MeasurementResultView(capturedImage: image)
+                    .environmentObject(historyManager)
             }
         }
     }
@@ -497,6 +488,7 @@ struct CameraView: View {
 struct CameraView_Previews: PreviewProvider {
     static var previews: some View {
         CameraView()
+            .environmentObject(HistoryManager.shared)
     }
 }
 
