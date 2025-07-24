@@ -91,11 +91,37 @@ extension CameraManager {
         return settings
     }
 
+    /// Recorta a imagem mantendo o mesmo enquadramento do preview.
+    private func cropToScreenAspect(_ image: UIImage) -> UIImage {
+        let screenSize = UIScreen.main.bounds.size
+        guard let cg = image.cgImage else { return image }
+        let imgSize = CGSize(width: CGFloat(cg.width),
+                             height: CGFloat(cg.height))
+
+        var cropRect = AVMakeRect(aspectRatio: screenSize,
+                                  insideRect: CGRect(origin: .zero, size: imgSize))
+        cropRect.origin.x = (imgSize.width - cropRect.width) / 2
+        cropRect.origin.y = (imgSize.height - cropRect.height) / 2
+
+        guard let croppedCG = cg.cropping(to: cropRect) else { return image }
+        return UIImage(cgImage: croppedCG,
+                       scale: image.scale,
+                       orientation: image.imageOrientation)
+    }
+
     private func handleCapturedPhoto(image: UIImage?, completion: @escaping (UIImage?) -> Void) {
         DispatchQueue.main.async { [weak self] in
             self?.currentPhotoCaptureProcessor = nil
-            print(image != nil ? "Foto capturada com sucesso" : "Falha ao capturar foto")
-            completion(image)
+
+            guard let img = image else {
+                print("Falha ao capturar foto")
+                completion(nil)
+                return
+            }
+
+            let cropped = self?.cropToScreenAspect(img) ?? img
+            print("Foto capturada com sucesso")
+            completion(cropped)
         }
     }
 }
