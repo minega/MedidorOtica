@@ -42,19 +42,9 @@ extension CameraManager {
         let width = CGFloat(cgImageFull.width)
         let height = CGFloat(cgImageFull.height)
         let viewSize = UIScreen.main.bounds.size
-        let viewAspect = viewSize.width / viewSize.height
-        let imageAspect = width / height
-        var cropRect = CGRect(x: 0, y: 0, width: width, height: height)
-
-        if imageAspect > viewAspect {
-            let newWidth = height * viewAspect
-            cropRect.origin.x = (width - newWidth) / 2
-            cropRect.size.width = newWidth
-        } else {
-            let newHeight = width / viewAspect
-            cropRect.origin.y = (height - newHeight) / 2
-            cropRect.size.height = newHeight
-        }
+        var cropRect = AVMakeRect(aspectRatio: viewSize, insideRect: CGRect(x: 0, y: 0, width: width, height: height))
+        cropRect.origin.x = (width - cropRect.width) / 2
+        cropRect.origin.y = (height - cropRect.height) / 2
 
         guard let croppedCG = cgImageFull.cropping(to: cropRect) else {
             print("ERRO: Falha ao recortar a imagem capturada")
