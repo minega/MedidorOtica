@@ -92,4 +92,14 @@ extension CGImagePropertyOrientation {
         @unknown default: self = .up
         }
     }
+
+    /// Indica se a orientação é vertical
+    var isPortrait: Bool {
+        switch self {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return true
+        default:
+            return false
+        }
+    }
 }

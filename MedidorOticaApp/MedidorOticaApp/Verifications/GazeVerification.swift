@@ -45,6 +45,12 @@ extension VerificationManager {
     /// Calcula e publica a posição das pupilas para depuração visual.
     /// - Parameter frame: Frame atual processado pela sessão AR.
     func updatePupilPoints(using frame: ARFrame) {
+        let width = CGFloat(CVPixelBufferGetWidth(frame.capturedImage))
+        let height = CGFloat(CVPixelBufferGetHeight(frame.capturedImage))
+        let orientation = currentCGOrientation()
+        let resolution: CGSize = orientation.isPortrait
+            ? CGSize(width: height, height: width)
+            : CGSize(width: width, height: height)
         var left: CGPoint?
         var right: CGPoint?
 
@@ -53,6 +59,7 @@ extension VerificationManager {
         }
 
         DispatchQueue.main.async {
+            self.cameraResolution = resolution
             self.leftPupilPoint = left
             self.rightPupilPoint = right
         }
@@ -165,8 +172,42 @@ extension VerificationManager {
     /// - Parameter frame: `ARFrame` capturado no momento.
     /// - Returns: Tupla com os pontos das pupilas esquerda e direita.
     private func visionPupilPoints(from frame: ARFrame) -> (CGPoint?, CGPoint?) {
-        let request = makeLandmarksRequest()
         let orientation = currentCGOrientation()
+
+        // Tenta usar a API mais recente de rastreamento de olhar de forma
+        // dinâmica para manter compatibilidade com Xcodes antigos.
+        if #available(iOS 17, *),
+           let gazeClass = NSClassFromString("VNGazeTrackingRequest") as? VNRequest.Type {
+            let gazeRequest = gazeClass.init()
+            (gazeRequest as NSObject).setValue(1, forKey: "revision")
+
+            let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                                orientation: orientation,
+                                                options: [:])
+            do {
+                try handler.perform([gazeRequest])
+                if let results = (gazeRequest as NSObject).value(forKey: "results") as? [Any],
+                   let first = results.first as? NSObject,
+                   // Acessa dinamicamente as coordenadas das pupilas
+                   let left = first.value(forKey: "leftPupil") as? CGPoint,
+                   let right = first.value(forKey: "rightPupil") as? CGPoint {
+
+                    // Converte para o sistema de coordenadas da interface
+                    var leftNorm = CGPoint(x: left.x, y: 1.0 - left.y)
+                    var rightNorm = CGPoint(x: right.x, y: 1.0 - right.y)
+                    if CameraManager.shared.cameraPosition == .front {
+                        leftNorm.x = 1.0 - leftNorm.x
+                        rightNorm.x = 1.0 - rightNorm.x
+                    }
+                    return (leftNorm, rightNorm)
+                }
+            } catch {
+                print("ERRO ao rastrear olhar com VNGazeTrackingRequest: \(error)")
+            }
+        }
+
+        // Fallback para a detecção clássica de marcos faciais
+        let request = makeLandmarksRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
                                             orientation: orientation,
                                             options: [:])
@@ -184,8 +225,6 @@ extension VerificationManager {
             let leftP = averagePoint(from: left.normalizedPoints)
             let rightP = averagePoint(from: right.normalizedPoints)
 
-            // `VNImagePointForNormalizedPoint` espera coordenadas normalizadas
-            // e retorna pontos em pixels considerando largura e altura da imagem
             let leftPixel = VNImagePointForNormalizedPoint(leftP, Int(width), Int(height))
             let rightPixel = VNImagePointForNormalizedPoint(rightP, Int(width), Int(height))
 
