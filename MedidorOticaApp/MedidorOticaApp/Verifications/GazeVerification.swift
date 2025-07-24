@@ -117,13 +117,16 @@ extension VerificationManager {
             let leftP = averagePoint(from: leftPupil.normalizedPoints)
             let rightP = averagePoint(from: rightPupil.normalizedPoints)
             let bounding = face.boundingBox
+
+            // Converte para coordenadas absolutas (origem no canto inferior esquerdo)
             let leftAbs = CGPoint(x: bounding.origin.x + leftP.x * bounding.width,
                                   y: bounding.origin.y + leftP.y * bounding.height)
             let rightAbs = CGPoint(x: bounding.origin.x + rightP.x * bounding.width,
                                    y: bounding.origin.y + rightP.y * bounding.height)
-            // Mantém a origem no canto superior esquerdo do overlay.
-            let leftNorm = CGPoint(x: leftAbs.x, y: leftAbs.y)
-            let rightNorm = CGPoint(x: rightAbs.x, y: rightAbs.y)
+
+            // Ajusta para o sistema de coordenadas da interface (origem no canto superior esquerdo)
+            let leftNorm = CGPoint(x: leftAbs.x, y: 1.0 - leftAbs.y)
+            let rightNorm = CGPoint(x: rightAbs.x, y: 1.0 - rightAbs.y)
 
             DispatchQueue.main.async {
                 self.leftPupilPoint = leftNorm
