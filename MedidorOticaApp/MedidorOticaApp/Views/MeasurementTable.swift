@@ -15,13 +15,13 @@ struct MeasurementTable: View {
     // MARK: - View
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Medi\u00e7\u00f5es")
+            Text("Medições")
                 .font(.headline)
 
             TableRow(title: "DNP", value: formatted(distanceBetween(landmarks.leftPupil, landmarks.rightPupil)))
             TableRow(title: "Altura Pupilar", value: formatted(verticalDistance(from: landmarks.topPoint, to: landmarks.leftPupil)))
-            TableRow(title: "Largura da Arma\u00e7\u00e3o", value: formatted(distanceBetween(landmarks.leftPoint, landmarks.rightPoint)))
-            TableRow(title: "Altura da Arma\u00e7\u00e3o", value: formatted(verticalDistance(from: landmarks.topPoint, to: landmarks.bottomPoint)))
+            TableRow(title: "Largura da Armação", value: formatted(distanceBetween(landmarks.leftPoint, landmarks.rightPoint)))
+            TableRow(title: "Altura da Armação", value: formatted(verticalDistance(from: landmarks.topPoint, to: landmarks.bottomPoint)))
             TableRow(title: "Diagonal", value: formatted(diagonal()))
         }
     }

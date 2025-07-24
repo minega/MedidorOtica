@@ -8,10 +8,21 @@
 import CoreGraphics
 
 struct FrameLandmarks {
-    let leftPoint: CGPoint
-    let rightPoint: CGPoint
-    let topPoint: CGPoint
-    let bottomPoint: CGPoint
-    let leftPupil: CGPoint
-    let rightPupil: CGPoint
+    /// Ponto na lateral esquerda da armação, normalizado entre 0 e 1
+    var leftPoint: CGPoint
+
+    /// Ponto na lateral direita da armação, normalizado entre 0 e 1
+    var rightPoint: CGPoint
+
+    /// Ponto superior da armação, normalizado entre 0 e 1
+    var topPoint: CGPoint
+
+    /// Ponto inferior da armação, normalizado entre 0 e 1
+    var bottomPoint: CGPoint
+
+    /// Centro da pupila esquerda, normalizado entre 0 e 1
+    var leftPupil: CGPoint
+
+    /// Centro da pupila direita, normalizado entre 0 e 1
+    var rightPupil: CGPoint
 }
