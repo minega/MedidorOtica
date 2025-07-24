@@ -47,12 +47,12 @@ extension VerificationManager {
         }
 
         let request: VNImageBasedRequest
-        if #available(iOS 17, *),
-           let requestClass = NSClassFromString("VNRecognizeObjectsRequest") as? VNRecognizeObjectsRequest.Type {
-            /// Usa VNRecognizeObjectsRequest quando disponível (iOS 17+)
+        if let requestClass = NSClassFromString("VNRecognizeObjectsRequest") as? VNImageBasedRequest.Type {
+            /// Usa VNRecognizeObjectsRequest quando disponível
             let objRequest = requestClass.init(completionHandler: completion)
-            objRequest.revision = VNRecognizeObjectsRequestRevision1
-            objRequest.usesCPUOnly = true
+            if objRequest.responds(to: Selector(("setRevision:"))) {
+                objRequest.setValue(1, forKey: "revision")
+            }
             request = objRequest
         } else {
             /// Fallback para classificação genérica em versões anteriores
