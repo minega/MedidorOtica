@@ -22,10 +22,10 @@ struct ManualAdjustmentView: View {
                     .aspectRatio(contentMode: .fit)
 
                 GeometryReader { geo in
-                    DraggablePoint(position: $landmarks.leftPoint, geoSize: geo.size)
-                    DraggablePoint(position: $landmarks.rightPoint, geoSize: geo.size)
-                    DraggablePoint(position: $landmarks.topPoint, geoSize: geo.size)
-                    DraggablePoint(position: $landmarks.bottomPoint, geoSize: geo.size)
+                    DraggableVerticalLine(value: $landmarks.leftLineX, geoSize: geo.size)
+                    DraggableVerticalLine(value: $landmarks.rightLineX, geoSize: geo.size)
+                    DraggableHorizontalLine(value: $landmarks.topLineY, geoSize: geo.size)
+                    DraggableHorizontalLine(value: $landmarks.bottomLineY, geoSize: geo.size)
                     DraggablePoint(position: $landmarks.leftPupil, geoSize: geo.size)
                     DraggablePoint(position: $landmarks.rightPupil, geoSize: geo.size)
                 }
@@ -59,12 +59,52 @@ private struct DraggablePoint: View {
     }
 }
 
+// MARK: - Linha Vertical Arrastável
+private struct DraggableVerticalLine: View {
+    @Binding var value: CGFloat
+    let geoSize: CGSize
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.green)
+            .frame(width: 2, height: geoSize.height)
+            .position(x: value * geoSize.width, y: geoSize.height / 2)
+            .gesture(
+                DragGesture()
+                    .onChanged { gesture in
+                        let newX = min(max(0, gesture.location.x / geoSize.width), 1)
+                        value = newX
+                    }
+            )
+    }
+}
+
+// MARK: - Linha Horizontal Arrastável
+private struct DraggableHorizontalLine: View {
+    @Binding var value: CGFloat
+    let geoSize: CGSize
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.green)
+            .frame(width: geoSize.width, height: 2)
+            .position(x: geoSize.width / 2, y: value * geoSize.height)
+            .gesture(
+                DragGesture()
+                    .onChanged { gesture in
+                        let newY = min(max(0, gesture.location.y / geoSize.height), 1)
+                        value = newY
+                    }
+            )
+    }
+}
+
 // MARK: - Preview
 struct ManualAdjustmentView_Previews: PreviewProvider {
-    @State static var landmarks = FrameLandmarks(leftPoint: CGPoint(x: 0.2, y: 0.5),
-                                                 rightPoint: CGPoint(x: 0.8, y: 0.5),
-                                                 topPoint: CGPoint(x: 0.5, y: 0.3),
-                                                 bottomPoint: CGPoint(x: 0.5, y: 0.7),
+    @State static var landmarks = FrameLandmarks(leftLineX: 0.2,
+                                                 rightLineX: 0.8,
+                                                 topLineY: 0.3,
+                                                 bottomLineY: 0.7,
                                                  leftPupil: CGPoint(x: 0.4, y: 0.5),
                                                  rightPupil: CGPoint(x: 0.6, y: 0.5))
 

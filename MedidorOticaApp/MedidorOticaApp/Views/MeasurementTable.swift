@@ -19,9 +19,9 @@ struct MeasurementTable: View {
                 .font(.headline)
 
             TableRow(title: "DNP", value: formatted(distanceBetween(landmarks.leftPupil, landmarks.rightPupil)))
-            TableRow(title: "Altura Pupilar", value: formatted(verticalDistance(from: landmarks.topPoint, to: landmarks.leftPupil)))
-            TableRow(title: "Largura da Armação", value: formatted(distanceBetween(landmarks.leftPoint, landmarks.rightPoint)))
-            TableRow(title: "Altura da Armação", value: formatted(verticalDistance(from: landmarks.topPoint, to: landmarks.bottomPoint)))
+            TableRow(title: "Altura Pupilar", value: formatted(verticalDistance(from: CGPoint(x: 0, y: landmarks.topLineY), to: landmarks.leftPupil)))
+            TableRow(title: "Largura da Armação", value: formatted(horizontalLength()))
+            TableRow(title: "Altura da Armação", value: formatted(verticalLength()))
             TableRow(title: "Diagonal", value: formatted(diagonal()))
         }
     }
@@ -46,9 +46,21 @@ struct MeasurementTable: View {
 
     /// Calcula a diagonal da armação
     private func diagonal() -> Double {
-        let width = distanceBetween(landmarks.leftPoint, landmarks.rightPoint)
-        let height = verticalDistance(from: landmarks.topPoint, to: landmarks.bottomPoint)
+        let width = horizontalLength()
+        let height = verticalLength()
         return sqrt(width * width + height * height)
+    }
+
+    /// Largura da armação em milímetros
+    private func horizontalLength() -> Double {
+        let pixels = Double((landmarks.rightLineX - landmarks.leftLineX) * imageSize.width)
+        return abs(pixels) * mmPerPixel
+    }
+
+    /// Altura da armação em milímetros
+    private func verticalLength() -> Double {
+        let pixels = Double((landmarks.bottomLineY - landmarks.topLineY) * imageSize.height)
+        return abs(pixels) * mmPerPixel
     }
 
     /// Formata um valor para exibição em milímetros
@@ -75,10 +87,10 @@ private struct TableRow: View {
 // MARK: - Preview
 struct MeasurementTable_Previews: PreviewProvider {
     static var previews: some View {
-        MeasurementTable(landmarks: FrameLandmarks(leftPoint: .zero,
-                                                   rightPoint: CGPoint(x: 1, y: 0),
-                                                   topPoint: .zero,
-                                                   bottomPoint: CGPoint(x: 0, y: 1),
+        MeasurementTable(landmarks: FrameLandmarks(leftLineX: 0.1,
+                                                   rightLineX: 0.9,
+                                                   topLineY: 0.2,
+                                                   bottomLineY: 0.8,
                                                    leftPupil: CGPoint(x: 0.3, y: 0.3),
                                                    rightPupil: CGPoint(x: 0.7, y: 0.3)),
                           imageSize: CGSize(width: 1000, height: 1000))

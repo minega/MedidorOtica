@@ -26,7 +26,6 @@ class VerificationManager: ObservableObject {
     @Published var faceAligned = false
     @Published var headAligned = false
     @Published var frameDetected = false
-    @Published var frameAligned = false
     @Published var gazeCorrect = false
     
     // Medições precisas
@@ -66,11 +65,6 @@ class VerificationManager: ObservableObject {
     private var lastFrameTime = Date.distantPast
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
-    /// Histórico de resultados da detecção de armação para evitar oscilações
-    /// Histórico recente das detecções de armação para reduzir falsos positivos
-    var frameDetectionHistory: [Bool] = []
-    /// Tamanho máximo do histórico utilizado para a média
-    var frameHistoryLimit = 5
 
     private init() {
         // Inicializa as verificações
@@ -87,8 +81,7 @@ class VerificationManager: ObservableObject {
             Verification(id: 3, type: .centering, isChecked: false),
             Verification(id: 4, type: .headAlignment, isChecked: false),
             Verification(id: 5, type: .frameDetection, isChecked: false),
-            Verification(id: 6, type: .frameTilt, isChecked: false),
-            Verification(id: 7, type: .gaze, isChecked: false)
+            Verification(id: 6, type: .gaze, isChecked: false)
         ]
     }
     
@@ -173,29 +166,11 @@ class VerificationManager: ObservableObject {
                 return
             }
 
-            // MARK: Passo 5 - Detecção de armação
+            // Atualiza detecção de armação independentemente da sequência
             let frameOk = self.checkFrameDetection(in: frame.capturedImage)
             DispatchQueue.main.async { self.frameDetected = frameOk }
-            guard frameOk else {
-                self.resetVerificationsAfter(.frameDetection)
-                DispatchQueue.main.async { [weak self] in
-                    self?.updateVerificationStatus(throttled: true)
-                }
-                return
-            }
 
-            // MARK: Passo 6 - Inclinação da armação
-            let frameAlignedOk = self.checkFrameAlignment(in: frame.capturedImage)
-            DispatchQueue.main.async { self.frameAligned = frameAlignedOk }
-            guard frameAlignedOk else {
-                self.resetVerificationsAfter(.frameTilt)
-                DispatchQueue.main.async { [weak self] in
-                    self?.updateVerificationStatus(throttled: true)
-                }
-                return
-            }
-
-            // MARK: Passo 7 - Direção do olhar
+            // MARK: Passo 5 - Direção do olhar
             Task { @MainActor in
                 let gazeOk = self.checkGaze(using: frame)
                 self.gazeCorrect = gazeOk
@@ -206,7 +181,6 @@ class VerificationManager: ObservableObject {
                       "Centralizado=\(centeredOk), " +
                       "Cabeça=\(headAlignedOk), " +
                       "Armação=\(frameOk), " +
-                      "AlinhamentoArmação=\(frameAlignedOk), " +
                       "Olhar=\(gazeOk)")
 #endif
                 self.updateVerificationStatus(throttled: true)
@@ -224,7 +198,6 @@ class VerificationManager: ObservableObject {
             self.faceAligned = false
             self.headAligned = false
             self.frameDetected = false
-            self.frameAligned = false
             self.gazeCorrect = false
             self.lastMeasuredDistance = 0
 
@@ -244,7 +217,6 @@ class VerificationManager: ObservableObject {
             self.faceAligned = false
             self.headAligned = false
             self.frameDetected = false
-            self.frameAligned = false
             self.gazeCorrect = false
             self.lastMeasuredDistance = 0
 
@@ -295,8 +267,6 @@ class VerificationManager: ObservableObject {
                     headAligned = false
                 case .frameDetection:
                     frameDetected = false
-                case .frameTilt:
-                    frameAligned = false
                 case .gaze:
                     gazeCorrect = false
                 default:
@@ -329,11 +299,6 @@ class VerificationManager: ObservableObject {
             // Detecção de armação sempre atualizada
             if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
                 updated[index].isChecked = frameDetected
-            }
-
-            // Inclinação da armação sempre atualizada
-            if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
-                updated[index].isChecked = frameAligned
             }
 
             guard faceDetected else {
@@ -379,31 +344,11 @@ class VerificationManager: ObservableObject {
                 return
             }
 
-            // Etapa 5: Detecção de armação
+            // Detecção de armação (status independente)
             if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
                 updated[index].isChecked = frameDetected
             }
-
-            guard frameDetected else {
-                resetVerificationsAfter(.frameDetection)
-                currentStep = .frameDetection
-                verifications = updated
-                return
-            }
-
-            // Etapa 6: Inclinação da armação
-            if let index = updated.firstIndex(where: { $0.type == .frameTilt }) {
-                updated[index].isChecked = frameAligned
-            }
-
-            guard frameAligned else {
-                resetVerificationsAfter(.frameTilt)
-                currentStep = .frameTilt
-                verifications = updated
-                return
-            }
-
-            // Etapa 7: Direção do olhar
+            // Etapa 5: Direção do olhar
             if let index = updated.firstIndex(where: { $0.type == .gaze }) {
                 updated[index].isChecked = gazeCorrect
             }

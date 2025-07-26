@@ -14,8 +14,7 @@ enum VerificationType: Int, CaseIterable, Identifiable {
     case centering = 3
     case headAlignment = 4
     case frameDetection = 5
-    case frameTilt = 6
-    case gaze = 7
+    case gaze = 6
     
     var id: Int { rawValue }
     
@@ -26,7 +25,6 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .centering: return "Rosto centralizado"
         case .headAlignment: return "Cabeça alinhada"
         case .frameDetection: return "Armação detectada"
-        case .frameTilt: return "Armação alinhada"
         case .gaze: return "Olhar para câmera"
         }
     }
@@ -39,14 +37,13 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .centering: return "Rosto centralizado no oval"
         case .headAlignment: return "Cabeça sem inclinação"
         case .frameDetection: return "Detecta uso de armação"
-        case .frameTilt: return "Armação corretamente posicionada"
         case .gaze: return "Olhar diretamente para a câmera"
         }
     }
     
     var isOptional: Bool {
         switch self {
-        case .frameDetection, .frameTilt: return true
+        case .frameDetection: return true
         default: return false
         }
     }
@@ -74,8 +71,6 @@ enum VerificationStep: Int {
     case distance
     case centering
     case headAlignment
-    case frameDetection
-    case frameTilt
     case gaze
     case completed
 }

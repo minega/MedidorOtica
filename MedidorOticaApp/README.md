@@ -17,8 +17,8 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - Detecção de olhar baseada em pupilas compatível com iOS 13 ou superior (iOS 17+ recomendado).
 - Demais verificações utilizam as revisões mais recentes de `VNDetectFace*`.
 - Requisitos mínimos atualizados para Swift 5.9.
-- Detecção automática dos limites da armação após a captura.
-- Ajuste manual dos pontos com gestos de arrastar.
+ - Detecção automática das linhas internas da armação após a captura.
+ - Ajuste manual dessas linhas e das pupilas com gestos de arrastar.
 - Exibição de tabela de medidas (largura, altura e diagonais) diretamente na prévia.
 
 ## 📂 Estrutura do Projeto
@@ -44,7 +44,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 | `Verifications/CenteringVerification.swift` | Verificação de centralização do rosto |
 | `Verifications/HeadAlignmentVerification.swift` | Verificação de alinhamento da cabeça |
 | `Verifications/PupilTracking.swift` | Verificação de direção do olhar |
-| `Verifications/FrameVerifications.swift` | Verificações de armação de óculos |
+| `Verifications/FrameDetection.swift` | Verificação de armação de óculos |
 
 ### Models
 | Caminho | Descrição |

@@ -2,23 +2,24 @@
 //  FrameLandmarks.swift
 //  MedidorOticaApp
 //
-//  Estrutura simples que armazena pontos detectados na arma\u00e7\u00e3o e nas pupilas.
+//  Estrutura simples que armazena linhas detectadas na armação e as pupilas.
 //
 
 import CoreGraphics
 
+/// Representa linhas verticais e horizontais que delimitam a armação.
 struct FrameLandmarks {
-    /// Ponto na lateral esquerda da armação, normalizado entre 0 e 1
-    var leftPoint: CGPoint
+    /// Linha vertical à esquerda (0 a 1) que delimita a lente esquerda
+    var leftLineX: CGFloat
 
-    /// Ponto na lateral direita da armação, normalizado entre 0 e 1
-    var rightPoint: CGPoint
+    /// Linha vertical à direita (0 a 1) que delimita a lente direita
+    var rightLineX: CGFloat
 
-    /// Ponto superior da armação, normalizado entre 0 e 1
-    var topPoint: CGPoint
+    /// Linha horizontal superior (0 a 1) da armação
+    var topLineY: CGFloat
 
-    /// Ponto inferior da armação, normalizado entre 0 e 1
-    var bottomPoint: CGPoint
+    /// Linha horizontal inferior (0 a 1) da armação
+    var bottomLineY: CGFloat
 
     /// Centro da pupila esquerda, normalizado entre 0 e 1
     var leftPupil: CGPoint
