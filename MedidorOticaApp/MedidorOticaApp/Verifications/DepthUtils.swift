@@ -42,6 +42,34 @@ extension VerificationManager {
                        y: sumY / CGFloat(points.count))
     }
 
+    /// Retorna a largura e altura considerando a orientação fornecida.
+    func orientedDimensions(for buffer: CVPixelBuffer,
+                            orientation: CGImagePropertyOrientation) -> (width: Int, height: Int) {
+        let rawWidth = CVPixelBufferGetWidth(buffer)
+        let rawHeight = CVPixelBufferGetHeight(buffer)
+        return orientation.isPortrait ? (rawHeight, rawWidth) : (rawWidth, rawHeight)
+    }
+
+    /// Versão para `CGImage`.
+    func orientedDimensions(for image: CGImage,
+                            orientation: CGImagePropertyOrientation) -> (Int, Int) {
+        let rawWidth = image.width
+        let rawHeight = image.height
+        return orientation.isPortrait ? (rawHeight, rawWidth) : (rawWidth, rawHeight)
+    }
+
+    /// Converte um ponto de pixel em coordenadas normalizadas de tela.
+    func normalizedPoint(_ pixelPoint: CGPoint,
+                         width: Int,
+                         height: Int,
+                         orientation: CGImagePropertyOrientation) -> CGPoint {
+        var point = CGPoint(x: pixelPoint.x / CGFloat(width),
+                            y: pixelPoint.y / CGFloat(height))
+        point.y = 1 - point.y
+        if orientation.isMirrored { point.x = 1 - point.x }
+        return point
+    }
+
     /// Cria uma `VNDetectFaceLandmarksRequest` com a revisão mais recente.
     /// - Returns: Requisição configurada para iOS 17 ou superior.
     func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
@@ -97,6 +125,16 @@ extension CGImagePropertyOrientation {
     var isPortrait: Bool {
         switch self {
         case .left, .leftMirrored, .right, .rightMirrored:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Indica se a orientação é espelhada horizontalmente
+    var isMirrored: Bool {
+        switch self {
+        case .upMirrored, .downMirrored, .leftMirrored, .rightMirrored:
             return true
         default:
             return false

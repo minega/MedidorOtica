@@ -311,17 +311,16 @@ struct MeasurementResultView: View {
                   let leftPupil = face.landmarks?.leftPupil,
                   let rightPupil = face.landmarks?.rightPupil else { return }
 
-            let width = CGFloat(cgImage.width)
-            let height = CGFloat(cgImage.height)
+            let (w, h) = orientedDimensions(for: cgImage, orientation: orientation)
 
             let points = all.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+                VNImagePointForNormalizedPoint($0, w, h)
             }
             let leftPixels = leftPupil.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+                VNImagePointForNormalizedPoint($0, w, h)
             }
             let rightPixels = rightPupil.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, Int(width), Int(height))
+                VNImagePointForNormalizedPoint($0, w, h)
             }
 
             var minX = CGFloat.greatestFiniteMagnitude
@@ -338,13 +337,21 @@ struct MeasurementResultView: View {
             let lp = average(points: leftPixels)
             let rp = average(points: rightPixels)
 
-            let leftPoint = CGPoint(x: minX / width, y: 1 - (minY / height))
-            let rightPoint = CGPoint(x: maxX / width, y: 1 - (minY / height))
-            let topPoint = CGPoint(x: 0.5, y: 1 - (maxY / height))
-            let bottomPoint = CGPoint(x: 0.5, y: 1 - (minY / height))
+            let leftPoint = normalizedPoint(CGPoint(x: minX, y: minY),
+                                            width: w, height: h,
+                                            orientation: orientation)
+            let rightPoint = normalizedPoint(CGPoint(x: maxX, y: minY),
+                                             width: w, height: h,
+                                             orientation: orientation)
+            let topPoint = normalizedPoint(CGPoint(x: CGFloat(w) / 2, y: maxY),
+                                           width: w, height: h,
+                                           orientation: orientation)
+            let bottomPoint = normalizedPoint(CGPoint(x: CGFloat(w) / 2, y: minY),
+                                              width: w, height: h,
+                                              orientation: orientation)
 
-            let leftP = CGPoint(x: lp.x / width, y: 1 - (lp.y / height))
-            let rightP = CGPoint(x: rp.x / width, y: 1 - (rp.y / height))
+            let leftP = normalizedPoint(lp, width: w, height: h, orientation: orientation)
+            let rightP = normalizedPoint(rp, width: w, height: h, orientation: orientation)
 
             landmarks = FrameLandmarks(leftPoint: leftPoint,
                                        rightPoint: rightPoint,
