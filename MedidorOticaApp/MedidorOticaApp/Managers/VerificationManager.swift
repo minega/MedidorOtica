@@ -48,8 +48,6 @@ class VerificationManager: ObservableObject {
     // Pontos normalizados das pupilas para depuração visual
     @Published var leftPupilPoint: CGPoint?
     @Published var rightPupilPoint: CGPoint?
-    /// Resolução atual do frame da câmera usado para conversão de pontos
-    @Published var cameraResolution: CGSize = .zero
     
     // Configurações
     /// Distância mínima permitida em centímetros
