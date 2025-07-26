@@ -23,6 +23,7 @@
 - Para rastreamento de olhar, prefira `VNGazeTrackingRequest` quando disponível.
 - Ao usar `VNDetectFace*`, defina a revisão mais atual para obter melhores resultados.
 - Novas funcionalidades de detecção de armação devem manter a precisão mínima de 0.5 mm e permitir ajuste manual.
+- A análise pós-captura deve identificar linhas internas das lentes e permitir ajuste dessas linhas.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.

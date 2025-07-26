@@ -46,26 +46,26 @@ struct MeasurementResultView: View {
 
                                 // Linhas de extremidades
                                 Path { path in
-                                    path.move(to: CGPoint(x: landmarks.leftPoint.x * w, y: 0))
-                                    path.addLine(to: CGPoint(x: landmarks.leftPoint.x * w, y: h))
+                                    path.move(to: CGPoint(x: landmarks.leftLineX * w, y: 0))
+                                    path.addLine(to: CGPoint(x: landmarks.leftLineX * w, y: h))
                                 }
                                 .stroke(Color.green, lineWidth: 2)
 
                                 Path { path in
-                                    path.move(to: CGPoint(x: landmarks.rightPoint.x * w, y: 0))
-                                    path.addLine(to: CGPoint(x: landmarks.rightPoint.x * w, y: h))
+                                    path.move(to: CGPoint(x: landmarks.rightLineX * w, y: 0))
+                                    path.addLine(to: CGPoint(x: landmarks.rightLineX * w, y: h))
                                 }
                                 .stroke(Color.green, lineWidth: 2)
 
                                 Path { path in
-                                    path.move(to: CGPoint(x: 0, y: landmarks.topPoint.y * h))
-                                    path.addLine(to: CGPoint(x: w, y: landmarks.topPoint.y * h))
+                                    path.move(to: CGPoint(x: 0, y: landmarks.topLineY * h))
+                                    path.addLine(to: CGPoint(x: w, y: landmarks.topLineY * h))
                                 }
                                 .stroke(Color.green, lineWidth: 2)
 
                                 Path { path in
-                                    path.move(to: CGPoint(x: 0, y: landmarks.bottomPoint.y * h))
-                                    path.addLine(to: CGPoint(x: w, y: landmarks.bottomPoint.y * h))
+                                    path.move(to: CGPoint(x: 0, y: landmarks.bottomLineY * h))
+                                    path.addLine(to: CGPoint(x: w, y: landmarks.bottomLineY * h))
                                 }
                                 .stroke(Color.green, lineWidth: 2)
 
@@ -297,81 +297,9 @@ struct MeasurementResultView: View {
 
     /// Detecta automaticamente pontos relevantes utilizando Vision
     private func detectLandmarks() {
-        guard let cgImage = capturedImage.cgImage else { return }
-        let orientation = CGImagePropertyOrientation(capturedImage.imageOrientation)
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
-
-        let handler = VNImageRequestHandler(cgImage: cgImage,
-                                            orientation: orientation)
-        do {
-            try handler.perform([request])
-            guard let face = request.results?.first,
-                  let all = face.landmarks?.allPoints,
-                  let leftPupil = face.landmarks?.leftPupil,
-                  let rightPupil = face.landmarks?.rightPupil else { return }
-
-            let (w, h) = orientedDimensions(for: cgImage, orientation: orientation)
-
-            let points = all.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, w, h)
-            }
-            let leftPixels = leftPupil.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, w, h)
-            }
-            let rightPixels = rightPupil.normalizedPoints.map {
-                VNImagePointForNormalizedPoint($0, w, h)
-            }
-
-            var minX = CGFloat.greatestFiniteMagnitude
-            var maxX: CGFloat = 0
-            var minY = CGFloat.greatestFiniteMagnitude
-            var maxY: CGFloat = 0
-            for p in points {
-                minX = min(minX, p.x)
-                maxX = max(maxX, p.x)
-                minY = min(minY, p.y)
-                maxY = max(maxY, p.y)
-            }
-
-            let lp = average(points: leftPixels)
-            let rp = average(points: rightPixels)
-
-            let leftPoint = normalizedPoint(CGPoint(x: minX, y: minY),
-                                            width: w, height: h,
-                                            orientation: orientation)
-            let rightPoint = normalizedPoint(CGPoint(x: maxX, y: minY),
-                                             width: w, height: h,
-                                             orientation: orientation)
-            let topPoint = normalizedPoint(CGPoint(x: CGFloat(w) / 2, y: maxY),
-                                           width: w, height: h,
-                                           orientation: orientation)
-            let bottomPoint = normalizedPoint(CGPoint(x: CGFloat(w) / 2, y: minY),
-                                              width: w, height: h,
-                                              orientation: orientation)
-
-            let leftP = normalizedPoint(lp, width: w, height: h, orientation: orientation)
-            let rightP = normalizedPoint(rp, width: w, height: h, orientation: orientation)
-
-            landmarks = FrameLandmarks(leftPoint: leftPoint,
-                                       rightPoint: rightPoint,
-                                       topPoint: topPoint,
-                                       bottomPoint: bottomPoint,
-                                       leftPupil: leftP,
-                                       rightPupil: rightP)
-        } catch {
-            print("Erro ao detectar pontos: \(error.localizedDescription)")
-        }
+        landmarks = FrameAnalyzer.analyze(image: capturedImage)
     }
 
-    /// Calcula a média de uma lista de pontos
-    private func average(points: [CGPoint]) -> CGPoint {
-        guard !points.isEmpty else { return .zero }
-        let sumX = points.reduce(0) { $0 + $1.x }
-        let sumY = points.reduce(0) { $0 + $1.y }
-        return CGPoint(x: sumX / CGFloat(points.count),
-                       y: sumY / CGFloat(points.count))
-    }
 }
 
 // View para compartilhamento
