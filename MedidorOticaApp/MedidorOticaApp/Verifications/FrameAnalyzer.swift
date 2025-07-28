@@ -101,4 +101,3 @@ private extension CGImagePropertyOrientation {
         }
     }
 }
-*** End of File ***
