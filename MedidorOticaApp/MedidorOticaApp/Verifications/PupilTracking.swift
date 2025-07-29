@@ -18,11 +18,11 @@ extension VerificationManager {
     func updatePupilPoints(using frame: ARFrame) {
         let orientation = currentCGOrientation()
         processingQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             let (left, right) = self.detectPupils(in: frame, orientation: orientation)
-            DispatchQueue.main.async {
-                self.leftPupilPoint = left
-                self.rightPupilPoint = right
+            Task { @MainActor [weak self] in
+                self?.leftPupilPoint = left
+                self?.rightPupilPoint = right
             }
         }
     }
@@ -41,7 +41,7 @@ extension VerificationManager {
     }
 
     // MARK: - Implementação privada
-    private func detectPupils(in frame: ARFrame,
+    nonisolated private func detectPupils(in frame: ARFrame,
                               orientation: CGImagePropertyOrientation) -> (CGPoint?, CGPoint?) {
         let buffer = frame.capturedImage
         let (width, height) = orientedDimensions(for: buffer, orientation: orientation)

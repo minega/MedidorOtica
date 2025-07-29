@@ -9,31 +9,26 @@ import Vision
 import ARKit
 
 extension VerificationManager {
-    // MARK: - Parâmetros de Detecção
-    private enum FrameDetectionConfig {
-        static let minConfidence: VNConfidence = 0.6
-    }
-
     // MARK: - Verificação de Armação
-    /// Retorna `true` se uma armação for detectada no buffer atual.
+    /// Analisa o buffer atual e retorna `true` caso a imagem apresente
+    /// contornos suficientes para indicar uma possível armação.
     func checkFrameDetection(in buffer: CVPixelBuffer) -> Bool {
-        let request = VNRecognizeObjectsRequest()
-        request.revision = 1
-        request.recognitionLevel = .accurate
+        let orientation = currentCGOrientation()
+        let request = VNDetectContoursRequest()
+        request.contrastAdjustment = 1.0
+        request.detectsDarkOnLight = true
 
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer,
-                                            orientation: currentCGOrientation())
+                                            orientation: orientation)
         do {
             try handler.perform([request])
-            guard let objects = request.results else { return false }
-            return objects.contains { obs in
-                obs.labels.first?.identifier.lowercased().contains("glass") == true &&
-                obs.confidence >= FrameDetectionConfig.minConfidence
-            }
+            guard let observation = request.results?.first else { return false }
+            // Heurística simples: considera presença de armação quando há
+            // muitos contornos detectados na região do rosto
+            return observation.topLevelContours.count > 8
         } catch {
             print("Falha na detecção de armação: \(error)")
             return false
         }
     }
 }
-*** End of File ***

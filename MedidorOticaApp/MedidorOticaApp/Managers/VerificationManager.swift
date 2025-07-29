@@ -11,7 +11,8 @@ import AVFoundation
 import ARKit
 import Combine
 
-class VerificationManager: ObservableObject {
+/// Gerencia todas as verificações de medição óptica.
+final class VerificationManager: ObservableObject {
     static let shared = VerificationManager()
 
     // Publicação das verificações para a interface
@@ -372,3 +373,6 @@ class VerificationManager: ObservableObject {
         hasLiDAR = manager.hasLiDAR
     }
 }
+
+
+extension VerificationManager: @unchecked Sendable {}
