@@ -8,13 +8,9 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 ## Novidades
 
-- Rastreamento de olhar unificado usando detecção de pupilas via Vision.
+- Código simplificado, removendo detecção de armação e rastreamento de pupilas.
+- Captura automática com contagem regressiva após todas as verificações básicas, com opção de desativar pelo botão "timer".
 - Todas as verificações utilizam as revisões mais recentes do Vision.
-- Código modernizado e otimizado, removendo duplicações.
-- Detecção automática dos limites internos da armação e das pupilas na foto.
-- Ferramenta de ajuste manual das linhas da armação e das pupilas pós-captura.
-- Tabela sobreposta exibindo medidas detalhadas da armação e do usuário.
-- Indicador de armação em tempo real exibido independentemente das demais etapas.
 - Correção da orientação e do recorte ao salvar a foto.
 
 ## Requisitos
@@ -30,7 +26,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
 - Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
-- As verificações de rosto, distância, centralização, alinhamento e olhar são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+- As verificações de rosto, distância, centralização e alinhamento são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
 
 ## Como contribuir
 

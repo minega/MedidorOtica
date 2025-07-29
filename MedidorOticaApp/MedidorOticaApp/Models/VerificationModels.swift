@@ -13,8 +13,6 @@ enum VerificationType: Int, CaseIterable, Identifiable {
     case distance = 2
     case centering = 3
     case headAlignment = 4
-    case frameDetection = 5
-    case gaze = 6
     
     var id: Int { rawValue }
     
@@ -24,8 +22,6 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .distance: return "Distância correta"
         case .centering: return "Rosto centralizado"
         case .headAlignment: return "Cabeça alinhada"
-        case .frameDetection: return "Armação detectada"
-        case .gaze: return "Olhar para câmera"
         }
     }
     
@@ -36,17 +32,9 @@ enum VerificationType: Int, CaseIterable, Identifiable {
             return "Distância entre \(Int(DistanceLimits.minCm))cm e \(Int(DistanceLimits.maxCm))cm"
         case .centering: return "Rosto centralizado no oval"
         case .headAlignment: return "Cabeça sem inclinação"
-        case .frameDetection: return "Detecta uso de armação"
-        case .gaze: return "Olhar diretamente para a câmera"
         }
     }
-    
-    var isOptional: Bool {
-        switch self {
-        case .frameDetection: return true
-        default: return false
-        }
-    }
+
 }
 
 // Modelo de dados para as verificações
@@ -71,7 +59,6 @@ enum VerificationStep: Int {
     case distance
     case centering
     case headAlignment
-    case gaze
     case completed
 }
 

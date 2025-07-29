@@ -2,13 +2,13 @@
 //  ARStatusIndicator.swift
 //  MedidorOticaApp
 //
-//  Indicador visual de status da sessão AR, detecção de rosto e da armação.
-//  Exibe três bolinhas: ARSession, rosto detectado e armação detectada.
+//  Indicador visual de status da sessão AR e detecção de rosto.
+//  Exibe duas bolinhas: ARSession e rosto detectado.
 //
 import SwiftUI
 
-/// Exibe o status da sessão AR, da detecção de rosto e da armação.
-/// A ordem das bolinhas é: ARSession, rosto detectado e armação detectada.
+/// Exibe o status da sessão AR e da detecção de rosto.
+/// A ordem das bolinhas é: ARSession e rosto detectado.
 struct ARStatusIndicator: View {
     @ObservedObject var cameraManager: CameraManager
     @ObservedObject var verificationManager: VerificationManager
@@ -25,10 +25,6 @@ struct ARStatusIndicator: View {
                 .fill(verificationManager.faceDetected ? Color.green : Color.red)
                 .frame(width: 12, height: 12)
 
-            Circle()
-                // Verde quando a armação é detectada, vermelho caso contrário
-                .fill(verificationManager.frameDetected ? Color.green : Color.red)
-                .frame(width: 12, height: 12)
         }
         .padding(.horizontal, 4)
     }

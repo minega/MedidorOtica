@@ -14,12 +14,9 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 
 ## 🆕 Novidades
 
-- Detecção de olhar baseada em pupilas compatível com iOS 13 ou superior (iOS 17+ recomendado).
-- Demais verificações utilizam as revisões mais recentes de `VNDetectFace*`.
+- Verificações simplificadas focadas apenas em rosto, distância e alinhamento.
+- Captura automática com contagem regressiva quando todas as verificações estão verdes, podendo ser desativada pelo botão de timer.
 - Requisitos mínimos atualizados para Swift 5.9.
- - Detecção automática das linhas internas da armação após a captura.
- - Ajuste manual dessas linhas e das pupilas com gestos de arrastar.
-- Exibição de tabela de medidas (largura, altura e diagonais) diretamente na prévia.
 
 ## 📂 Estrutura do Projeto
 
@@ -43,8 +40,6 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 | `Verifications/DistanceVerification.swift` | Verificação de distância ideal |
 | `Verifications/CenteringVerification.swift` | Verificação de centralização do rosto |
 | `Verifications/HeadAlignmentVerification.swift` | Verificação de alinhamento da cabeça |
-| `Verifications/PupilTracking.swift` | Verificação de direção do olhar |
-| `Verifications/FrameDetection.swift` | Verificação de armação de óculos |
 
 ### Models
 | Caminho | Descrição |
@@ -71,10 +66,6 @@ O aplicativo executa verificações em sequência para garantir medições preci
 4. **Alinhamento da Cabeça**
    - Tolerância de 2.0 graus
    - Verifica inclinação e rotação
-
-5. **Direção do Olhar**
-   - Tolerância mínima (0.001)
-   - Garante foco na câmera
 
 ## 🛠️ Requisitos Técnicos
 
@@ -178,9 +169,6 @@ MedidorOticaApp/
    - ✅ Boa iluminação
 4. Toque em "Capturar" quando todas as verificações estiverem verdes
 5. Revise a prévia e salve a medição
-6. Utilize o botão **Ajuste Manual** para reposicionar linhas e pontos caso necessário
-
-Na prévia é exibida uma tabela com largura, altura, diagonal e distância pupilar calculadas automaticamente.
 
 ### Dicas para Melhor Captura
 - Mantenha o dispositivo estável

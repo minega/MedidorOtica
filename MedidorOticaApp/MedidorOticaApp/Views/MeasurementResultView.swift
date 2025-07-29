@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Vision
 
 struct MeasurementResultView: View {
     @Environment(\.dismiss) private var dismiss
@@ -16,12 +15,8 @@ struct MeasurementResultView: View {
     @State private var clientName: String = ""
     @State private var distanciaPupilar: Double = 65.0
     @State private var showingShareSheet = false
-    @State private var showingAdjustmentView = false
     @State private var showingSaveAlert = false
     @State private var isSaved = false
-
-    /// Pontos detectados automaticamente na imagem
-    @State private var landmarks: FrameLandmarks?
 
     let capturedImage: UIImage
 
@@ -38,49 +33,7 @@ struct MeasurementResultView: View {
                             .cornerRadius(12)
                             .padding(.horizontal)
 
-                        // Pontos detectados automaticamente
-                        if let landmarks {
-                            GeometryReader { geo in
-                                let w = geo.size.width
-                                let h = geo.size.height
 
-                                // Linhas de extremidades
-                                Path { path in
-                                    path.move(to: CGPoint(x: landmarks.leftLineX * w, y: 0))
-                                    path.addLine(to: CGPoint(x: landmarks.leftLineX * w, y: h))
-                                }
-                                .stroke(Color.green, lineWidth: 2)
-
-                                Path { path in
-                                    path.move(to: CGPoint(x: landmarks.rightLineX * w, y: 0))
-                                    path.addLine(to: CGPoint(x: landmarks.rightLineX * w, y: h))
-                                }
-                                .stroke(Color.green, lineWidth: 2)
-
-                                Path { path in
-                                    path.move(to: CGPoint(x: 0, y: landmarks.topLineY * h))
-                                    path.addLine(to: CGPoint(x: w, y: landmarks.topLineY * h))
-                                }
-                                .stroke(Color.green, lineWidth: 2)
-
-                                Path { path in
-                                    path.move(to: CGPoint(x: 0, y: landmarks.bottomLineY * h))
-                                    path.addLine(to: CGPoint(x: w, y: landmarks.bottomLineY * h))
-                                }
-                                .stroke(Color.green, lineWidth: 2)
-
-                                // Pupilas
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 10, height: 10)
-                                    .position(x: landmarks.leftPupil.x * w, y: landmarks.leftPupil.y * h)
-
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 10, height: 10)
-                                    .position(x: landmarks.rightPupil.x * w, y: landmarks.rightPupil.y * h)
-                            }
-                        }
                     }
                     .padding(.top)
                     
@@ -108,9 +61,6 @@ struct MeasurementResultView: View {
                         }
                         .padding(.horizontal)
 
-                        if let landmarks {
-                            MeasurementTable(landmarks: landmarks, imageSize: capturedImage.size)
-                        }
                     }
                     .padding()
                     .background(Color.gray.opacity(0.1))
@@ -132,21 +82,6 @@ struct MeasurementResultView: View {
                     
                     // Botões de ação
                     VStack(spacing: 15) {
-                        // Botão para ajuste manual
-                        Button(action: {
-                            showingAdjustmentView = true
-                        }) {
-                            HStack {
-                                Image(systemName: "slider.horizontal.3")
-                                Text("Ajuste Manual dos Pontos")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-                        
                         // Botão para compartilhar
                         Button(action: {
                             showingShareSheet = true
@@ -183,9 +118,6 @@ struct MeasurementResultView: View {
                 }
                 .padding(.bottom, 30)
             }
-            .onAppear {
-                detectLandmarks()
-            }
             .navigationBarTitle("Resultado da Medição", displayMode: .inline)
             .navigationBarItems(
                 leading: Button(action: {
@@ -200,17 +132,6 @@ struct MeasurementResultView: View {
                 let image = renderMeasurementImage()
                 let text = "Medição de Distância Pupilar: \(String(format: "%.1f mm", distanciaPupilar))"
                 ShareSheet(items: [image, text])
-            }
-            .sheet(isPresented: $showingAdjustmentView) {
-                if let _ = landmarks {
-                    ManualAdjustmentView(
-                        landmarks: Binding(
-                            get: { landmarks! },
-                            set: { landmarks = $0 }
-                        ),
-                        image: capturedImage
-                    )
-                }
             }
             .alert(isPresented: $showingSaveAlert) {
                 Alert(
@@ -255,24 +176,6 @@ struct MeasurementResultView: View {
             ctx.setStrokeColor(UIColor.yellow.cgColor)
             ctx.setLineWidth(5)
 
-            // Utiliza os pontos detectados para desenhar a linha e marcadores
-            if let marks = landmarks {
-                let w = capturedImage.size.width
-                let h = capturedImage.size.height
-
-                let leftX = marks.leftPupil.x * w
-                let rightX = marks.rightPupil.x * w
-                let y = marks.leftPupil.y * h
-
-                ctx.move(to: CGPoint(x: leftX, y: y))
-                ctx.addLine(to: CGPoint(x: rightX, y: y))
-                ctx.strokePath()
-
-                ctx.setFillColor(UIColor.red.cgColor)
-                ctx.fillEllipse(in: CGRect(x: leftX - 5, y: y - 5, width: 10, height: 10))
-                ctx.fillEllipse(in: CGRect(x: rightX - 5, y: y - 5, width: 10, height: 10))
-            }
-
             // Texto com a medida final
             let text = "DP: \(String(format: "%.1f mm", distanciaPupilar))"
             let attributes: [NSAttributedString.Key: Any] = [
@@ -294,12 +197,6 @@ struct MeasurementResultView: View {
 
         return image
     }
-
-    /// Detecta automaticamente pontos relevantes utilizando Vision
-    private func detectLandmarks() {
-        landmarks = FrameAnalyzer.analyze(image: capturedImage)
-    }
-
 }
 
 // View para compartilhamento
