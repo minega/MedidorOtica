@@ -19,7 +19,9 @@ struct CameraView: View {
     @EnvironmentObject private var historyManager: HistoryManager
     
     // Estados da interface
-    @State private var isAutoCaptureEnabled = false
+    @State private var isAutoCaptureEnabled = true
+    @State private var countdownValue = 0
+    @State private var countdownTimer: Timer?
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedImage: UIImage?
@@ -141,13 +143,18 @@ struct CameraView: View {
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
 
-            // Overlay para visualizar as pupilas detectadas
-            PupilDotsView(verificationManager: verificationManager)
-
-            // Destaque da posição da câmera durante a verificação do olhar
-            if verificationManager.currentStep == .gaze && !verificationManager.gazeCorrect {
-                CameraHighlight()
+            if countdownValue > 0 {
+                VStack(spacing: 16) {
+                    Text("Olhe para a câmera")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                    Text("\(countdownValue)")
+                        .font(.system(size: 72, weight: .bold))
+                        .foregroundColor(.white)
+                }
             }
+
+
             
             // Overlay de controles (usando um VStack para elementos de interface)
             VStack {
@@ -170,7 +177,7 @@ struct CameraView: View {
                     }
 
                     Spacer()
-                    
+
                     // Botão de captura automática
                     Button(action: {
                         isAutoCaptureEnabled.toggle()
@@ -181,7 +188,7 @@ struct CameraView: View {
                             .frame(width: 44, height: 44)
                             .background(Circle().fill(Color.black.opacity(0.6)))
                     }
-                    
+
                     // Botão de flash
                     Button(action: {
                         cameraManager.toggleFlash()
@@ -236,8 +243,6 @@ struct CameraView: View {
                             alertMessage = "Centralize seu rosto no oval."
                         } else if !verificationManager.headAligned {
                             alertMessage = "Mantenha sua cabeça reta alinhada com a câmera."
-                        } else if !verificationManager.gazeCorrect {
-                            alertMessage = "Olhe diretamente para a câmera."
                         }
                         showingAlert = true
                         notificationGenerator.notificationOccurred(.warning)
@@ -276,6 +281,11 @@ struct CameraView: View {
             if let image = capturedImage {
                 MeasurementResultView(capturedImage: image)
                     .environmentObject(historyManager)
+            }
+        }
+        .onChange(of: allVerificationsChecked) { checked in
+            if checked && isAutoCaptureEnabled && countdownTimer == nil {
+                startCountdown()
             }
         }
     }
@@ -424,6 +434,10 @@ struct CameraView: View {
             print("Processo de captura já em andamento, ignorando...")
             return
         }
+
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownValue = 0
         
         // Verifica se todas as condições para captura foram atendidas
         guard allVerificationsChecked else {
@@ -480,6 +494,21 @@ struct CameraView: View {
         // Processa cada ARFrame recebido da câmera
         cameraManager.outputDelegate = { frame in
             self.verificationManager.processARFrame(frame)
+        }
+    }
+
+    private func startCountdown() {
+        countdownTimer?.invalidate()
+        countdownValue = 5
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+            if countdownValue > 1 {
+                countdownValue -= 1
+            } else {
+                timer.invalidate()
+                countdownTimer = nil
+                countdownValue = 0
+                capturePhoto()
+            }
         }
     }
 }

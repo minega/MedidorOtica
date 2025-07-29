@@ -23,9 +23,6 @@ struct CameraInstructions: View {
                 centeringInstructionView()
             } else if !verificationManager.headAligned {
                 headAlignmentInstructionView()
-            } else if !verificationManager.gazeCorrect {
-                // Quando chegar na verificação de olhar, exibe instruções especiais
-                gazeInstructionView()
             } else {
                 instructionView(text: "✅ Perfeito! Pronto para capturar a imagem")
             }
@@ -114,10 +111,6 @@ struct CameraInstructions: View {
         return instructionView(text: instruction)
     }
     
-    // View específica para instruções de olhar
-    private func gazeInstructionView() -> some View {
-        instructionView(text: "👁️ Olhe diretamente para a lente da câmera, sem desviar o olhar")
-    }
 }
 
 // View para o menu de verificações laterais
@@ -185,8 +178,6 @@ struct VerificationMenu: View {
             return "🕯️ Alinhado"
         case let t where t.contains("cabeça"):
             return "🧠 Cabeça"
-        case let t where t.contains("olhar") || t.contains("gaze"):
-            return "👁️ Olhar"
         case let t where t.contains("frame") || t.contains("borda"):
             return "🖼️ Borda"
         default:

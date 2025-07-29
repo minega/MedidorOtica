@@ -26,8 +26,6 @@ final class VerificationManager: ObservableObject {
     @Published var distanceCorrect = false
     @Published var faceAligned = false
     @Published var headAligned = false
-    @Published var frameDetected = false
-    @Published var gazeCorrect = false
     
     // Medições precisas
     @Published var lastMeasuredDistance: Float = 0.0 // em centímetros, com precisão de 0,5mm
@@ -41,13 +39,9 @@ final class VerificationManager: ObservableObject {
     private let publishInterval: TimeInterval = 1.0 / 15.0
     
     // Compatibilidade com código antigo
-    @Published var gazeData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
 
-    // Pontos normalizados das pupilas para depuração visual
-    @Published var leftPupilPoint: CGPoint?
-    @Published var rightPupilPoint: CGPoint?
     
     // Configurações
     /// Distância mínima permitida em centímetros
@@ -80,16 +74,13 @@ final class VerificationManager: ObservableObject {
             Verification(id: 1, type: .faceDetection, isChecked: false),
             Verification(id: 2, type: .distance, isChecked: false),
             Verification(id: 3, type: .centering, isChecked: false),
-            Verification(id: 4, type: .headAlignment, isChecked: false),
-            Verification(id: 5, type: .frameDetection, isChecked: false),
-            Verification(id: 6, type: .gaze, isChecked: false)
+            Verification(id: 4, type: .headAlignment, isChecked: false)
         ]
     }
     
     // Verifica se todas as verificações obrigatórias estão corretas
     var allVerificationsChecked: Bool {
-        // Para fins de teste, apenas as verificações 1 e 2 são obrigatórias
-        return faceDetected && distanceCorrect
+        return faceDetected && distanceCorrect && faceAligned && headAligned
     }
     
     // MARK: - ARKit Integração para verificações
@@ -119,10 +110,6 @@ final class VerificationManager: ObservableObject {
             DispatchQueue.main.async { self.faceDetected = facePresent }
 
             guard facePresent else {
-                DispatchQueue.main.async {
-                    self.leftPupilPoint = nil
-                    self.rightPupilPoint = nil
-                }
                 self.resetNonFaceVerifications()
                 DispatchQueue.main.async { [weak self] in
                     self?.updateVerificationStatus(throttled: true)
@@ -132,7 +119,6 @@ final class VerificationManager: ObservableObject {
             }
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
-            Task { await self.updatePupilPoints(using: frame) }
 
             // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
@@ -167,24 +153,9 @@ final class VerificationManager: ObservableObject {
                 return
             }
 
-            // Atualiza detecção de armação independentemente da sequência
-            let frameOk = self.checkFrameDetection(in: frame.capturedImage)
-            DispatchQueue.main.async { self.frameDetected = frameOk }
-
-            // MARK: Passo 5 - Direção do olhar
-            Task { @MainActor in
-                let gazeOk = self.checkGaze(using: frame)
-                self.gazeCorrect = gazeOk
-#if DEBUG
-                print("Verificações sequenciais: " +
-                      "Rosto=\(facePresent), " +
-                      "Distância=\(distanceOk), " +
-                      "Centralizado=\(centeredOk), " +
-                      "Cabeça=\(headAlignedOk), " +
-                      "Armação=\(frameOk), " +
-                      "Olhar=\(gazeOk)")
-#endif
-                self.updateVerificationStatus(throttled: true)
+            // Conclui as verificações principais
+            DispatchQueue.main.async { [weak self] in
+                self?.updateVerificationStatus(throttled: true)
             }
         }
     }
@@ -198,8 +169,6 @@ final class VerificationManager: ObservableObject {
             self.distanceCorrect = false
             self.faceAligned = false
             self.headAligned = false
-            self.frameDetected = false
-            self.gazeCorrect = false
             self.lastMeasuredDistance = 0
 
             // Trabalha em cópia para notificar a interface
@@ -217,8 +186,6 @@ final class VerificationManager: ObservableObject {
             self.distanceCorrect = false
             self.faceAligned = false
             self.headAligned = false
-            self.frameDetected = false
-            self.gazeCorrect = false
             self.lastMeasuredDistance = 0
 
             var updated = self.verifications
@@ -266,10 +233,6 @@ final class VerificationManager: ObservableObject {
                     faceAligned = false
                 case .headAlignment:
                     headAligned = false
-                case .frameDetection:
-                    frameDetected = false
-                case .gaze:
-                    gazeCorrect = false
                 default:
                     break
                 }
@@ -295,11 +258,6 @@ final class VerificationManager: ObservableObject {
             // Etapa 1: Detecção de rosto
             if let index = updated.firstIndex(where: { $0.type == .faceDetection }) {
                 updated[index].isChecked = faceDetected
-            }
-
-            // Detecção de armação sempre atualizada
-            if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
-                updated[index].isChecked = frameDetected
             }
 
             guard faceDetected else {
@@ -345,16 +303,7 @@ final class VerificationManager: ObservableObject {
                 return
             }
 
-            // Detecção de armação (status independente)
-            if let index = updated.firstIndex(where: { $0.type == .frameDetection }) {
-                updated[index].isChecked = frameDetected
-            }
-            // Etapa 5: Direção do olhar
-            if let index = updated.firstIndex(where: { $0.type == .gaze }) {
-                updated[index].isChecked = gazeCorrect
-            }
-
-            currentStep = gazeCorrect ? .completed : .gaze
+            currentStep = .completed
 
             // Atualiza a propriedade publicada
             verifications = updated

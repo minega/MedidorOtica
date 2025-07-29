@@ -29,7 +29,6 @@ struct MedidorOticaAppTests {
         manager.distanceCorrect = true
         manager.faceAligned = true
         manager.headAligned = true
-        manager.gazeCorrect = true
         manager.updateAllVerifications()
         #expect(manager.currentStep == .completed)
     }
