@@ -284,8 +284,11 @@ struct CameraView: View {
         // Navegação para a tela de resultados após captura
         .sheet(isPresented: $showingResultView) {
             if let image = capturedImage {
-                MeasurementResultView(capturedImage: image)
-                    .environmentObject(historyManager)
+                PostCaptureFlowView(capturedImage: image, onRetake: {
+                    capturedImage = nil
+                    showingResultView = false
+                })
+                .environmentObject(historyManager)
             }
         }
         .onChange(of: allVerificationsChecked) { checked in

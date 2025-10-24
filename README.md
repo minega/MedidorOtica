@@ -8,7 +8,10 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 ## Novidades
 
-- Código simplificado, removendo detecção de armação e rastreamento de pupilas.
+- Novo fluxo pós-captura com três etapas interativas (pupila, horizontal e vertical) para cada olho.
+- Divisão automática da imagem pelo ponto central (nariz) com detecção inicial via Vision.
+- Ajuste manual com barras arrastáveis para medir largura, altura, ponte, DNP e altura pupilar.
+- Tela final exibe resumo completo, permite compartilhar e salvar/editar medições no histórico.
 - Captura automática com contagem regressiva após todas as verificações básicas, com opção de desativar pelo botão "timer".
 - Todas as verificações utilizam as revisões mais recentes do Vision.
 - Correção da orientação e do recorte ao salvar a foto.
