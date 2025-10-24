@@ -59,12 +59,22 @@ extension VerificationManager {
     /// - Returns: Booleano indicando se o rosto está perfeitamente centralizado
     /// Confere se o rosto está centralizado
     func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        if hasTrueDepth, let anchor = faceAnchor {
-            return checkCenteringWithTrueDepth(faceAnchor: anchor, frame: frame)
+        let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
+
+        guard !sensors.isEmpty else { return false }
+
+        for sensor in sensors {
+            switch sensor {
+            case .trueDepth:
+                guard let anchor = faceAnchor else { continue }
+                return checkCenteringWithTrueDepth(faceAnchor: anchor, frame: frame)
+            case .liDAR:
+                return checkCenteringWithLiDAR(frame: frame)
+            case .none:
+                continue
+            }
         }
-        if hasLiDAR {
-            return checkCenteringWithLiDAR(frame: frame)
-        }
+
         return false
     }
 

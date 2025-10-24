@@ -13,7 +13,7 @@ extension CameraManager {
     // MARK: - Controle de Sessão
 
     func createARConfiguration() -> ARConfiguration {
-        if cameraPosition == .front, ARFaceTrackingConfiguration.isSupported {
+        if cameraPosition == .front, hasTrueDepth {
             let config = ARFaceTrackingConfiguration()
             config.maximumNumberOfTrackedFaces = 1
             if #available(iOS 13.0, *) {
@@ -47,24 +47,32 @@ extension CameraManager {
         arSession = newSession
         arSession?.delegate = self
 
-        cameraPosition = cameraType == .front ? .front : .back
-
         let configuration: ARConfiguration
         var configurationError: String? = nil
 
         do {
             switch cameraType {
             case .front:
+                guard isFrontCameraEnabled else {
+                    configurationError = "A câmera frontal foi desabilitada manualmente."
+                    throw NSError(domain: "ARError", code: 1000, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
+                }
+                guard hardwareHasTrueDepth else {
+                    configurationError = "Este dispositivo não possui sensor TrueDepth disponível."
+                    throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
+                }
                 guard ARFaceTrackingConfiguration.isSupported else {
                     configurationError = "Este dispositivo não suporta rastreamento facial (TrueDepth)."
                     throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
                 }
+                cameraPosition = .front
                 let faceConfig = ARFaceTrackingConfiguration()
                 faceConfig.maximumNumberOfTrackedFaces = 1
                 if #available(iOS 13.0, *) { faceConfig.isLightEstimationEnabled = true }
                 configuration = faceConfig
                 print("Configurando sessão AR para rastreamento facial")
             case .back:
+                cameraPosition = .back
                 guard ARWorldTrackingConfiguration.isSupported else {
                     configurationError = "Este dispositivo não suporta rastreamento de mundo."
                     throw NSError(domain: "ARError", code: 1002, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
@@ -96,6 +104,13 @@ extension CameraManager {
             }
         }
 
+        // Mantém o VerificationManager sincronizado com o sensor atualmente ativo
+        VerificationManager.shared.updateActiveSensor(using: self)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.updateLensMonitoring(for: self.cameraPosition)
+        }
+
         return newSession
     }
 
@@ -114,6 +129,10 @@ extension CameraManager {
         isUsingARSession = false
 
         VerificationManager.shared.reset()
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.updateLensMonitoring(for: self.cameraPosition)
+        }
     }
 
     private func stopARSession() {

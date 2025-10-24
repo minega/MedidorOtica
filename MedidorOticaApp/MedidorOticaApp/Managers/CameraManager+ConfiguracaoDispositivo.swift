@@ -89,7 +89,12 @@ extension CameraManager {
 
     /// Configura a posição inicial da câmera e, opcionalmente, uma `ARSession`.
     func setup(position: AVCaptureDevice.Position, arSession: ARSession? = nil, completion: @escaping (Bool) -> Void) {
-        cameraPosition = position
+        if position == .front && !isFrontCameraEnabled {
+            print("Câmera frontal solicitada, porém desabilitada. Utilizando câmera traseira.")
+            cameraPosition = .back
+        } else {
+            cameraPosition = position
+        }
         self.arSession = arSession
         self.arSession?.delegate = self
 
@@ -99,6 +104,10 @@ extension CameraManager {
             // Posta novamente na main para notificar observadores
             self.isUsingARSession = (arSession != nil)
         }
+
+        // Informa ao VerificationManager qual sensor foi selecionado
+        VerificationManager.shared.updateActiveSensor(using: self)
+        updateLensMonitoring(for: cameraPosition)
 
         isUsingARSession ? configureARSession(completion) : configureCaptureSession(completion)
     }
@@ -183,7 +192,15 @@ extension CameraManager {
         }
     }
 
-    private func cameraDevice(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+    /// Retorna o dispositivo de captura para a posição indicada.
+    /// - Parameters:
+    ///   - position: Posição desejada (frontal ou traseira).
+    ///   - ignoringFrontOverride: Define se o bloqueio manual da câmera frontal deve ser ignorado.
+    func cameraDevice(for position: AVCaptureDevice.Position, ignoringFrontOverride: Bool = false) -> AVCaptureDevice? {
+        if position == .front && !ignoringFrontOverride && !isFrontCameraEnabled {
+            return nil
+        }
+
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInWideAngleCamera, .builtInTelephotoCamera, .builtInDualCamera, .builtInTrueDepthCamera],
             mediaType: .video,
@@ -212,9 +229,16 @@ extension CameraManager {
 
             if let connection = videoOutput.connection(with: .video) {
                 connection.setPortraitOrientation()
+                print("Orientação de vídeo configurada para portrait")
                 if connection.isVideoMirroringSupported {
                     connection.isVideoMirrored = (cameraPosition == .front)
+                    print("Espelhamento de vídeo configurado: \(cameraPosition == .front)")
                 }
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.updateLensMonitoring(for: self.cameraPosition)
             }
 
             return true
@@ -225,13 +249,24 @@ extension CameraManager {
     }
 
     private func switchARPosition() {
-        cameraPosition = (cameraPosition == .front) ? .back : .front
+        let newPosition: AVCaptureDevice.Position = (cameraPosition == .front) ? .back : .front
+
+        if newPosition == .front && !isFrontCameraEnabled {
+            print("Alternância ignorada: câmera frontal está desabilitada.")
+            return
+        }
+
+        cameraPosition = newPosition
         print("Nova posição da câmera: \(cameraPosition == .front ? "frontal" : "traseira")")
 
         if let arSession = arSession {
             let configuration = createARConfiguration()
             arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         }
+
+        // Garante que o VerificationManager saiba qual sensor está ativo
+        VerificationManager.shared.updateActiveSensor(using: self)
+        updateLensMonitoring(for: cameraPosition)
     }
 
     private func switchAVPosition() {
@@ -248,6 +283,17 @@ extension CameraManager {
             let previousPosition = self.cameraPosition
             self.cameraPosition = (self.cameraPosition == .front) ? .back : .front
 
+            if self.cameraPosition == .front && !self.isFrontCameraEnabled {
+                print("Alternância cancelada: câmera frontal está desabilitada.")
+                self.cameraPosition = previousPosition
+                if let previousInput, self.session.canAddInput(previousInput) {
+                    self.session.addInput(previousInput)
+                    self.videoDeviceInput = previousInput
+                }
+                self.session.commitConfiguration()
+                return
+            }
+
             let inputConfigured = self.configureVideoInput()
 
             if !inputConfigured {
@@ -262,6 +308,13 @@ extension CameraManager {
 
             if inputConfigured {
                 print("Nova posição da câmera: \(self.cameraPosition == .front ? "frontal" : "traseira")")
+            }
+
+            // Sincroniza o sensor ativo após alternar a câmera de captura
+            VerificationManager.shared.updateActiveSensor(using: self)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.updateLensMonitoring(for: self.cameraPosition)
             }
         }
     }

@@ -22,23 +22,40 @@ extension VerificationManager {
         // Define a margem de erro exatamente como ±2 graus
         let alignmentToleranceDegrees: Float = 2.0
 
-        let rollDegrees: Float
-        let yawDegrees: Float
-        let pitchDegrees: Float
+        var rollDegrees: Float?
+        var yawDegrees: Float?
+        var pitchDegrees: Float?
 
-        if hasTrueDepth, let anchor = faceAnchor {
-            // Converte a matriz de transformação em ângulos de Euler
-            let euler = extractEulerAngles(from: anchor.transform)
-            let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+        let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
-            rollDegrees  = radiansToDegrees(euler.roll) * sign
-            yawDegrees   = radiansToDegrees(euler.yaw) * sign
-            pitchDegrees = radiansToDegrees(euler.pitch)
-        } else if hasLiDAR, let angles = headAnglesWithVision(from: frame) {
-            rollDegrees = angles.roll
-            yawDegrees = angles.yaw
-            pitchDegrees = angles.pitch
-        } else {
+        guard !sensors.isEmpty else { return false }
+
+        for sensor in sensors {
+            switch sensor {
+            case .trueDepth:
+                guard let anchor = faceAnchor else { continue }
+                let euler = extractEulerAngles(from: anchor.transform)
+                let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+                rollDegrees  = radiansToDegrees(euler.roll) * sign
+                yawDegrees   = radiansToDegrees(euler.yaw) * sign
+                pitchDegrees = radiansToDegrees(euler.pitch)
+                break
+            case .liDAR:
+                guard let angles = headAnglesWithVision(from: frame) else { continue }
+                rollDegrees = angles.roll
+                yawDegrees = angles.yaw
+                pitchDegrees = angles.pitch
+                break
+            case .none:
+                continue
+            }
+        }
+
+        guard
+            let rollDegrees,
+            let yawDegrees,
+            let pitchDegrees
+        else {
             return false
         }
         

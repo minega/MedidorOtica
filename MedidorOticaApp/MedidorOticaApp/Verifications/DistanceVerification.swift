@@ -75,16 +75,24 @@ extension VerificationManager {
     
     /// Obtém a medição de distância usando o sensor apropriado
     private func getDistanceMeasurement(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> (distance: Float, isValid: Bool)? {
-        if hasTrueDepth, let faceAnchor = faceAnchor {
-            let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
-            return (distance, distance > 0)
+        let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
+
+        guard !sensors.isEmpty else { return nil }
+
+        for sensor in sensors {
+            switch sensor {
+            case .trueDepth:
+                guard let anchor = faceAnchor else { continue }
+                let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: anchor, frame: frame)
+                return (distance, distance > 0)
+            case .liDAR:
+                let distance = getMeasuredDistanceWithLiDAR(frame: frame)
+                return (distance, distance > 0 && distance < DistanceConstants.maxValidDepth)
+            case .none:
+                continue
+            }
         }
 
-        if hasLiDAR {
-            let distance = getMeasuredDistanceWithLiDAR(frame: frame)
-            return (distance, distance > 0 && distance < DistanceConstants.maxValidDepth)
-        }
-        
         return nil
     }
     
