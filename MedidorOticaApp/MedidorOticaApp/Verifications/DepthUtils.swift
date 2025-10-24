@@ -45,17 +45,16 @@ extension VerificationManager {
     /// Retorna a largura e altura considerando a orientação fornecida.
     func orientedDimensions(for buffer: CVPixelBuffer,
                             orientation: CGImagePropertyOrientation) -> (width: Int, height: Int) {
-        let rawWidth = CVPixelBufferGetWidth(buffer)
-        let rawHeight = CVPixelBufferGetHeight(buffer)
-        return orientation.isPortrait ? (rawHeight, rawWidth) : (rawWidth, rawHeight)
+        // Reutiliza o helper compartilhado para manter as conversões centralizadas.
+        return VisionGeometryHelper.orientedDimensions(for: buffer, orientation: orientation)
     }
 
     /// Versão para `CGImage`.
     func orientedDimensions(for image: CGImage,
                             orientation: CGImagePropertyOrientation) -> (Int, Int) {
-        let rawWidth = image.width
-        let rawHeight = image.height
-        return orientation.isPortrait ? (rawHeight, rawWidth) : (rawWidth, rawHeight)
+        // Reutiliza o helper compartilhado para manter as conversões centralizadas.
+        let tuple = VisionGeometryHelper.orientedDimensions(for: image, orientation: orientation)
+        return (tuple.width, tuple.height)
     }
 
     /// Converte um ponto de pixel em coordenadas normalizadas de tela.
@@ -63,18 +62,15 @@ extension VerificationManager {
                          width: Int,
                          height: Int,
                          orientation: CGImagePropertyOrientation) -> CGPoint {
-        var point = CGPoint(x: pixelPoint.x / CGFloat(width),
-                            y: pixelPoint.y / CGFloat(height))
-        point.y = 1 - point.y
-        if orientation.isMirrored { point.x = 1 - point.x }
-        return point
+        VisionGeometryHelper.normalizedPoint(pixelPoint,
+                                             width: width,
+                                             height: height,
+                                             orientation: orientation)
     }
 
     /// Garante que o ponto esteja dentro do intervalo normalizado.
     func clampedNormalizedPoint(_ point: CGPoint) -> CGPoint {
-        let clampedX = min(max(point.x, 0), 1)
-        let clampedY = min(max(point.y, 0), 1)
-        return CGPoint(x: clampedX, y: clampedY)
+        VisionGeometryHelper.clampedNormalizedPoint(point)
     }
 
     /// Converte uma região de landmarks em um ponto médio normalizado.
@@ -83,36 +79,17 @@ extension VerificationManager {
                          imageWidth: Int,
                          imageHeight: Int,
                          orientation: CGImagePropertyOrientation) -> CGPoint? {
-        guard region.pointCount > 0 else { return nil }
-
-        var sumX: CGFloat = 0
-        var sumY: CGFloat = 0
-        for index in 0..<region.pointCount {
-            let point = region.normalizedPoints[index]
-            sumX += point.x
-            sumY += point.y
-        }
-
-        let average = CGPoint(x: sumX / CGFloat(region.pointCount),
-                               y: sumY / CGFloat(region.pointCount))
-        let normalizedX = boundingBox.origin.x + average.x * boundingBox.size.width
-        let normalizedY = boundingBox.origin.y + average.y * boundingBox.size.height
-        let pixelPoint = VNImagePointForNormalizedPoint(CGPoint(x: normalizedX, y: normalizedY),
-                                                        imageWidth,
-                                                        imageHeight)
-        let adjustedPoint = normalizedPoint(pixelPoint,
-                                            width: imageWidth,
-                                            height: imageHeight,
-                                            orientation: orientation)
-        return clampedNormalizedPoint(adjustedPoint)
+        VisionGeometryHelper.normalizedPoint(from: region,
+                                             boundingBox: boundingBox,
+                                             imageWidth: imageWidth,
+                                             imageHeight: imageHeight,
+                                             orientation: orientation)
     }
 
     /// Cria uma `VNDetectFaceLandmarksRequest` com a revisão mais recente.
     /// - Returns: Requisição configurada para iOS 17 ou superior.
     func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
-        return request
+        VisionGeometryHelper.makeLandmarksRequest()
     }
 
     /// Retorna a orientação atual considerando a posição da câmera

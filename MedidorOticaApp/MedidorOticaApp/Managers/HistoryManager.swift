@@ -102,6 +102,27 @@ final class HistoryManager: ObservableObject {
             }
         }
     }
+
+    /// Atualiza uma medição existente preservando o ID original
+    /// - Parameter measurement: Medição atualizada
+    func updateMeasurement(_ measurement: Measurement) async {
+        await withCheckedContinuation { continuation in
+            queue.async(flags: .barrier) { [weak self] in
+                guard let self else { return continuation.resume() }
+
+                Task { @MainActor in
+                    guard let index = self.measurements.firstIndex(where: { $0.id == measurement.id }) else {
+                        continuation.resume()
+                        return
+                    }
+
+                    self.measurements[index] = measurement
+                    self.scheduleSave()
+                    continuation.resume()
+                }
+            }
+        }
+    }
     
     /// Remove uma medição do histórico pelo índice
     /// - Parameter index: O índice da medição a ser removida

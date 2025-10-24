@@ -17,6 +17,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - Verificações simplificadas focadas apenas em rosto, distância e alinhamento.
 - Captura automática com contagem regressiva quando todas as verificações estão verdes, podendo ser desativada pelo botão de timer.
 - Requisitos mínimos atualizados para Swift 5.9.
+- Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições (horizontal maior, vertical maior, ponte, DNP e altura pupilar).
 
 ## 📂 Estrutura do Projeto
 
@@ -89,6 +90,43 @@ O aplicativo executa verificações em sequência para garantir medições preci
 | Centralização | ±0.5cm |
 | Alinhamento | ±2.0° |
 | Olhar | 0.001 |
+
+## 📏 Fluxo Pós-Captura
+
+Após a captura, o aplicativo abre a etapa de pós-processamento com a imagem recortada para focar o rosto:
+
+1. **Divisão pelo ponto central (PC)**
+   - O rosto é separado em dois lados usando o nariz como referência.
+   - Sempre iniciamos pelo olho direito da pessoa fotografada.
+
+2. **Etapa 1 – Localizar Pupila**
+   - A Vision detecta a pupila automaticamente e posiciona um marcador circular de 2 mm (virtual) no centro.
+   - O usuário pode arrastar o marcador para ajustes finos.
+
+3. **Etapa 2 – Medir Horizontal**
+   - Duas barras verticais de 50 mm são mostradas.
+   - A primeira barra surge a 9 mm do PC (lado nasal) e a segunda 50 mm após a primeira (lado temporal).
+   - Ambas podem ser arrastadas para coincidir com os limites da lente.
+
+4. **Etapa 3 – Medir Vertical**
+   - Duas barras horizontais de 60 mm auxiliam na marcação das bordas superior e inferior da lente.
+   - A barra inferior inicia 15 mm abaixo da pupila e a superior 20 mm acima, permitindo ajustes por arraste.
+
+5. **Olho Esquerdo**
+   - As medidas do olho direito são espelhadas automaticamente para o esquerdo.
+   - O usuário revisa e ajusta se necessário (apenas por garantia).
+
+6. **Resumo Final**
+   - A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, DNP (OD/OE) e altura pupilar (OD/OE), além da DP total.
+   - É possível compartilhar a composição ou salvar no histórico informando o nome do cliente.
+   - Cada item salvo pode ser reaberto posteriormente para editar novamente as etapas.
+
+### Controles Disponíveis
+
+- **Refazer:** retorna para a câmera para capturar outra foto.
+- **Voltar/Próximo:** navegam entre as etapas do pós-captura.
+- **Salvar/Atualizar:** grava ou atualiza a medição no histórico mantendo o mesmo ID.
+- **Compartilhar:** gera imagem com as barras sobrepostas e resumo textual das medidas.
 
 ## 📝 Licença
 
