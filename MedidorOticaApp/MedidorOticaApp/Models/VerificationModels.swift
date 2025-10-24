@@ -13,9 +13,18 @@ enum VerificationType: Int, CaseIterable, Identifiable {
     case distance = 2
     case centering = 3
     case headAlignment = 4
-    
+
     var id: Int { rawValue }
-    
+
+    /// Indica se a verificação é opcional para o fluxo atual
+    var isOptional: Bool {
+        // Mantém um conjunto configurável para futuros tipos opcionais
+        Self.optionalTypes.contains(self)
+    }
+
+    /// Conjunto de verificações opcionais (vazio por padrão)
+    private static let optionalTypes: Set<VerificationType> = []
+
     var title: String {
         switch self {
         case .faceDetection: return "Rosto detectado"
