@@ -21,6 +21,16 @@ final class VerificationManager: ObservableObject {
     /// Passo atual da máquina de estados
     @Published var currentStep: VerificationStep = .idle
 
+    /// Representa o sensor ativo para as verificações AR.
+    enum SensorType {
+        case none
+        case trueDepth
+        case liDAR
+    }
+
+    /// Sensor que deve ser utilizado prioritariamente nas verificações.
+    @Published private(set) var activeSensor: SensorType = .none
+
     // Estado atual de cada verificação
     @Published var faceDetected = false
     @Published var distanceCorrect = false
@@ -67,6 +77,7 @@ final class VerificationManager: ObservableObject {
 
         // Sincroniza as capacidades do dispositivo a partir do CameraManager
         updateCapabilities()
+        updateActiveSensor()
     }
     private func setupVerifications() {
         // Cria as verificações na ordem correta
@@ -202,10 +213,98 @@ final class VerificationManager: ObservableObject {
         updateVerificationStatus(throttled: true)
     }
 
+    /// Atualiza o sensor ativo baseado no estado atual do `CameraManager`.
+    /// - Parameter manager: Instância utilizada como fonte da configuração atual.
+    func updateActiveSensor(using manager: CameraManager = .shared) {
+        updateCapabilities(manager: manager)
+
+        let previousSensor = activeSensor
+        let prefersFrontSensor = manager.cameraPosition == .front
+
+        let resolvedSensor: SensorType
+
+        if manager.isUsingARSession {
+            if prefersFrontSensor, manager.hasTrueDepth {
+                resolvedSensor = .trueDepth
+            } else if !prefersFrontSensor, manager.hasLiDAR {
+                resolvedSensor = .liDAR
+            } else if manager.hasTrueDepth {
+                resolvedSensor = .trueDepth
+            } else if manager.hasLiDAR {
+                resolvedSensor = .liDAR
+            } else {
+                resolvedSensor = .none
+            }
+        } else if prefersFrontSensor, manager.hasTrueDepth {
+            resolvedSensor = .trueDepth
+        } else if !prefersFrontSensor, manager.hasLiDAR {
+            resolvedSensor = .liDAR
+        } else if manager.hasTrueDepth {
+            resolvedSensor = .trueDepth
+        } else if manager.hasLiDAR {
+            resolvedSensor = .liDAR
+        } else {
+            resolvedSensor = .none
+        }
+
+        guard resolvedSensor != previousSensor else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.activeSensor = resolvedSensor
+            self.clearSensorDependentState()
+        }
+    }
+
     /// Permite resetar todas as verificações externamente
     func reset() {
         resetAllVerifications()
         updateVerificationStatus(throttled: true)
+    }
+
+    /// Define a ordem preferencial de sensores, priorizando o ativo.
+    /// - Parameters:
+    ///   - requireFaceAnchor: Indica se TrueDepth depende de um `ARFaceAnchor` válido.
+    ///   - faceAnchorAvailable: Informa se o anchor está disponível neste frame.
+    /// - Returns: Sequência ordenada de sensores válidos.
+    func preferredSensors(requireFaceAnchor: Bool = false, faceAnchorAvailable: Bool = true) -> [SensorType] {
+        var orderedSensors: [SensorType] = []
+
+        @discardableResult
+        func addIfAvailable(_ sensor: SensorType) -> Bool {
+            switch sensor {
+            case .trueDepth:
+                guard hasTrueDepth else { return false }
+                if requireFaceAnchor && !faceAnchorAvailable { return false }
+            case .liDAR:
+                guard hasLiDAR else { return false }
+            case .none:
+                return false
+            }
+
+            if !orderedSensors.contains(sensor) {
+                orderedSensors.append(sensor)
+            }
+            return true
+        }
+
+        let activeAdded = addIfAvailable(activeSensor)
+
+        if !activeAdded {
+            if activeSensor != .trueDepth {
+                _ = addIfAvailable(.trueDepth)
+            }
+            if activeSensor != .liDAR {
+                _ = addIfAvailable(.liDAR)
+            }
+        }
+
+        if orderedSensors.isEmpty {
+            _ = addIfAvailable(.trueDepth)
+            _ = addIfAvailable(.liDAR)
+        }
+
+        return orderedSensors
     }
 
 
@@ -320,6 +419,19 @@ final class VerificationManager: ObservableObject {
     private func updateCapabilities(manager: CameraManager = .shared) {
         hasTrueDepth = manager.hasTrueDepth
         hasLiDAR = manager.hasLiDAR
+    }
+
+    /// Limpa estados dependentes do sensor ao alternar entre TrueDepth e LiDAR.
+    private func clearSensorDependentState() {
+        resetAllVerifications()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.alignmentData = [:]
+            self.facePosition = [:]
+            self.currentStep = .faceDetection
+            self.updateVerificationStatus(throttled: false)
+        }
     }
 }
 

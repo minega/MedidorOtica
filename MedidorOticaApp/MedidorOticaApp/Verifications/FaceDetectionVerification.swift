@@ -15,12 +15,9 @@ extension VerificationManager {
     // MARK: - Verificação 1: Detecção de Rosto
     /// Verifica a presença de rosto usando o sensor disponível e atualiza o estado
     func checkFaceDetection(using frame: ARFrame) -> Bool {
-        let detected: Bool
-        if hasTrueDepth {
-            detected = checkFaceDetectionWithTrueDepth(frame: frame)
-        } else if hasLiDAR {
-            detected = checkFaceDetectionWithLiDAR(frame: frame)
-        } else {
+        let sensors = preferredSensors()
+
+        guard !sensors.isEmpty else {
             print("ERRO: Sensores de detecção de rosto indisponíveis")
             NotificationCenter.default.post(
                 name: NSNotification.Name("DeviceNotCompatible"),
@@ -30,7 +27,18 @@ extension VerificationManager {
             return false
         }
 
-        return detected
+        for sensor in sensors {
+            switch sensor {
+            case .trueDepth:
+                if checkFaceDetectionWithTrueDepth(frame: frame) { return true }
+            case .liDAR:
+                if checkFaceDetectionWithLiDAR(frame: frame) { return true }
+            case .none:
+                continue
+            }
+        }
+
+        return false
     }
     
     // MARK: - Detecção com TrueDepth (Câmera Frontal)
