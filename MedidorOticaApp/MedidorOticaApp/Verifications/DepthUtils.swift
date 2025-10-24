@@ -70,6 +70,43 @@ extension VerificationManager {
         return point
     }
 
+    /// Garante que o ponto esteja dentro do intervalo normalizado.
+    func clampedNormalizedPoint(_ point: CGPoint) -> CGPoint {
+        let clampedX = min(max(point.x, 0), 1)
+        let clampedY = min(max(point.y, 0), 1)
+        return CGPoint(x: clampedX, y: clampedY)
+    }
+
+    /// Converte uma região de landmarks em um ponto médio normalizado.
+    func normalizedPoint(from region: VNFaceLandmarkRegion2D,
+                         boundingBox: CGRect,
+                         imageWidth: Int,
+                         imageHeight: Int,
+                         orientation: CGImagePropertyOrientation) -> CGPoint? {
+        guard region.pointCount > 0 else { return nil }
+
+        var sumX: CGFloat = 0
+        var sumY: CGFloat = 0
+        for index in 0..<region.pointCount {
+            let point = region.normalizedPoints[index]
+            sumX += point.x
+            sumY += point.y
+        }
+
+        let average = CGPoint(x: sumX / CGFloat(region.pointCount),
+                               y: sumY / CGFloat(region.pointCount))
+        let normalizedX = boundingBox.origin.x + average.x * boundingBox.size.width
+        let normalizedY = boundingBox.origin.y + average.y * boundingBox.size.height
+        let pixelPoint = VNImagePointForNormalizedPoint(CGPoint(x: normalizedX, y: normalizedY),
+                                                        imageWidth,
+                                                        imageHeight)
+        let adjustedPoint = normalizedPoint(pixelPoint,
+                                            width: imageWidth,
+                                            height: imageHeight,
+                                            orientation: orientation)
+        return clampedNormalizedPoint(adjustedPoint)
+    }
+
     /// Cria uma `VNDetectFaceLandmarksRequest` com a revisão mais recente.
     /// - Returns: Requisição configurada para iOS 17 ou superior.
     func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
@@ -91,6 +128,20 @@ extension VerificationManager {
             return position == .front ? .rightMirrored : .left
         default:
             return position == .front ? .leftMirrored : .right
+        }
+    }
+
+    /// Retorna a orientação de interface atual para projeções do ARKit.
+    func currentUIOrientation() -> UIInterfaceOrientation {
+        switch UIDevice.current.orientation {
+        case .landscapeLeft:
+            return .landscapeRight
+        case .landscapeRight:
+            return .landscapeLeft
+        case .portraitUpsideDown:
+            return .portraitUpsideDown
+        default:
+            return .portrait
         }
     }
 
