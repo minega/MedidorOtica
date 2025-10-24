@@ -3,7 +3,7 @@
 //  MedidorOticaApp
 //
 //  Verificação 4: Alinhamento da cabeça
-//  Usando ARKit para medições precisas com margem de erro de ±5 graus
+//  Usando ARKit para medições precisas com margem de erro de ±2 graus
 //
 
 import ARKit
@@ -16,11 +16,11 @@ extension VerificationManager {
     /// Verifica se a cabeça está alinhada em todos os eixos
     
     func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        // Verificação de alinhamento com tolerância de ±5 graus
-        // conforme solicitado pelo usuário
+        // Verificação de alinhamento com tolerância de ±2 graus
+        // conforme especificação do projeto
 
-        // Define a margem de erro exatamente como ±5 graus
-        let alignmentToleranceDegrees: Float = 5.0
+        // Define a margem de erro exatamente como ±2 graus
+        let alignmentToleranceDegrees: Float = 2.0
 
         let rollDegrees: Float
         let yawDegrees: Float

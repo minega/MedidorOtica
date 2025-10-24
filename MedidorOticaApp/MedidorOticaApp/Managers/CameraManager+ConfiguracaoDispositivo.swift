@@ -12,33 +12,45 @@ import ARKit
 extension CameraManager {
     // MARK: - Configuração do Dispositivo
     /// Prepara a `AVCaptureSession` com os inputs e outputs necessários.
-    func setupSession() {
+    /// - Parameter completion: Callback informando se a configuração foi concluída com sucesso.
+    func setupSession(completion: @escaping (Bool) -> Void) {
         print("Configurando sessão da câmera...")
 
         sessionQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
 
             self.stopSessionIfRunning()
             self.printAvailableDevices()
+            self.cleanupSession()
+
+            var configurationSucceeded = true
 
             self.session.beginConfiguration()
-            self.cleanupSession()
 
             if self.session.canSetSessionPreset(.high) {
                 self.session.sessionPreset = .high
             }
 
-            self.configureVideoInput()
+            if !self.configureVideoInput() {
+                configurationSucceeded = false
+            }
 
-            guard self.configurePhotoOutput() else {
-                self.session.commitConfiguration()
-                return
+            if configurationSucceeded, !self.configurePhotoOutput() {
+                configurationSucceeded = false
             }
 
             self.session.commitConfiguration()
-            print("Configuração da sessão finalizada com sucesso")
 
-            self.startSession()
+            guard configurationSucceeded else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            print("Configuração da sessão finalizada com sucesso")
+            self.startSession(completion: completion)
         }
     }
 
@@ -52,7 +64,8 @@ extension CameraManager {
         guard let device = videoDeviceInput?.device else { return }
 
         guard device.hasTorch, device.isTorchAvailable else {
-            publishError(.deviceConfigurationFailed)
+            print("Flash indisponível para o dispositivo atual")
+            if isFlashOn { isFlashOn = false }
             return
         }
 
@@ -96,11 +109,7 @@ extension CameraManager {
     }
 
     private func configureCaptureSession(_ completion: @escaping (Bool) -> Void) {
-        sessionQueue.async { [weak self] in
-            guard let self = self else { return }
-            self.setupSession()
-            DispatchQueue.main.async { completion(true) }
-        }
+        setupSession(completion: completion)
     }
 
     // MARK: - Private Helpers
@@ -152,17 +161,25 @@ extension CameraManager {
         return true
     }
 
-    private func startSession() {
+    private func startSession(completion: @escaping (Bool) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
 
             self.session.startRunning()
 
             DispatchQueue.main.async {
-                self.isSessionRunning = true
+                let started = self.session.isRunning
+                self.isSessionRunning = started
+                if started {
+                    print("Sessão da câmera iniciada após configuração")
+                } else {
+                    print("Falha ao iniciar a sessão da câmera")
+                }
+                completion(started)
             }
-
-            print("Sessão da câmera iniciada após configuração")
         }
     }
 
@@ -176,30 +193,34 @@ extension CameraManager {
         return discoverySession.devices.first
     }
 
-    private func configureVideoInput() {
+    private func configureVideoInput() -> Bool {
         guard let videoDevice = cameraDevice(for: cameraPosition) else {
             publishError(.cameraUnavailable)
-            return
+            return false
         }
 
         do {
             let videoDeviceInput = try AVCaptureDeviceInput(device: videoDevice)
 
-            if session.canAddInput(videoDeviceInput) {
-                session.addInput(videoDeviceInput)
-                self.videoDeviceInput = videoDeviceInput
-
-                if let connection = videoOutput.connection(with: .video) {
-                    connection.setPortraitOrientation()
-                    if connection.isVideoMirroringSupported {
-                        connection.isVideoMirrored = (cameraPosition == .front)
-                    }
-                }
-            } else {
+            guard session.canAddInput(videoDeviceInput) else {
                 publishError(.cannotAddInput)
+                return false
             }
+
+            session.addInput(videoDeviceInput)
+            self.videoDeviceInput = videoDeviceInput
+
+            if let connection = videoOutput.connection(with: .video) {
+                connection.setPortraitOrientation()
+                if connection.isVideoMirroringSupported {
+                    connection.isVideoMirrored = (cameraPosition == .front)
+                }
+            }
+
+            return true
         } catch {
             publishError(.createCaptureInput(error))
+            return false
         }
     }
 
@@ -219,17 +240,29 @@ extension CameraManager {
 
             self.session.beginConfiguration()
 
-            if let currentInput = self.videoDeviceInput {
+            let previousInput = self.videoDeviceInput
+            if let currentInput = previousInput {
                 self.session.removeInput(currentInput)
             }
 
+            let previousPosition = self.cameraPosition
             self.cameraPosition = (self.cameraPosition == .front) ? .back : .front
 
-            self.configureVideoInput()
+            let inputConfigured = self.configureVideoInput()
+
+            if !inputConfigured {
+                if let previousInput, self.session.canAddInput(previousInput) {
+                    self.session.addInput(previousInput)
+                    self.videoDeviceInput = previousInput
+                }
+                self.cameraPosition = previousPosition
+            }
 
             self.session.commitConfiguration()
 
-            print("Nova posição da câmera: \(self.cameraPosition == .front ? "frontal" : "traseira")")
+            if inputConfigured {
+                print("Nova posição da câmera: \(self.cameraPosition == .front ? "frontal" : "traseira")")
+            }
         }
     }
 }

@@ -10,7 +10,7 @@
 //  - Suportar diferentes sensores (TrueDepth e LiDAR) para máxima precisão
 //
 //  Critérios de Aceitação:
-//  1. Distância ideal entre 30cm e 80cm do dispositivo
+//  1. Distância ideal entre 40cm e 60cm do dispositivo
 //  2. Feedback visual claro quando fora da faixa ideal
 //  
 //  Sensores Suportados:
@@ -28,9 +28,9 @@ import Vision
 /// Limites globais de distância (centímetros)
 struct DistanceLimits {
     /// Distância mínima permitida
-    static let minCm: Float = 30.0
+    static let minCm: Float = 40.0
     /// Distância máxima permitida
-    static let maxCm: Float = 80.0
+    static let maxCm: Float = 60.0
 }
 
 // MARK: - Extensão para verificação de distância

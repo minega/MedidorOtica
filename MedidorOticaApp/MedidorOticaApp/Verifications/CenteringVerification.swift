@@ -10,8 +10,8 @@
 //  - Fornecer feedback visual sobre o posicionamento
 //
 //  Critérios de Aceitação:
-//  1. Centralização horizontal (eixo X) com margem de ±3cm
-//  2. Centralização vertical (eixo Y) com margem de ±3cm
+//  1. Centralização horizontal (eixo X) com margem de ±0,5cm
+//  2. Centralização vertical (eixo Y) com margem de ±0,5cm
 //  3. Alinhamento do nariz com o centro da câmera
 //
 //  Técnicas Utilizadas:
@@ -41,8 +41,8 @@ extension VerificationManager {
     // MARK: - Constantes
     
     private enum CenteringConstants {
-        // Tolerância de 3cm convertida para metros
-        static let tolerance: Float = 0.03
+        // Tolerância de 0,5 cm convertida para metros
+        static let tolerance: Float = 0.005
         
         // Índice do vértice correspondente à ponta do nariz
         struct FaceIndices {
