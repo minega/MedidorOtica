@@ -112,20 +112,25 @@ struct CameraView: View {
                         self.showingAlert = true
                     }
                     notificationObservers.append(arToken)
-                }
+            }
             .onDisappear {
-                    print("CameraView desapareceu - parando câmera")
-                    // Para a câmera e limpa recursos
-                    cameraManager.stop()
+                print("CameraView desapareceu - parando câmera")
+                // Para a câmera e limpa recursos
+                cameraManager.stop()
 
-                    // Remove todos os observadores registrados
-                    notificationObservers.forEach {
-                        NotificationCenter.default.removeObserver($0)
-                    }
-                    notificationObservers.removeAll()
-
+                // Remove todos os observadores registrados
+                notificationObservers.forEach {
+                    NotificationCenter.default.removeObserver($0)
                 }
-            
+                notificationObservers.removeAll()
+            }
+
+            if verificationManager.pupilCenters != nil {
+                PupilOverlay(verificationManager: verificationManager,
+                             cameraManager: cameraManager)
+                    .edgesIgnoringSafeArea(.all)
+            }
+
             // Overlay de flash ao tirar foto
             if showFlash {
                 Color.white
