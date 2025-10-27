@@ -17,6 +17,8 @@ struct PupilOverlay: View {
     /// Tamanho padrão dos indicadores desenhados sobre a imagem.
     private let indicatorSize: CGFloat = 18
 
+    // MARK: - View Body
+
     var body: some View {
         GeometryReader { geometry in
             if let centers = verificationManager.pupilCenters {
@@ -35,7 +37,10 @@ struct PupilOverlay: View {
         .allowsHitTesting(false)
     }
 
-    /// Converte um ponto normalizado (0...1) para as coordenadas da tela aplicando o espelhamento quando necessário.
+
+    // MARK: - Conversões de Coordenadas
+
+    /// Converte um ponto normalizado (0...1) para coordenadas absolutas já com o espelhamento aplicado quando necessário.
     private func convertToScreenPoint(_ normalizedPoint: CGPoint, geometrySize: CGSize) -> CGPoint {
         let mirroredX = cameraManager.cameraPosition == .front ? 1 - normalizedPoint.x : normalizedPoint.x
         return CGPoint(x: mirroredX * geometrySize.width,
@@ -50,6 +55,8 @@ struct PupilOverlay_Previews: PreviewProvider {
             .background(Color.black)
     }
 }
+
+// MARK: - PupilIndicator
 
 /// Indicador visual individual que destaca uma das pupilas detectadas.
 fileprivate struct PupilIndicator: View {
@@ -66,6 +73,14 @@ fileprivate struct PupilIndicator: View {
             .frame(width: size, height: size)
             .position(position)
             .shadow(color: .red.opacity(0.45), radius: 4)
-            .accessibilityLabel(Text("Indicador de pupila \(index == 0 ? \"esquerda\" : \"direita\")"))
+            .accessibilityLabel(accessibilityText)
+    }
+
+    // MARK: - Acessibilidade
+
+    /// Texto falado pelo VoiceOver para indicar qual pupila está destacada.
+    private var accessibilityText: Text {
+        let eyeName = index == 0 ? "esquerda" : "direita"
+        return Text("Indicador de pupila \(eyeName)")
     }
 }
