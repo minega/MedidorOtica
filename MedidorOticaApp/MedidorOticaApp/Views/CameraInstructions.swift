@@ -15,7 +15,9 @@ struct CameraInstructions: View {
         VStack(spacing: 8) {
             // Verifica quais instruções exibir com base nas verificações pendentes
             // Mostra instruções específicas para a primeira verificação que falhar
-            if !verificationManager.faceDetected {
+            if !verificationManager.isDeviceOrientationValid {
+                instructionView(text: "📱⬆️ Mantenha o celular na vertical")
+            } else if !verificationManager.faceDetected {
                 instructionView(text: "📱↔️ Centralize o rosto no oval")
             } else if !verificationManager.distanceCorrect {
                 distanceInstructionView()

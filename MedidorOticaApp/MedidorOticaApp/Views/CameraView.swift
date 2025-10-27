@@ -125,12 +125,6 @@ struct CameraView: View {
                 notificationObservers.removeAll()
             }
 
-            if verificationManager.pupilCenters != nil {
-                PupilOverlay(verificationManager: verificationManager,
-                             cameraManager: cameraManager)
-                    .edgesIgnoringSafeArea(.all)
-            }
-
             // Overlay de flash ao tirar foto
             if showFlash {
                 Color.white
