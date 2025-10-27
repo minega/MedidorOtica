@@ -95,23 +95,14 @@ extension VerificationManager {
     /// Retorna a orientação atual considerando a posição da câmera.
     func currentCGOrientation() -> CGImagePropertyOrientation {
         let position = CameraManager.shared.cameraPosition
-        let interfaceOrientation = resolvedInterfaceOrientation()
-
-        switch interfaceOrientation {
-        case .landscapeLeft:
-            return position == .front ? .upMirrored : .down
-        case .landscapeRight:
-            return position == .front ? .downMirrored : .up
-        case .portraitUpsideDown:
-            return position == .front ? .rightMirrored : .left
-        default:
-            return position == .front ? .leftMirrored : .right
-        }
+        // Mantém a orientação fixa em retrato independentemente do giroscópio.
+        return position == .front ? .leftMirrored : .right
     }
 
     /// Retorna a orientação de interface atual para projeções do ARKit.
     func currentUIOrientation() -> UIInterfaceOrientation {
-        resolvedInterfaceOrientation()
+        // Garante que toda a pipeline opere como se estivesse em retrato.
+        return .portrait
     }
 
     /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo.
@@ -120,47 +111,20 @@ extension VerificationManager {
     ///   - vertical: Desvio vertical em centímetros.
     /// - Returns: Desvios adaptados à orientação atual.
     func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
-        switch resolvedInterfaceOrientation() {
-        case .landscapeLeft:
-            return (vertical, -horizontal)
-        case .landscapeRight:
-            return (-vertical, horizontal)
-        case .portraitUpsideDown:
-            return (-horizontal, -vertical)
-        default:
-            return (horizontal, vertical)
-        }
+        // Como o app opera estritamente em retrato, mantemos os offsets originais.
+        return (horizontal, vertical)
     }
 
-    /// Resolve a orientação da interface considerando cena ativa e fallback para o giroscópio.
-    private func resolvedInterfaceOrientation() -> UIInterfaceOrientation {
-        func sceneOrientation() -> UIInterfaceOrientation? {
-            UIApplication.shared.connectedScenes
-                .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
-                .first { $0 != .unknown }
-        }
+    /// Verifica se o aparelho está na posição vertical padrão.
+    /// - Returns: `true` quando o aparelho está em `portrait` ou sem orientação definida.
+    func ensurePortraitOrientation() -> Bool {
+        let rawOrientation = UIDevice.current.orientation
 
-        if Thread.isMainThread {
-            if let orientation = sceneOrientation() { return orientation }
-        } else {
-            var orientation: UIInterfaceOrientation?
-            DispatchQueue.main.sync {
-                orientation = sceneOrientation()
-            }
-            if let orientation { return orientation }
-        }
-
-        switch UIDevice.current.orientation {
-        case .landscapeLeft:
-            return .landscapeRight
-        case .landscapeRight:
-            return .landscapeLeft
-        case .portraitUpsideDown:
-            return .portraitUpsideDown
-        case .portrait:
-            return .portrait
+        switch rawOrientation {
+        case .portrait, .unknown:
+            return true
         default:
-            return .portrait
+            return false
         }
     }
 }
