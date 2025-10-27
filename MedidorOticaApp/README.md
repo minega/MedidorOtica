@@ -57,7 +57,7 @@ O aplicativo executa verificações em sequência para garantir medições preci
    - Suporte a TrueDepth (frontal) e LiDAR (traseira)
 
 2. **Distância**
-   - Distância ideal: 0.5m (40-60cm de tolerância)
+   - Distância ideal: 25-50 cm do sensor
    - Ajustes em tempo real
 
 3. **Centralização**
@@ -65,8 +65,8 @@ O aplicativo executa verificações em sequência para garantir medições preci
    - Garante posicionamento correto
 
 4. **Alinhamento da Cabeça**
-   - Tolerância de 2.0 graus
-   - Verifica inclinação e rotação
+   - Tolerância de ±3.0°
+   - Verifica inclinação e rotação com referência à câmera
 
 ## 🛠️ Requisitos Técnicos
 
@@ -86,9 +86,9 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 | Verificação | Tolerância |
 |-------------|------------|
-| Distância | 40-60cm |
+| Distância | 25-50cm |
 | Centralização | ±0.5cm |
-| Alinhamento | ±2.0° |
+| Alinhamento | ±3.0° |
 | Olhar | 0.001 |
 
 ## 📏 Fluxo Pós-Captura

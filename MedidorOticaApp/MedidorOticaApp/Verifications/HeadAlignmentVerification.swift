@@ -3,7 +3,7 @@
 //  MedidorOticaApp
 //
 //  Verificação 4: Alinhamento da cabeça
-//  Usando ARKit para medições precisas com margem de erro de ±2 graus
+//  Usando ARKit para medições precisas com margem de erro de ±3 graus
 //
 
 import ARKit
@@ -16,11 +16,11 @@ extension VerificationManager {
     /// Verifica se a cabeça está alinhada em todos os eixos
     
     func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        // Verificação de alinhamento com tolerância de ±2 graus
+        // Verificação de alinhamento com tolerância de ±3 graus
         // conforme especificação do projeto
 
-        // Define a margem de erro exatamente como ±2 graus
-        let alignmentToleranceDegrees: Float = 2.0
+        // Define a margem de erro exatamente como ±3 graus
+        let alignmentToleranceDegrees: Float = 3.0
 
         var rollDegrees: Float?
         var yawDegrees: Float?
@@ -34,7 +34,8 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                let euler = extractEulerAngles(from: anchor.transform)
+                // Calcula os ângulos relativos à câmera para evitar loops quando o dispositivo está inclinado
+                let euler = extractRelativeEulerAngles(faceAnchor: anchor, frame: frame)
                 let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
                 rollDegrees  = radiansToDegrees(euler.roll) * sign
                 yawDegrees   = radiansToDegrees(euler.yaw) * sign
@@ -92,7 +93,7 @@ extension VerificationManager {
     private func extractEulerAngles(from transform: simd_float4x4) -> EulerAngles {
         // A matriz de transformação do ARFaceAnchor contém informações de rotação
         // Os elementos da matriz 3x3 superior podem ser convertidos para ângulos de Euler
-        
+
         // Utiliza quaternions para evitar problemas de gimbal lock
         let quat = simd_quatf(transform)
 
@@ -107,6 +108,17 @@ extension VerificationManager {
         let roll  = atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
 
         return EulerAngles(pitch: pitch, yaw: yaw, roll: roll)
+    }
+
+    /// Extrai os ângulos de Euler relativos à câmera para compensar inclinações do dispositivo
+    /// - Parameters:
+    ///   - faceAnchor: Anchor do rosto com dados de rotação absoluta
+    ///   - frame: Frame atual contendo a orientação da câmera
+    /// - Returns: Ângulos de Euler alinhados ao referencial da câmera
+    private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor, frame: ARFrame) -> EulerAngles {
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
+        return extractEulerAngles(from: relativeTransform)
     }
 
     // MARK: - Compensação de orientação
