@@ -219,16 +219,29 @@ final class VerificationManager: ObservableObject {
         updateVerificationStatus(throttled: true)
     }
 
+    // MARK: - Gerenciamento de Sensores
+
     /// Atualiza o sensor ativo baseado no estado atual do `CameraManager`.
     /// - Parameter manager: Instância utilizada como fonte da configuração atual.
     func updateActiveSensor(using manager: CameraManager) {
-        // Captura os estados atuais do hardware no momento da chamada.
+        if Thread.isMainThread {
+            applyActiveSensor(using: manager)
+        } else {
+            DispatchQueue.main.async { [weak self, weak manager] in
+                guard let self = self, let manager = manager else { return }
+                self.applyActiveSensor(using: manager)
+            }
+        }
+    }
+
+    /// Resolve e publica o sensor ativo respeitando o estado atual da câmera.
+    /// - Parameter manager: Fonte de verdade para o estado do hardware.
+    private func applyActiveSensor(using manager: CameraManager) {
         let prefersFrontSensor = manager.cameraPosition == .front
         let hasTrueDepthSupport = manager.hasTrueDepth
         let hasLiDARSupport = manager.hasLiDAR
         let usesARSession = manager.isUsingARSession
 
-        // Resolve o sensor mais apropriado com base na disponibilidade do hardware.
         let resolvedSensor: SensorType
 
         if usesARSession {
@@ -255,26 +268,21 @@ final class VerificationManager: ObservableObject {
             resolvedSensor = .none
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+        let capabilitiesChanged = hasTrueDepth != hasTrueDepthSupport ||
+                                  hasLiDAR != hasLiDARSupport
 
-            let capabilitiesChanged = self.hasTrueDepth != hasTrueDepthSupport ||
-                                      self.hasLiDAR != hasLiDARSupport
+        hasTrueDepth = hasTrueDepthSupport
+        hasLiDAR = hasLiDARSupport
 
-            // Publica as capacidades vigentes sempre na thread principal.
-            self.hasTrueDepth = hasTrueDepthSupport
-            self.hasLiDAR = hasLiDARSupport
-
-            guard self.activeSensor != resolvedSensor else {
-                if capabilitiesChanged {
-                    self.updateVerificationStatus(throttled: false)
-                }
-                return
+        guard activeSensor != resolvedSensor else {
+            if capabilitiesChanged {
+                updateVerificationStatus(throttled: false)
             }
-
-            self.activeSensor = resolvedSensor
-            self.clearSensorDependentState()
+            return
         }
+
+        activeSensor = resolvedSensor
+        clearSensorDependentState()
     }
 
     /// Permite resetar todas as verificações externamente
