@@ -16,7 +16,7 @@ struct CameraInstructions: View {
             // Verifica quais instruções exibir com base nas verificações pendentes
             // Mostra instruções específicas para a primeira verificação que falhar
             if !verificationManager.faceDetected {
-                instructionView(text: "✍️ Posicione seu rosto no oval para detectar suas feições")
+                instructionView(text: "📱↔️ Centralize o rosto no oval")
             } else if !verificationManager.distanceCorrect {
                 distanceInstructionView()
             } else if !verificationManager.faceAligned {
@@ -24,7 +24,7 @@ struct CameraInstructions: View {
             } else if !verificationManager.headAligned {
                 headAlignmentInstructionView()
             } else {
-                instructionView(text: "✅ Perfeito! Pronto para capturar a imagem")
+                instructionView(text: "🙂✅ Pronto para capturar")
             }
         }
     }
@@ -42,72 +42,86 @@ struct CameraInstructions: View {
     
     // View específica para instruções de distância
     private func distanceInstructionView() -> some View {
-        let diff: Int
+        let minDistance = verificationManager.minDistance
+        let maxDistance = verificationManager.maxDistance
+        let currentDistance = verificationManager.lastMeasuredDistance
+
         let instruction: String
-        
-        if verificationManager.lastMeasuredDistance < verificationManager.minDistance {
-            // Muito perto, precisa se afastar
-            diff = Int(verificationManager.minDistance - verificationManager.lastMeasuredDistance)
-            instruction = "⬅️ Afaste-se aproximadamente \(diff) cm do celular para obter a distância ideal"
+
+        if currentDistance <= 0 {
+            instruction = "🙂↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
+        } else if currentDistance < minDistance {
+            let diff = max(1, Int(round(minDistance - currentDistance)))
+            instruction = "🙂⬅️ Afaste \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
         } else {
-            // Muito longe, precisa se aproximar
-            diff = Int(verificationManager.lastMeasuredDistance - verificationManager.maxDistance)
-            instruction = "➡️ Aproxime-se aproximadamente \(diff) cm do celular para obter a distância ideal"
+            let diff = max(1, Int(round(currentDistance - maxDistance)))
+            instruction = "🙂➡️ Aproxime \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
         }
-        
+
         return instructionView(text: instruction)
     }
-    
+
     // View específica para instruções de centralização
     private func centeringInstructionView() -> some View {
         // Usa os dados de posição do rosto e ajusta conforme a orientação do dispositivo
         let rawX = verificationManager.facePosition["x"] ?? 0
         let rawY = verificationManager.facePosition["y"] ?? 0
         let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
-        
-        var instruction = "Centralize seu rosto no oval"
-        
+
+        var instruction = "📱✅ Celular alinhado, mantenha assim"
+
         // Determina a direção com base na posição atual
-        if abs(xPos) > abs(yPos) {
+        if abs(xPos) >= abs(yPos) {
             // xPos representa o deslocamento vertical
             if xPos > 0.5 {
-                instruction = "⬇️ Mova seu celular para baixo aproximadamente \(Int(abs(xPos))) cm"
+                let magnitude = String(format: "%.1f", abs(xPos))
+                instruction = "📱⬇️ Baixe \(magnitude) cm"
             } else if xPos < -0.5 {
-                instruction = "⬆️ Mova seu celular para cima aproximadamente \(Int(abs(xPos))) cm"
+                let magnitude = String(format: "%.1f", abs(xPos))
+                instruction = "📱⬆️ Levante \(magnitude) cm"
             }
         } else {
             // yPos representa o deslocamento horizontal
             if yPos > 0.5 {
-                instruction = "➡️ Mova seu celular para a direita aproximadamente \(Int(abs(yPos))) cm"
+                let magnitude = String(format: "%.1f", abs(yPos))
+                instruction = "📱➡️ Mova \(magnitude) cm →"
             } else if yPos < -0.5 {
-                instruction = "⬅️ Mova seu celular para a esquerda aproximadamente \(Int(abs(yPos))) cm"
+                let magnitude = String(format: "%.1f", abs(yPos))
+                instruction = "📱⬅️ Mova \(magnitude) cm ←"
             }
         }
-        
+
         return instructionView(text: instruction)
     }
-    
+
     // View específica para instruções de alinhamento da cabeça
     private func headAlignmentInstructionView() -> some View {
         // Usa os dados de alinhamento para dar instruções específicas
         let roll = verificationManager.alignmentData["roll"] ?? 0
         let yaw = verificationManager.alignmentData["yaw"] ?? 0
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
-        
-        var instruction = "Mantenha sua cabeça reta, sem inclinação"
-        
+
+        let tolerance: Float = 3
+        var instruction = "🙂✅ Cabeça alinhada, mantenha"
+
         // Determina qual rotação precisa de maior correção
-        if abs(roll) > max(abs(yaw), abs(pitch)) && abs(roll) > 2 {
-            let direction = roll > 0 ? "horário" : "anti-horário"
-            instruction = "↻ Gire sua cabeça no sentido \(direction) aproximadamente \(Int(abs(roll))) graus"
-        } else if abs(yaw) > abs(pitch) && abs(yaw) > 2 {
-            let direction = yaw > 0 ? "direita" : "esquerda"
-            instruction = "➡️ Vire sua cabeça para \(direction) aproximadamente \(Int(abs(yaw))) graus"
-        } else if abs(pitch) > 2 {
-            let direction = pitch > 0 ? "baixo" : "cima"
-            instruction = "⬇️ Incline sua cabeça para \(direction) aproximadamente \(Int(abs(pitch))) graus"
+        if abs(roll) > max(abs(yaw), abs(pitch)) && abs(roll) > tolerance {
+            let magnitude = String(format: "%.0f", abs(roll))
+            let directionEmoji = roll > 0 ? "↻" : "↺"
+            let directionText = roll > 0 ? "para a direita" : "para a esquerda"
+            instruction = "🙂\(directionEmoji) Incline \(directionText) \(magnitude)°"
+        } else if abs(yaw) > abs(pitch) && abs(yaw) > tolerance {
+            let magnitude = String(format: "%.0f", abs(yaw))
+            let directionEmoji = yaw > 0 ? "➡️" : "⬅️"
+            let directionText = yaw > 0 ? "para a direita" : "para a esquerda"
+            instruction = "🙂\(directionEmoji) Vire \(directionText) \(magnitude)°"
+        } else if abs(pitch) > tolerance {
+            let magnitude = String(format: "%.0f", abs(pitch))
+            let directionEmoji = pitch > 0 ? "⬇️" : "⬆️"
+            let directionText = pitch > 0 ? "para baixo" : "para cima"
+            instruction = "🙂\(directionEmoji) Queixo \(directionText) \(magnitude)°"
         }
-        
+
         return instructionView(text: instruction)
     }
     

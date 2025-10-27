@@ -8,6 +8,8 @@
 - Escreva comentários e mensagens em português.
 - Inclua no início de cada arquivo um breve comentário descrevendo sua finalidade.
 - Adicione comentários explicando a função de cada trecho relevante do código.
+- Nas instruções exibidas na câmera utilize pares fixos de emojis: primeiro o ator (📱 ou 🙂) e depois a direção (setas, rotação, etc.).
+- Mantenha os textos na interface curtos, garantindo que caibam em telas menores.
 
 ## Development
 - Antes de abrir a câmera, garanta que o dispositivo possui TrueDepth ou LiDAR.

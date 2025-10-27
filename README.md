@@ -15,6 +15,7 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 - Captura automática com contagem regressiva após todas as verificações básicas, com opção de desativar pelo botão "timer".
 - Todas as verificações utilizam as revisões mais recentes do Vision.
 - Correção da orientação e do recorte ao salvar a foto.
+- Instruções na câmera foram condensadas e usam pares de emojis (ator + direção) para guiar os ajustes.
 
 ## Requisitos
 
@@ -29,7 +30,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
 - Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
-- As verificações de rosto, distância, centralização e alinhamento são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+- As verificações de rosto, distância (25-50 cm), centralização e alinhamento (±3°) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
 
 ## Como contribuir
 
