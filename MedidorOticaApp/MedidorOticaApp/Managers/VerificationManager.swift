@@ -6,11 +6,9 @@
 //
 
 import Foundation
-import Vision
 import AVFoundation
 import ARKit
 import Combine
-import CoreGraphics
 
 /// Gerencia todas as verificações de medição óptica.
 final class VerificationManager: ObservableObject {
@@ -41,9 +39,6 @@ final class VerificationManager: ObservableObject {
     // Medições precisas
     @Published var lastMeasuredDistance: Float = 0.0 // em centímetros, com precisão de 0,5mm
 
-    /// Coordenadas normalizadas das pupilas exibidas na tela.
-    @Published var pupilCenters: (left: CGPoint, right: CGPoint)?
-    
     // Status do dispositivo e sensores
     @Published var hasTrueDepth = false // Indica se o dispositivo tem sensor TrueDepth
     @Published var hasLiDAR = false // Indica se o dispositivo tem sensor LiDAR
@@ -132,9 +127,6 @@ final class VerificationManager: ObservableObject {
 
             let faceAnchor = frame.anchors.first { $0 is ARFaceAnchor } as? ARFaceAnchor
 
-            // Atualiza o rastreamento das pupilas antes das demais verificações.
-            self.updatePupilTracking(using: frame, faceAnchor: faceAnchor)
-
             // MARK: Passo 2 - Distância
             let distanceOk = self.checkDistance(using: frame, faceAnchor: faceAnchor)
             DispatchQueue.main.async { self.distanceCorrect = distanceOk }
@@ -185,7 +177,6 @@ final class VerificationManager: ObservableObject {
             self.faceAligned = false
             self.headAligned = false
             self.lastMeasuredDistance = 0
-            self.pupilCenters = nil
 
             // Trabalha em cópia para notificar a interface
             var updated = self.verifications
@@ -203,7 +194,6 @@ final class VerificationManager: ObservableObject {
             self.faceAligned = false
             self.headAligned = false
             self.lastMeasuredDistance = 0
-            self.pupilCenters = nil
 
             var updated = self.verifications
             for index in updated.indices where updated[index].type != .faceDetection {
