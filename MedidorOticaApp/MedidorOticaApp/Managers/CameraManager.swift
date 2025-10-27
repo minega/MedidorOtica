@@ -82,6 +82,8 @@ class CameraManager: NSObject, ObservableObject {
         super.init()
         checkAvailableSensors()
         configureLensMonitoring()
+        // Sincroniza imediatamente as verificações com as capacidades do dispositivo.
+        VerificationManager.shared.updateActiveSensor(using: self)
     }
 
     // MARK: - Error Handling

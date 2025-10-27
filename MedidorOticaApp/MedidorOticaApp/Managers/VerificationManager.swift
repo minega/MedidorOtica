@@ -78,10 +78,7 @@ final class VerificationManager: ObservableObject {
     private init() {
         // Inicializa as verificações
         setupVerifications()
-
-        // Sincroniza as capacidades do dispositivo a partir do CameraManager
-        updateCapabilities()
-        updateActiveSensor()
+        // A sincronização com a câmera é feita externamente para evitar ciclos de inicialização.
     }
     private func setupVerifications() {
         // Cria as verificações na ordem correta
@@ -224,42 +221,57 @@ final class VerificationManager: ObservableObject {
 
     /// Atualiza o sensor ativo baseado no estado atual do `CameraManager`.
     /// - Parameter manager: Instância utilizada como fonte da configuração atual.
-    func updateActiveSensor(using manager: CameraManager = .shared) {
-        updateCapabilities(manager: manager)
-
-        let previousSensor = activeSensor
+    func updateActiveSensor(using manager: CameraManager) {
+        // Captura os estados atuais do hardware no momento da chamada.
         let prefersFrontSensor = manager.cameraPosition == .front
+        let hasTrueDepthSupport = manager.hasTrueDepth
+        let hasLiDARSupport = manager.hasLiDAR
+        let usesARSession = manager.isUsingARSession
 
+        // Resolve o sensor mais apropriado com base na disponibilidade do hardware.
         let resolvedSensor: SensorType
 
-        if manager.isUsingARSession {
-            if prefersFrontSensor, manager.hasTrueDepth {
+        if usesARSession {
+            if prefersFrontSensor, hasTrueDepthSupport {
                 resolvedSensor = .trueDepth
-            } else if !prefersFrontSensor, manager.hasLiDAR {
+            } else if !prefersFrontSensor, hasLiDARSupport {
                 resolvedSensor = .liDAR
-            } else if manager.hasTrueDepth {
+            } else if hasTrueDepthSupport {
                 resolvedSensor = .trueDepth
-            } else if manager.hasLiDAR {
+            } else if hasLiDARSupport {
                 resolvedSensor = .liDAR
             } else {
                 resolvedSensor = .none
             }
-        } else if prefersFrontSensor, manager.hasTrueDepth {
+        } else if prefersFrontSensor, hasTrueDepthSupport {
             resolvedSensor = .trueDepth
-        } else if !prefersFrontSensor, manager.hasLiDAR {
+        } else if !prefersFrontSensor, hasLiDARSupport {
             resolvedSensor = .liDAR
-        } else if manager.hasTrueDepth {
+        } else if hasTrueDepthSupport {
             resolvedSensor = .trueDepth
-        } else if manager.hasLiDAR {
+        } else if hasLiDARSupport {
             resolvedSensor = .liDAR
         } else {
             resolvedSensor = .none
         }
 
-        guard resolvedSensor != previousSensor else { return }
-
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+
+            let capabilitiesChanged = self.hasTrueDepth != hasTrueDepthSupport ||
+                                      self.hasLiDAR != hasLiDARSupport
+
+            // Publica as capacidades vigentes sempre na thread principal.
+            self.hasTrueDepth = hasTrueDepthSupport
+            self.hasLiDAR = hasLiDARSupport
+
+            guard self.activeSensor != resolvedSensor else {
+                if capabilitiesChanged {
+                    self.updateVerificationStatus(throttled: false)
+                }
+                return
+            }
+
             self.activeSensor = resolvedSensor
             self.clearSensorDependentState()
         }
@@ -422,12 +434,6 @@ final class VerificationManager: ObservableObject {
         } else {
             DispatchQueue.main.async(execute: publishWork)
         }
-    }
-
-    /// Sincroniza `hasTrueDepth` e `hasLiDAR` com o `CameraManager`.
-    private func updateCapabilities(manager: CameraManager = .shared) {
-        hasTrueDepth = manager.hasTrueDepth
-        hasLiDAR = manager.hasLiDAR
     }
 
     /// Limpa estados dependentes do sensor ao alternar entre TrueDepth e LiDAR.
