@@ -92,44 +92,40 @@ extension VerificationManager {
         VisionGeometryHelper.makeLandmarksRequest()
     }
 
-    /// Retorna a orientação atual considerando a posição da câmera
+    /// Retorna a orientação atual considerando a posição da câmera.
     func currentCGOrientation() -> CGImagePropertyOrientation {
         let position = CameraManager.shared.cameraPosition
-
-        switch UIDevice.current.orientation {
-        case .landscapeLeft:
-            return position == .front ? .downMirrored : .up
-        case .landscapeRight:
-            return position == .front ? .upMirrored : .down
-        case .portraitUpsideDown:
-            return position == .front ? .rightMirrored : .left
-        default:
-            return position == .front ? .leftMirrored : .right
-        }
+        // Mantém a orientação fixa em retrato independentemente do giroscópio.
+        return position == .front ? .leftMirrored : .right
     }
 
     /// Retorna a orientação de interface atual para projeções do ARKit.
     func currentUIOrientation() -> UIInterfaceOrientation {
-        switch UIDevice.current.orientation {
-        case .landscapeLeft:
-            return .landscapeRight
-        case .landscapeRight:
-            return .landscapeLeft
-        case .portraitUpsideDown:
-            return .portraitUpsideDown
-        default:
-            return .portrait
-        }
+        // Garante que toda a pipeline opere como se estivesse em retrato.
+        return .portrait
     }
 
-    /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo
+    /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo.
     /// - Parameters:
-    ///   - horizontal: Desvio horizontal em centímetros
-    ///   - vertical: Desvio vertical em centímetros
-    /// - Returns: Desvios adaptados à orientação atual
+    ///   - horizontal: Desvio horizontal em centímetros.
+    ///   - vertical: Desvio vertical em centímetros.
+    /// - Returns: Desvios adaptados à orientação atual.
     func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
-        // Orientação travada em retrato, não é necessário ajustar os eixos
+        // Como o app opera estritamente em retrato, mantemos os offsets originais.
         return (horizontal, vertical)
+    }
+
+    /// Verifica se o aparelho está na posição vertical padrão.
+    /// - Returns: `true` quando o aparelho está em `portrait` ou sem orientação definida.
+    func ensurePortraitOrientation() -> Bool {
+        let rawOrientation = UIDevice.current.orientation
+
+        switch rawOrientation {
+        case .portrait, .unknown:
+            return true
+        default:
+            return false
+        }
     }
 }
 
