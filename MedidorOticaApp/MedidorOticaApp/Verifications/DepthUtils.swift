@@ -92,15 +92,16 @@ extension VerificationManager {
         VisionGeometryHelper.makeLandmarksRequest()
     }
 
-    /// Retorna a orientação atual considerando a posição da câmera
+    /// Retorna a orientação atual considerando a posição da câmera.
     func currentCGOrientation() -> CGImagePropertyOrientation {
         let position = CameraManager.shared.cameraPosition
+        let interfaceOrientation = resolvedInterfaceOrientation()
 
-        switch UIDevice.current.orientation {
+        switch interfaceOrientation {
         case .landscapeLeft:
-            return position == .front ? .downMirrored : .up
-        case .landscapeRight:
             return position == .front ? .upMirrored : .down
+        case .landscapeRight:
+            return position == .front ? .downMirrored : .up
         case .portraitUpsideDown:
             return position == .front ? .rightMirrored : .left
         default:
@@ -110,6 +111,45 @@ extension VerificationManager {
 
     /// Retorna a orientação de interface atual para projeções do ARKit.
     func currentUIOrientation() -> UIInterfaceOrientation {
+        resolvedInterfaceOrientation()
+    }
+
+    /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo.
+    /// - Parameters:
+    ///   - horizontal: Desvio horizontal em centímetros.
+    ///   - vertical: Desvio vertical em centímetros.
+    /// - Returns: Desvios adaptados à orientação atual.
+    func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
+        switch resolvedInterfaceOrientation() {
+        case .landscapeLeft:
+            return (vertical, -horizontal)
+        case .landscapeRight:
+            return (-vertical, horizontal)
+        case .portraitUpsideDown:
+            return (-horizontal, -vertical)
+        default:
+            return (horizontal, vertical)
+        }
+    }
+
+    /// Resolve a orientação da interface considerando cena ativa e fallback para o giroscópio.
+    private func resolvedInterfaceOrientation() -> UIInterfaceOrientation {
+        func sceneOrientation() -> UIInterfaceOrientation? {
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
+                .first { $0 != .unknown }
+        }
+
+        if Thread.isMainThread {
+            if let orientation = sceneOrientation() { return orientation }
+        } else {
+            var orientation: UIInterfaceOrientation?
+            DispatchQueue.main.sync {
+                orientation = sceneOrientation()
+            }
+            if let orientation { return orientation }
+        }
+
         switch UIDevice.current.orientation {
         case .landscapeLeft:
             return .landscapeRight
@@ -117,19 +157,11 @@ extension VerificationManager {
             return .landscapeLeft
         case .portraitUpsideDown:
             return .portraitUpsideDown
+        case .portrait:
+            return .portrait
         default:
             return .portrait
         }
-    }
-
-    /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo
-    /// - Parameters:
-    ///   - horizontal: Desvio horizontal em centímetros
-    ///   - vertical: Desvio vertical em centímetros
-    /// - Returns: Desvios adaptados à orientação atual
-    func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
-        // Orientação travada em retrato, não é necessário ajustar os eixos
-        return (horizontal, vertical)
     }
 }
 
