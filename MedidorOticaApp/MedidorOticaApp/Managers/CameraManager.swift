@@ -81,7 +81,8 @@ class CameraManager: NSObject, ObservableObject {
     private override init() {
         super.init()
         checkAvailableSensors()
-        configureLensMonitoring()
+        // Agenda a integração com o VerificationManager após concluir a criação do singleton.
+        connectVerificationManagerAsync()
     }
 
     // MARK: - Error Handling
@@ -234,9 +235,20 @@ extension CameraManager {
         }
     }
 
+    /// Integra o gerenciamento de verificações de forma assíncrona para evitar ciclos de inicialização.
+    private func connectVerificationManagerAsync() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let verificationManager = VerificationManager.shared
+            self.configureLensMonitoring(using: verificationManager)
+            verificationManager.updateActiveSensor(using: self)
+        }
+    }
+
     /// Configura observadores para ajustar a condição da lente frontal com base nas verificações em tempo real.
-    private func configureLensMonitoring() {
-        let verificationManager = VerificationManager.shared
+    /// - Parameter verificationManager: Fonte das verificações publicadas para o Combine.
+    private func configureLensMonitoring(using verificationManager: VerificationManager) {
+        guard lensMonitorCancellables.isEmpty else { return }
 
         verificationManager.$faceDetected
             .combineLatest(verificationManager.$distanceCorrect)
