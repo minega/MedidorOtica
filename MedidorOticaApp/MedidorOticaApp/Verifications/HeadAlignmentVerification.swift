@@ -34,7 +34,7 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                // Calcula os ângulos relativos à câmera para evitar loops quando o dispositivo está inclinado
+                // Calcula os ângulos relativos à câmera sem aplicar compensações extras.
                 let euler = extractRelativeEulerAngles(faceAnchor: anchor, frame: frame)
                 let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
                 rollDegrees  = radiansToDegrees(euler.roll) * sign
@@ -95,17 +95,32 @@ extension VerificationManager {
         // Os elementos da matriz 3x3 superior podem ser convertidos para ângulos de Euler
 
         // Utiliza quaternions para evitar problemas de gimbal lock
-        let quat = simd_quatf(transform)
+        let m11 = transform.columns.0.x
+        let m12 = transform.columns.1.x
+        let m13 = transform.columns.2.x
+        let m21 = transform.columns.0.y
+        let m22 = transform.columns.1.y
+        let m23 = transform.columns.2.y
+        let m31 = transform.columns.0.z
+        let m32 = transform.columns.1.z
+        let m33 = transform.columns.2.z
 
-        let qw = quat.real
-        let qx = quat.imag.x
-        let qy = quat.imag.y
-        let qz = quat.imag.z
+        let sy = sqrt(m11 * m11 + m21 * m21)
+        let singular = sy < 1e-6
 
-        // Fórmulas padrão de conversão quaternion -> ângulos de Euler
-        let pitch = atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy))
-        let yaw   = asin(max(-1, min(1, 2 * (qw * qy - qz * qx))))
-        let roll  = atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        let pitch: Float
+        let yaw: Float
+        let roll: Float
+
+        if !singular {
+            pitch = atan2(m32, m33)
+            yaw = atan2(-m31, sy)
+            roll = atan2(m21, m11)
+        } else {
+            pitch = atan2(-m23, m22)
+            yaw = atan2(-m31, sy)
+            roll = 0
+        }
 
         return EulerAngles(pitch: pitch, yaw: yaw, roll: roll)
     }
@@ -118,24 +133,10 @@ extension VerificationManager {
     private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor, frame: ARFrame) -> EulerAngles {
         let worldToCamera = simd_inverse(frame.camera.transform)
         let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
+        // O transform relativo já está no referencial da câmera, evitando offsets de 90°.
         return extractEulerAngles(from: relativeTransform)
     }
 
-    // MARK: - Compensação de orientação
-    /// Retorna um quaternion que ajusta o referencial conforme a orientação atual
-    private func orientationCompensation() -> simd_quatf {
-        switch currentCGOrientation() {
-        case .left, .leftMirrored:
-            return simd_quaternion(Float.pi / 2, SIMD3<Float>(0, 0, 1))
-        case .right, .rightMirrored:
-            return simd_quaternion(-Float.pi / 2, SIMD3<Float>(0, 0, 1))
-        case .down, .downMirrored:
-            return simd_quaternion(Float.pi, SIMD3<Float>(0, 0, 1))
-        default:
-            return simd_quaternion(0, SIMD3<Float>(0, 0, 1))
-        }
-    }
-    
     // Converte ângulo de radianos para graus
     private func radiansToDegrees(_ radians: Float) -> Float {
         radians * (180.0 / .pi)
@@ -156,19 +157,9 @@ extension VerificationManager {
             let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
             let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
 
-            // Ajusta para a orientação atual da tela
-            let rollRad = roll * .pi / 180
-            let yawRad = yaw * .pi / 180
-            let pitchRad = pitch * .pi / 180
-            let faceQuat = simd_quaternion(pitchRad, SIMD3<Float>(1,0,0)) *
-                           simd_quaternion(yawRad,   SIMD3<Float>(0,1,0)) *
-                           simd_quaternion(rollRad,  SIMD3<Float>(0,0,1))
-            let adjusted = simd_mul(orientationCompensation(), faceQuat)
-            let euler = extractEulerAngles(from: simd_float4x4(adjusted))
-
-            return (radiansToDegrees(euler.roll),
-                    radiansToDegrees(euler.yaw),
-                    radiansToDegrees(euler.pitch))
+            // Mantém a convenção de sinais igual à do TrueDepth para feedback coerente.
+            let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+            return (roll * sign, yaw * sign, pitch)
         } catch {
             print("Erro ao calcular ângulos com Vision: \(error)")
             return nil

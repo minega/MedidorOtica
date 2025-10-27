@@ -35,6 +35,8 @@ final class VerificationManager: ObservableObject {
     @Published var distanceCorrect = false
     @Published var faceAligned = false
     @Published var headAligned = false
+    /// Indica se o aparelho está na posição permitida (vertical padrão).
+    @Published var isDeviceOrientationValid = true
     
     // Medições precisas
     @Published var lastMeasuredDistance: Float = 0.0 // em centímetros, com precisão de 0,5mm
@@ -101,6 +103,21 @@ final class VerificationManager: ObservableObject {
         }
         lastFrameTime = now
         isProcessingFrame = true
+
+        // Bloqueia o processamento quando o aparelho não estiver na vertical padrão.
+        let orientationOK = ensurePortraitOrientation()
+        DispatchQueue.main.async { [weak self] in
+            self?.isDeviceOrientationValid = orientationOK
+        }
+        guard orientationOK else {
+            resetAllVerifications()
+            DispatchQueue.main.async { [weak self] in
+                self?.currentStep = .faceDetection
+                self?.updateVerificationStatus(throttled: false)
+            }
+            isProcessingFrame = false
+            return
+        }
 
         // Aviso de rastreamento limitado
         if case .limited = frame.camera.trackingState {
