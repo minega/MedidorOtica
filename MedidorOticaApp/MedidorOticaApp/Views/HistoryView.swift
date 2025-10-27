@@ -302,17 +302,10 @@ struct MeasurementDetailView: View {
                 }
             )
             .sheet(isPresented: $showingShareSheet) {
-                // Compartilhamento da imagem e informações
-                if let image = measurement.getImage() {
-                    var text = "Cliente: \(measurement.clientName)\nDistância Pupilar: \(measurement.formattedDistanciaPupilar)\nData: \(measurement.formattedDate)"
-                    if let metrics = measurement.postCaptureMetrics {
-                        text += "\nHorizontal OD: \(String(format: \"%.1f\", metrics.rightEye.horizontalMaior)) mm"
-                        text += "\nHorizontal OE: \(String(format: \"%.1f\", metrics.leftEye.horizontalMaior)) mm"
-                        text += "\nVertical OD: \(String(format: \"%.1f\", metrics.rightEye.verticalMaior)) mm"
-                        text += "\nVertical OE: \(String(format: \"%.1f\", metrics.leftEye.verticalMaior)) mm"
-                        text += "\nPonte: \(String(format: \"%.1f\", metrics.ponte)) mm"
-                    }
-                    ShareSheet(items: [image, text])
+                if let items = MeasurementShareFormatter().makeItems(for: measurement) {
+                    ShareSheet(items: items)
+                } else {
+                    ShareUnavailableView()
                 }
             }
         }
@@ -337,5 +330,67 @@ struct HistoryView_Previews: PreviewProvider {
     static var previews: some View {
         HistoryView()
             .environmentObject(HistoryManager.shared)
+    }
+}
+
+// MARK: - Sharing Helpers
+/// Formatter responsável por montar o resumo textual da medição para compartilhamento.
+fileprivate struct MeasurementShareFormatter {
+    /// Monta os itens a serem compartilhados na folha do sistema.
+    /// - Parameter measurement: Medição selecionada pelo usuário.
+    /// - Returns: Array com a imagem da medição e o texto resumido.
+    func makeItems(for measurement: Measurement) -> [Any]? {
+        guard let image = measurement.getImage() else { return nil }
+        return [image, makeSummary(for: measurement)]
+    }
+
+    /// Cria o texto formatado com todas as métricas relevantes.
+    /// - Parameter measurement: Medição utilizada como fonte.
+    /// - Returns: Texto pronto para ser compartilhado.
+    func makeSummary(for measurement: Measurement) -> String {
+        var lines: [String] = []
+        lines.reserveCapacity(8)
+
+        lines.append("Cliente: \(measurement.clientName)")
+        lines.append("Distância Pupilar: \(measurement.formattedDistanciaPupilar)")
+        lines.append("Data: \(measurement.formattedDate)")
+
+        if let metrics = measurement.postCaptureMetrics {
+            lines.append("Horizontal OD: \(format(metrics.rightEye.horizontalMaior))")
+            lines.append("Horizontal OE: \(format(metrics.leftEye.horizontalMaior))")
+            lines.append("Vertical OD: \(format(metrics.rightEye.verticalMaior))")
+            lines.append("Vertical OE: \(format(metrics.leftEye.verticalMaior))")
+            lines.append("Ponte: \(format(metrics.ponte))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// Formata um valor métrico com uma casa decimal seguida de "mm".
+    private func format(_ value: Double) -> String {
+        String(format: "%.1f mm", value)
+    }
+}
+
+/// Visão exibida quando a medição não possui imagem para compartilhar.
+fileprivate struct ShareUnavailableView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "photo")
+                .font(.system(size: 48))
+                .foregroundColor(.gray)
+
+            Text("Nada para compartilhar agora.")
+                .font(.headline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+
+            Text("Capture nova foto para compartilhar.")
+                .font(.subheadline)
+                .foregroundColor(.gray.opacity(0.8))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.gray.opacity(0.12))
     }
 }
