@@ -72,11 +72,16 @@ class CameraManager: NSObject, ObservableObject {
     var arSession: ARSession?
     /// Indica se o hardware possui suporte ao sensor TrueDepth.
     private(set) var hardwareHasTrueDepth = false
+    /// Observadores dedicados ao monitoramento de condições relacionadas à lente frontal.
+    private var lensMonitorCancellables: Set<AnyCancellable> = []
+    /// Heurística que estima a limpeza da lente frontal analisando resultados das verificações.
+    private let frontLensMonitor = FrontLensCleanlinessMonitor()
 
     // MARK: - Initialization
     private override init() {
         super.init()
         checkAvailableSensors()
+        configureLensMonitoring()
     }
 
     // MARK: - Error Handling
@@ -126,6 +131,7 @@ class CameraManager: NSObject, ObservableObject {
         arSession?.pause()
         arSession?.delegate = nil
         arSession = nil
+        lensMonitorCancellables.removeAll()
         NotificationCenter.default.removeObserver(self)
     }
 }
@@ -207,8 +213,14 @@ extension CameraManager {
             return
         }
 
-        // API de monitoramento indisponível no SDK utilizado; reporta como não suportado.
-        publishLensCondition(.unsupported)
+        guard hardwareHasTrueDepth else {
+            publishLensCondition(.unsupported)
+            return
+        }
+
+        // API oficial indisponível; utiliza heurística baseada nas verificações recentes.
+        let inferredCondition = frontLensMonitor.estimatedCondition
+        publishLensCondition(inferredCondition == .unknown ? .notReporting : inferredCondition)
     }
 
     /// Publica o estado da lente na thread principal.
@@ -220,6 +232,89 @@ extension CameraManager {
                 self?.frontLensCondition = condition
             }
         }
+    }
+
+    /// Configura observadores para ajustar a condição da lente frontal com base nas verificações em tempo real.
+    private func configureLensMonitoring() {
+        let verificationManager = VerificationManager.shared
+
+        verificationManager.$faceDetected
+            .combineLatest(verificationManager.$distanceCorrect)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] faceDetected, distanceCorrect in
+                let reliableDetection = faceDetected && distanceCorrect
+                self?.handleLensFeedback(hasValidFaceFrame: reliableDetection || faceDetected)
+            }
+            .store(in: &lensMonitorCancellables)
+    }
+
+    /// Atualiza a condição da lente com base no retorno das verificações do `VerificationManager`.
+    private func handleLensFeedback(hasValidFaceFrame: Bool) {
+        guard cameraPosition == .front else {
+            frontLensMonitor.reset()
+            publishLensCondition(isFrontCameraEnabled ? .unknown : .disabled)
+            return
+        }
+
+        guard isFrontCameraEnabled else {
+            frontLensMonitor.reset()
+            publishLensCondition(.disabled)
+            return
+        }
+
+        guard isSessionRunning else {
+            frontLensMonitor.reset()
+            publishLensCondition(.unknown)
+            return
+        }
+
+        let condition = frontLensMonitor.register(hasValidFaceFrame: hasValidFaceFrame)
+        publishLensCondition(condition)
+    }
+}
+
+// MARK: - FrontLensCleanlinessMonitor
+private final class FrontLensCleanlinessMonitor {
+    /// Número máximo de perdas aceitáveis antes de considerar a lente suja.
+    private let missThreshold: Int
+    /// Contador de atualizações consecutivas sem detecção facial.
+    private var consecutiveMisses = 0
+    /// Última condição inferida para a lente frontal.
+    private var lastCondition: CameraManager.CameraLensCondition = .unknown
+    /// Indica se já houve dados suficientes para estimar o estado da lente.
+    private var hasReceivedFeedback = false
+
+    init(missThreshold: Int = 24) {
+        self.missThreshold = missThreshold
+    }
+
+    /// Registra uma nova observação e retorna a condição estimada da lente frontal.
+    /// - Parameter hasValidFaceFrame: Indica se o frame atual possui rosto detectado em posição utilizável.
+    func register(hasValidFaceFrame: Bool) -> CameraManager.CameraLensCondition {
+        hasReceivedFeedback = true
+
+        if hasValidFaceFrame {
+            consecutiveMisses = 0
+            lastCondition = .clean
+            return lastCondition
+        }
+
+        consecutiveMisses = min(consecutiveMisses + 1, missThreshold)
+        lastCondition = consecutiveMisses >= missThreshold ? .needsCleaning : .notReporting
+        return lastCondition
+    }
+
+    /// Retorna a melhor estimativa disponível mesmo quando não há feedback recente.
+    var estimatedCondition: CameraManager.CameraLensCondition {
+        guard hasReceivedFeedback else { return .unknown }
+        return lastCondition
+    }
+
+    /// Reinicia os contadores e estado interno do monitor.
+    func reset() {
+        consecutiveMisses = 0
+        lastCondition = .unknown
+        hasReceivedFeedback = false
     }
 }
 

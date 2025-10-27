@@ -20,24 +20,26 @@ struct PupilOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             if let centers = verificationManager.pupilCenters {
-                let points = [centers.left, centers.right]
-                ForEach(Array(points.enumerated()), id: \.offset) { item in
-                    let index = item.offset
-                    let normalized = item.element
-                    let mirroredX = cameraManager.cameraPosition == .front ? 1 - normalized.x : normalized.x
-                    let position = CGPoint(x: mirroredX * geometry.size.width,
-                                           y: normalized.y * geometry.size.height)
+                let normalizedPoints = [centers.left, centers.right]
+                ForEach(normalizedPoints.indices, id: \.self) { index in
+                    let normalizedPoint = normalizedPoints[index]
+                    let position = convertToScreenPoint(normalizedPoint,
+                                                        geometrySize: geometry.size)
 
-                    Circle()
-                        .fill(Color.red.opacity(0.85))
-                        .frame(width: indicatorSize, height: indicatorSize)
-                        .position(position)
-                        .shadow(color: .red.opacity(0.45), radius: 4)
-                        .accessibilityLabel(Text("Indicador de pupila \(index == 0 ? \"esquerda\" : \"direita\")"))
+                    PupilIndicator(index: index,
+                                   position: position,
+                                   size: indicatorSize)
                 }
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// Converte um ponto normalizado (0...1) para as coordenadas da tela aplicando o espelhamento quando necessário.
+    private func convertToScreenPoint(_ normalizedPoint: CGPoint, geometrySize: CGSize) -> CGPoint {
+        let mirroredX = cameraManager.cameraPosition == .front ? 1 - normalizedPoint.x : normalizedPoint.x
+        return CGPoint(x: mirroredX * geometrySize.width,
+                       y: normalizedPoint.y * geometrySize.height)
     }
 }
 
@@ -46,5 +48,24 @@ struct PupilOverlay_Previews: PreviewProvider {
         PupilOverlay(verificationManager: VerificationManager.shared,
                      cameraManager: CameraManager.shared)
             .background(Color.black)
+    }
+}
+
+/// Indicador visual individual que destaca uma das pupilas detectadas.
+fileprivate struct PupilIndicator: View {
+    /// Índice que identifica se o indicador representa o olho esquerdo ou direito.
+    let index: Int
+    /// Posição absoluta onde o círculo deve ser desenhado na tela.
+    let position: CGPoint
+    /// Tamanho do círculo apresentado como indicador.
+    let size: CGFloat
+
+    var body: some View {
+        Circle()
+            .fill(Color.red.opacity(0.85))
+            .frame(width: size, height: size)
+            .position(position)
+            .shadow(color: .red.opacity(0.45), radius: 4)
+            .accessibilityLabel(Text("Indicador de pupila \(index == 0 ? \"esquerda\" : \"direita\")"))
     }
 }
