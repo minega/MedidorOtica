@@ -37,6 +37,7 @@ struct PupilOverlay: View {
         .allowsHitTesting(false)
     }
 
+
     // MARK: - Conversões de Coordenadas
 
     /// Converte um ponto normalizado (0...1) para coordenadas absolutas já com o espelhamento aplicado quando necessário.
