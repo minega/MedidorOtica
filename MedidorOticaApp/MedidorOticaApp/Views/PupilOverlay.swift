@@ -21,8 +21,9 @@ struct PupilOverlay: View {
         GeometryReader { geometry in
             if let centers = verificationManager.pupilCenters {
                 let points = [centers.left, centers.right]
-                ForEach(points.indices, id: \.self) { index in
-                    let normalized = points[index]
+                ForEach(Array(points.enumerated()), id: \.offset) { item in
+                    let index = item.offset
+                    let normalized = item.element
                     let mirroredX = cameraManager.cameraPosition == .front ? 1 - normalized.x : normalized.x
                     let position = CGPoint(x: mirroredX * geometry.size.width,
                                            y: normalized.y * geometry.size.height)

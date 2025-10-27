@@ -304,7 +304,10 @@ struct MeasurementDetailView: View {
             .sheet(isPresented: $showingShareSheet) {
                 // Compartilhamento da imagem e informações
                 if let image = measurement.getImage() {
-                    var text = "Cliente: \(measurement.clientName)\nDistância Pupilar: \(measurement.formattedDistanciaPupilar)\nData: \(measurement.formattedDate)"
+                    var text = "Cliente: \(measurement.clientName)\n"
+                    text += "Distância Pupilar: \(measurement.formattedDistanciaPupilar)\n"
+                    text += "Data: \(measurement.formattedDate)"
+
                     if let metrics = measurement.postCaptureMetrics {
                         text += "\nHorizontal OD: \(String(format: \"%.1f\", metrics.rightEye.horizontalMaior)) mm"
                         text += "\nHorizontal OE: \(String(format: \"%.1f\", metrics.leftEye.horizontalMaior)) mm"
@@ -312,6 +315,7 @@ struct MeasurementDetailView: View {
                         text += "\nVertical OE: \(String(format: \"%.1f\", metrics.leftEye.verticalMaior)) mm"
                         text += "\nPonte: \(String(format: \"%.1f\", metrics.ponte)) mm"
                     }
+
                     ShareSheet(items: [image, text])
                 }
             }
