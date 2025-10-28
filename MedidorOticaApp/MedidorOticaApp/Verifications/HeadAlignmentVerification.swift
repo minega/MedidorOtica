@@ -34,7 +34,8 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                // Calcula os ângulos relativos à câmera para evitar loops quando o dispositivo está inclinado
+                // Calcula os ângulos relativos compensando a orientação atual do dispositivo
+                // para que a leitura permaneça coerente em qualquer rotação do iPhone
                 let euler = extractRelativeEulerAngles(faceAnchor: anchor, frame: frame)
                 let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
                 rollDegrees  = radiansToDegrees(euler.roll) * sign
@@ -118,7 +119,9 @@ extension VerificationManager {
     private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor, frame: ARFrame) -> EulerAngles {
         let worldToCamera = simd_inverse(frame.camera.transform)
         let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
-        return extractEulerAngles(from: relativeTransform)
+        let orientationMatrix = simd_float4x4(orientationCompensation())
+        let compensatedTransform = simd_mul(orientationMatrix, relativeTransform)
+        return extractEulerAngles(from: compensatedTransform)
     }
 
     // MARK: - Compensação de orientação
@@ -126,9 +129,11 @@ extension VerificationManager {
     private func orientationCompensation() -> simd_quatf {
         switch currentCGOrientation() {
         case .left, .leftMirrored:
-            return simd_quaternion(Float.pi / 2, SIMD3<Float>(0, 0, 1))
-        case .right, .rightMirrored:
+            // Compensa imagens que chegam giradas 90° para a esquerda rotacionando no sentido horário
             return simd_quaternion(-Float.pi / 2, SIMD3<Float>(0, 0, 1))
+        case .right, .rightMirrored:
+            // Compensa imagens que chegam giradas 90° para a direita rotacionando no sentido anti-horário
+            return simd_quaternion(Float.pi / 2, SIMD3<Float>(0, 0, 1))
         case .down, .downMirrored:
             return simd_quaternion(Float.pi, SIMD3<Float>(0, 0, 1))
         default:

@@ -31,9 +31,12 @@ extension CameraManager {
 
         let pixelBuffer = frame.capturedImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
+        let context = photoProcessingContext
+        // Reaproveita a orientação calculada pelo VerificationManager para alinhar a foto ao preview
+        let orientation = VerificationManager.shared.currentCGOrientation()
+        let orientedCIImage = ciImage.oriented(forExifOrientation: orientation.exifOrientation)
 
-        guard let cgImageFull = context.createCGImage(ciImage, from: ciImage.extent) else {
+        guard let cgImageFull = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
             print("ERRO: Falha ao criar CGImage a partir do buffer de pixel")
             DispatchQueue.main.async { completion(nil) }
             return
@@ -52,9 +55,8 @@ extension CameraManager {
             return
         }
 
-        // Ajusta a orientação da imagem conforme a posição da câmera
-        let orientation: UIImage.Orientation = cameraPosition == .front ? .leftMirrored : .right
-        let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: orientation)
+        // Normaliza a orientação para manter a foto na vertical independente do sensor
+        let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: .up)
         print("Imagem capturada da sessão AR com sucesso")
         DispatchQueue.main.async { completion(image) }
     }
@@ -109,6 +111,21 @@ extension CameraManager {
                        orientation: image.imageOrientation)
     }
 
+    /// Ajusta a orientação EXIF para que a imagem final permaneça em pé.
+    private func normalizeOrientation(of image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up,
+              let cg = image.cgImage else { return image }
+
+        let exifOrientation = CGImagePropertyOrientation(image.imageOrientation)
+        let ciImage = CIImage(cgImage: cg).oriented(forExifOrientation: exifOrientation.exifOrientation)
+
+        guard let orientedCG = photoProcessingContext.createCGImage(ciImage, from: ciImage.extent) else {
+            return image
+        }
+
+        return UIImage(cgImage: orientedCG, scale: image.scale, orientation: .up)
+    }
+
     private func handleCapturedPhoto(image: UIImage?, completion: @escaping (UIImage?) -> Void) {
         DispatchQueue.main.async { [weak self] in
             self?.currentPhotoCaptureProcessor = nil
@@ -119,7 +136,8 @@ extension CameraManager {
                 return
             }
 
-            let cropped = self?.cropToScreenAspect(img) ?? img
+            let normalized = self?.normalizeOrientation(of: img) ?? img
+            let cropped = self?.cropToScreenAspect(normalized) ?? normalized
             print("Foto capturada com sucesso")
             completion(cropped)
         }

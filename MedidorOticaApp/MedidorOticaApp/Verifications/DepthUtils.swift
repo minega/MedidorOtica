@@ -200,4 +200,9 @@ extension CGImagePropertyOrientation {
             return false
         }
     }
+
+    /// Valor EXIF utilizado por CoreImage para aplicar rotações e espelhamentos corretamente.
+    var exifOrientation: Int32 {
+        Int32(rawValue)
+    }
 }

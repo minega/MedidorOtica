@@ -70,6 +70,8 @@ class CameraManager: NSObject, ObservableObject {
     var videoDeviceInput: AVCaptureDeviceInput?
     var currentPhotoCaptureProcessor: PhotoCaptureProcessor?
     var arSession: ARSession?
+    /// Contexto compartilhado para operações de processamento de imagem e correção de orientação.
+    let photoProcessingContext = CIContext()
     /// Indica se o hardware possui suporte ao sensor TrueDepth.
     private(set) var hardwareHasTrueDepth = false
     /// Observadores dedicados ao monitoramento de condições relacionadas à lente frontal.
