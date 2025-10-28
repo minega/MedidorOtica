@@ -183,6 +183,22 @@ struct PostCaptureConfiguration: Codable, Equatable {
         self.leftEye = leftEye
         self.faceBounds = faceBounds
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case centralPoint
+        case rightEye
+        case leftEye
+        case faceBounds
+    }
+
+    /// Garante compatibilidade com configurações antigas, preenchendo `faceBounds` quando ausente.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        centralPoint = try container.decode(NormalizedPoint.self, forKey: .centralPoint)
+        rightEye = try container.decode(EyeMeasurementData.self, forKey: .rightEye)
+        leftEye = try container.decode(EyeMeasurementData.self, forKey: .leftEye)
+        faceBounds = try container.decodeIfPresent(NormalizedRect.self, forKey: .faceBounds) ?? NormalizedRect()
+    }
 }
 
 // MARK: - Métricas finais
