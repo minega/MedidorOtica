@@ -34,6 +34,10 @@ struct CameraView: View {
     private let showDistanceOverlay = true
     /// Define se o indicador de status AR deve ser exibido.
     private let showARStatusIndicator = true
+#if DEBUG
+    /// Define se o painel de depuração do alinhamento deve ser exibido durante os testes.
+    private let showAlignmentDebugOverlay = true
+#endif
 
 
     // Observadores de notificações adicionados dinamicamente
@@ -153,8 +157,17 @@ struct CameraView: View {
                 }
             }
 
+#if DEBUG
+            if showAlignmentDebugOverlay {
+                HeadAlignmentDebugOverlay(verificationManager: verificationManager)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
+            }
+#endif
 
-            
+
+
             // Overlay de controles (usando um VStack para elementos de interface)
             VStack {
                 // Barra superior com botões
@@ -514,6 +527,50 @@ struct CameraView: View {
         }
     }
 }
+
+#if DEBUG
+//  HeadAlignmentDebugOverlay.swift
+//  Painel rápido para mostrar ângulos calculados durante os testes.
+//
+
+/// Overlay que apresenta as medições atuais de rotação da cabeça para depuração.
+struct HeadAlignmentDebugOverlay: View {
+    // MARK: - Dependências
+    @ObservedObject var verificationManager: VerificationManager
+
+    // MARK: - View
+    var body: some View {
+        let roll = verificationManager.alignmentData["roll"] ?? 0
+        let yaw = verificationManager.alignmentData["yaw"] ?? 0
+        let pitch = verificationManager.alignmentData["pitch"] ?? 0
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text("🔧 Depuração Alinhamento")
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.white)
+
+            debugRow(label: "Roll", value: roll)
+            debugRow(label: "Yaw", value: yaw)
+            debugRow(label: "Pitch", value: pitch)
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.65))
+        .cornerRadius(8)
+        .accessibilityLabel("Painel de depuração do alinhamento da cabeça")
+    }
+
+    // MARK: - Componentes
+    private func debugRow(label: String, value: Float) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(String(format: "% .1f°", value))
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundColor(.white)
+    }
+}
+#endif
 
 // MARK: - Preview Provider
 struct CameraView_Previews: PreviewProvider {
