@@ -34,12 +34,13 @@ struct PostCaptureFlowView: View {
 
     // MARK: - View
     var body: some View {
-        VStack(spacing: 16) {
-            header
-            content
-            bottomActions
+        Group {
+            if viewModel.currentStage == .confirmation {
+                confirmationScreen
+            } else {
+                standardScreen
+            }
         }
-        .padding()
         .background(Color.black.opacity(0.95).ignoresSafeArea())
         .alert("Erro ao processar", isPresented: Binding(get: {
             viewModel.errorMessage != nil
@@ -61,6 +62,56 @@ struct PostCaptureFlowView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Preencha o nome antes de salvar no histórico.")
+        }
+    }
+
+    private var confirmationScreen: some View {
+        ZStack {
+            PostCaptureOverlayView(viewModel: viewModel)
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                header
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+
+                Spacer()
+
+                Text(viewModel.stageInstructions)
+                    .font(.body)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .multilineTextAlignment(.center)
+
+                confirmationActions
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            if viewModel.isProcessing {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                ProgressView("Processando rosto...")
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .foregroundColor(.white)
+            }
+        }
+    }
+
+    private var standardScreen: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 16) {
+                header
+                overlaySection(in: geometry)
+                stageContent
+                Spacer()
+                bottomActions
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
         }
     }
 
@@ -93,32 +144,58 @@ struct PostCaptureFlowView: View {
         }
     }
 
-    private var content: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(maxHeight: 420)
-
-                if viewModel.isProcessing {
-                    ProgressView("Processando foto...")
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .foregroundColor(.white)
-                } else {
-                    PostCaptureOverlayView(viewModel: viewModel)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .frame(maxHeight: 420)
-                }
+    /// Botões exibidos na etapa inicial para refazer ou iniciar as marcações.
+    private var confirmationActions: some View {
+        HStack(spacing: 12) {
+            Button(action: onRetake) {
+                Label("Refazer", systemImage: "arrow.counterclockwise")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
+            .tint(.red)
 
-            if !viewModel.isOnSummary {
-                Text(viewModel.stageInstructions)
-                    .font(.body)
+            Button(action: viewModel.advanceStage) {
+                Label("Iniciar", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.purple)
+            .disabled(viewModel.isProcessing)
+        }
+    }
+
+    private func overlaySection(in geometry: GeometryProxy) -> some View {
+        let ratio: CGFloat = viewModel.isOnSummary ? 0.45 : 0.62
+        let baseHeight = geometry.size.height * ratio
+        let targetHeight = min(baseHeight, 460)
+
+        return ZStack {
+            if viewModel.isProcessing {
+                ProgressView("Processando foto...")
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                summaryContent
+                PostCaptureOverlayView(viewModel: viewModel)
             }
+        }
+        .frame(maxWidth: .infinity,
+               minHeight: targetHeight,
+               maxHeight: targetHeight)
+        .background(Color.gray.opacity(0.25))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .animation(.easeInOut(duration: 0.3), value: viewModel.currentStage)
+    }
+
+    @ViewBuilder
+    private var stageContent: some View {
+        if viewModel.isOnSummary {
+            summaryContent
+        } else {
+            Text(viewModel.stageInstructions)
+                .font(.body)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -205,7 +282,8 @@ struct PostCaptureFlowView: View {
 
             if !viewModel.isOnSummary {
                 Button(action: viewModel.advanceStage) {
-                    Label("Próximo", systemImage: "chevron.right")
+                    Label(viewModel.currentStage == .confirmation ? "Iniciar" : "Próximo",
+                          systemImage: viewModel.currentStage == .confirmation ? "play.fill" : "chevron.right")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

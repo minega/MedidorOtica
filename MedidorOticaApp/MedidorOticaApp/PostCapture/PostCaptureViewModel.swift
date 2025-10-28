@@ -15,6 +15,7 @@ enum PostCaptureEye: String {
 }
 
 enum PostCaptureStage: Int, CaseIterable {
+    case confirmation
     case pupil
     case horizontal
     case vertical
@@ -23,6 +24,7 @@ enum PostCaptureStage: Int, CaseIterable {
     /// Retorna a descrição textual da etapa atual.
     var description: String {
         switch self {
+        case .confirmation: return "Confirmar enquadramento"
         case .pupil: return "Localize a pupila"
         case .horizontal: return "Ajuste a largura da lente"
         case .vertical: return "Ajuste a altura da lente"
@@ -38,9 +40,11 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var configuration: PostCaptureConfiguration
     @Published var metrics: PostCaptureMetrics?
     @Published var currentEye: PostCaptureEye = .right
-    @Published var currentStage: PostCaptureStage = .pupil
+    @Published var currentStage: PostCaptureStage = .confirmation
     @Published var isProcessing = false
     @Published var errorMessage: String?
+    @Published var facePreview: UIImage?
+    @Published var faceBounds: NormalizedRect = NormalizedRect()
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -52,20 +56,11 @@ final class PostCaptureViewModel: ObservableObject {
     init(image: UIImage, existingMeasurement: Measurement? = nil) {
         self.capturedImage = image
         self.baseMeasurement = existingMeasurement
-        if let measurement = existingMeasurement,
-           let storedConfiguration = measurement.postCaptureConfiguration,
-           let storedMetrics = measurement.postCaptureMetrics {
-            self.configuration = storedConfiguration
-            self.metrics = storedMetrics
-            self.currentStage = .summary
-            self.isProcessing = false
-            self.didMirrorLeftEye = true
-        } else {
-            self.configuration = PostCaptureConfiguration()
-            self.metrics = nil
-            self.isProcessing = true
-            Task { await runAnalysis() }
-        }
+        self.configuration = PostCaptureConfiguration()
+        self.metrics = existingMeasurement?.postCaptureMetrics
+        self.isProcessing = true
+
+        Task { await runAnalysis() }
     }
 
     // MARK: - Acesso a Dados
@@ -76,27 +71,49 @@ final class PostCaptureViewModel: ObservableObject {
         }
     }
 
+    /// Retorna os dados do olho atual convertidos para o espaço exibido.
+    var currentDisplayEyeData: EyeMeasurementData {
+        displayEyeData(for: currentEye)
+    }
+
+    /// Imagem exibida em todas as etapas, já considerando o recorte facial.
+    var displayImage: UIImage {
+        facePreview ?? capturedImage
+    }
+
+    /// Ponto central utilizado nas divisões, ajustado para o recorte exibido.
+    var displayCentralPoint: NormalizedPoint {
+        convertToDisplay(configuration.centralPoint)
+    }
+
     var stageInstructions: String {
         switch currentStage {
+        case .confirmation:
+            return "🙂🆗 Garanta que o PC divida o rosto antes de iniciar."
         case .pupil:
-            return "Arraste o ponto azul para o centro exato da pupila."
+            return "🙂🎯 Arraste o ponto azul para o centro da pupila."
         case .horizontal:
-            return "Posicione as barras verticais nos limites nasal e temporal da lente."
+            return "🙂↔️ Posicione as barras verticais nos limites da lente."
         case .vertical:
-            return "Ajuste as barras horizontais aos limites superior e inferior da lente."
+            return "🙂↕️ Ajuste as barras horizontais na lente."
         case .summary:
             return "Revise os valores antes de salvar no histórico."
         }
     }
 
     var showEyeLabel: Bool {
-        currentStage != .summary
+        currentStage != .summary && currentStage != .confirmation
     }
 
     var canGoBack: Bool {
-        if currentStage == .summary { return true }
-        if currentStage == .pupil { return currentEye == .left }
-        return true
+        switch currentStage {
+        case .confirmation:
+            return false
+        case .pupil:
+            return currentEye == .left
+        case .horizontal, .vertical, .summary:
+            return true
+        }
     }
 
     var isOnSummary: Bool {
@@ -109,6 +126,8 @@ final class PostCaptureViewModel: ObservableObject {
             let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage)
             await MainActor.run {
                 self.configuration = result.configuration
+                self.faceBounds = result.configuration.faceBounds
+                self.facePreview = generateFacePreview(from: result.configuration.faceBounds)
                 self.isProcessing = false
             }
         } catch {
@@ -125,6 +144,9 @@ final class PostCaptureViewModel: ObservableObject {
         guard !isProcessing else { return }
 
         switch currentStage {
+        case .confirmation:
+            currentStage = .pupil
+            currentEye = .right
         case .pupil:
             currentStage = .horizontal
         case .horizontal:
@@ -147,10 +169,14 @@ final class PostCaptureViewModel: ObservableObject {
         guard !isProcessing else { return }
 
         switch currentStage {
+        case .confirmation:
+            break
         case .pupil:
             if currentEye == .left {
                 currentEye = .right
                 currentStage = .vertical
+            } else {
+                currentStage = .confirmation
             }
         case .horizontal:
             currentStage = .pupil
@@ -169,29 +195,62 @@ final class PostCaptureViewModel: ObservableObject {
         didMirrorLeftEye = true
     }
 
+    /// Retorna o nível de progresso desbloqueado para o olho informado.
+    func progressLevel(for eye: PostCaptureEye) -> Int {
+        switch eye {
+        case .right:
+            switch currentStage {
+            case .confirmation:
+                return 0
+            case .pupil:
+                return currentEye == .right ? 1 : 3
+            case .horizontal:
+                return currentEye == .right ? 2 : 3
+            case .vertical, .summary:
+                return 3
+            }
+        case .left:
+            switch currentStage {
+            case .confirmation:
+                return 0
+            case .pupil:
+                return currentEye == .left ? 1 : 0
+            case .horizontal:
+                return currentEye == .left ? 2 : 0
+            case .vertical:
+                return currentEye == .left ? 3 : 0
+            case .summary:
+                return 3
+            }
+        }
+    }
+
     // MARK: - Atualizações de Pontos
     func updatePupil(to point: NormalizedPoint) {
         var updated = currentEyeData
-        updated.pupil = point.clamped()
+        let globalPoint = convertFromDisplay(point)
+        updated.pupil = globalPoint.clamped()
         apply(updatedEye: updated)
     }
 
     func updateVerticalBar(isNasal: Bool, value: CGFloat) {
         var updated = currentEyeData
+        let globalValue = convertFromDisplayX(value)
         if isNasal {
-            updated.nasalBarX = value
+            updated.nasalBarX = globalValue
         } else {
-            updated.temporalBarX = value
+            updated.temporalBarX = globalValue
         }
         apply(updatedEye: updated)
     }
 
     func updateHorizontalBar(isInferior: Bool, value: CGFloat) {
         var updated = currentEyeData
+        let globalValue = convertFromDisplayY(value)
         if isInferior {
-            updated.inferiorBarY = value
+            updated.inferiorBarY = globalValue
         } else {
-            updated.superiorBarY = value
+            updated.superiorBarY = globalValue
         }
         apply(updatedEye: updated)
     }
@@ -202,11 +261,13 @@ final class PostCaptureViewModel: ObservableObject {
         case .right:
             configuration = PostCaptureConfiguration(centralPoint: configuration.centralPoint,
                                                      rightEye: normalized,
-                                                     leftEye: configuration.leftEye)
+                                                     leftEye: configuration.leftEye,
+                                                     faceBounds: configuration.faceBounds)
         case .left:
             configuration = PostCaptureConfiguration(centralPoint: configuration.centralPoint,
                                                      rightEye: configuration.rightEye,
-                                                     leftEye: normalized)
+                                                     leftEye: normalized,
+                                                     faceBounds: configuration.faceBounds)
             didMirrorLeftEye = true
         }
     }
@@ -260,5 +321,72 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureMetrics: metrics,
                            id: identifier,
                            date: date)
+    }
+
+    // MARK: - Pré-visualização
+    private func generateFacePreview(from bounds: NormalizedRect) -> UIImage? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let oriented = capturedImage.normalizedOrientation()
+        guard let cgImage = oriented.cgImage else { return nil }
+        let cropRect = bounds.absolute(in: oriented.size)
+        let scaled = CGRect(x: cropRect.origin.x * oriented.scale,
+                            y: cropRect.origin.y * oriented.scale,
+                            width: cropRect.size.width * oriented.scale,
+                            height: cropRect.size.height * oriented.scale)
+        guard let cropped = cgImage.cropping(to: scaled) else { return nil }
+        return UIImage(cgImage: cropped, scale: oriented.scale, orientation: .up)
+    }
+
+    /// Fornece os dados de um olho convertidos para o espaço de exibição.
+    func displayEyeData(for eye: PostCaptureEye) -> EyeMeasurementData {
+        var data = eye == .right ? configuration.rightEye : configuration.leftEye
+        data.pupil = convertToDisplay(data.pupil)
+        data.nasalBarX = convertToDisplayX(data.nasalBarX)
+        data.temporalBarX = convertToDisplayX(data.temporalBarX)
+        data.inferiorBarY = convertToDisplayY(data.inferiorBarY)
+        data.superiorBarY = convertToDisplayY(data.superiorBarY)
+        return data.normalizedOrder()
+    }
+
+    /// Converte um ponto para o espaço recortado mostrado na tela.
+    private func convertToDisplay(_ point: NormalizedPoint) -> NormalizedPoint {
+        guard faceBounds.width > 0, faceBounds.height > 0 else { return point.clamped() }
+        let convertedX = (point.x - faceBounds.x) / faceBounds.width
+        let convertedY = (point.y - faceBounds.y) / faceBounds.height
+        return NormalizedPoint(x: convertedX, y: convertedY).clamped()
+    }
+
+    /// Converte o eixo horizontal para o recorte exibido.
+    private func convertToDisplayX(_ value: CGFloat) -> CGFloat {
+        guard faceBounds.width > 0 else { return value }
+        return min(max((value - faceBounds.x) / faceBounds.width, 0), 1)
+    }
+
+    /// Converte o eixo vertical para o recorte exibido.
+    private func convertToDisplayY(_ value: CGFloat) -> CGFloat {
+        guard faceBounds.height > 0 else { return value }
+        return min(max((value - faceBounds.y) / faceBounds.height, 0), 1)
+    }
+
+    /// Converte um ponto do recorte exibido para o espaço original da foto.
+    private func convertFromDisplay(_ point: NormalizedPoint) -> NormalizedPoint {
+        guard faceBounds.width > 0, faceBounds.height > 0 else { return point.clamped() }
+        let convertedX = faceBounds.x + (point.x * faceBounds.width)
+        let convertedY = faceBounds.y + (point.y * faceBounds.height)
+        return NormalizedPoint(x: convertedX, y: convertedY).clamped()
+    }
+
+    /// Converte a coordenada horizontal do recorte exibido para o espaço original.
+    private func convertFromDisplayX(_ value: CGFloat) -> CGFloat {
+        guard faceBounds.width > 0 else { return value }
+        let converted = faceBounds.x + (value * faceBounds.width)
+        return min(max(converted, 0), 1)
+    }
+
+    /// Converte a coordenada vertical do recorte exibido para o espaço original.
+    private func convertFromDisplayY(_ value: CGFloat) -> CGFloat {
+        guard faceBounds.height > 0 else { return value }
+        let converted = faceBounds.y + (value * faceBounds.height)
+        return min(max(converted, 0), 1)
     }
 }

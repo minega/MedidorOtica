@@ -58,6 +58,13 @@ final class PostCaptureProcessor {
         let width = Int(imageSize.width)
         let height = Int(imageSize.height)
 
+        let rawBounds = VisionGeometryHelper
+            .normalizedRect(from: box,
+                            imageWidth: width,
+                            imageHeight: height,
+                            orientation: orientation)
+        let normalizedBounds = refinedFaceBounds(from: rawBounds)
+
         // Localiza pupilas utilizando Vision
         let rightPupilPoint = landmarks?.rightPupil.flatMap {
             VisionGeometryHelper.normalizedPoint(from: $0,
@@ -98,7 +105,38 @@ final class PostCaptureProcessor {
 
         return PostCaptureConfiguration(centralPoint: centralPoint,
                                         rightEye: rightEyeData.normalizedOrder(),
-                                        leftEye: leftEyeData.normalizedOrder())
+                                        leftEye: leftEyeData.normalizedOrder(),
+                                        faceBounds: normalizedBounds)
+    }
+
+    /// Ajusta o recorte do rosto privilegiando a região facial com margens reduzidas.
+    private func refinedFaceBounds(from bounds: NormalizedRect) -> NormalizedRect {
+        guard bounds.width > 0, bounds.height > 0 else { return NormalizedRect() }
+
+        let horizontalPadding = bounds.width * 0.12
+        var originX = max(bounds.x - horizontalPadding, 0)
+        var width = bounds.width + (horizontalPadding * 2)
+        if originX + width > 1 {
+            width = 1 - originX
+        }
+
+        let topExpansion = bounds.height * 0.25
+        var originY = max(bounds.y - topExpansion, 0)
+        var height = bounds.height + topExpansion
+        if originY + height > 1 {
+            height = 1 - originY
+        }
+
+        let bottomTrim = bounds.height * 0.28
+        height = max(height - bottomTrim, 0.35)
+        if originY + height > 1 {
+            height = 1 - originY
+        }
+
+        return NormalizedRect(x: originX,
+                              y: originY,
+                              width: width,
+                              height: height).clamped()
     }
 
     private func initialData(for point: CGPoint?,

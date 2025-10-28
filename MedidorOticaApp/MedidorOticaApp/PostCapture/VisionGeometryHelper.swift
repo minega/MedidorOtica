@@ -76,6 +76,32 @@ enum VisionGeometryHelper {
                                orientation: orientation)
     }
 
+    /// Converte uma bounding box do Vision para um retângulo normalizado alinhado ao preview.
+    static func normalizedRect(from boundingBox: CGRect,
+                                imageWidth: Int,
+                                imageHeight: Int,
+                                orientation: CGImagePropertyOrientation) -> NormalizedRect {
+        let pixelRect = VNImageRectForNormalizedRect(boundingBox,
+                                                     imageWidth,
+                                                     imageHeight)
+        let topLeft = normalizedPoint(CGPoint(x: pixelRect.minX, y: pixelRect.minY),
+                                      width: imageWidth,
+                                      height: imageHeight,
+                                      orientation: orientation)
+        let bottomRight = normalizedPoint(CGPoint(x: pixelRect.maxX, y: pixelRect.maxY),
+                                          width: imageWidth,
+                                          height: imageHeight,
+                                          orientation: orientation)
+        let originX = min(topLeft.x, bottomRight.x)
+        let originY = min(topLeft.y, bottomRight.y)
+        let width = abs(bottomRight.x - topLeft.x)
+        let height = abs(bottomRight.y - topLeft.y)
+        return NormalizedRect(x: originX,
+                              y: originY,
+                              width: width,
+                              height: height).clamped()
+    }
+
     /// Cria uma requisição de landmarks utilizando a revisão mais atual.
     static func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
         let request = VNDetectFaceLandmarksRequest()

@@ -10,26 +10,75 @@ import SwiftUI
 // MARK: - Sobreposição Interativa
 struct PostCaptureOverlayView: View {
     @ObservedObject var viewModel: PostCaptureViewModel
+    @State private var displayZoom: CGFloat = 1.9
+    @State private var stageBaseZoom: CGFloat = 1.9
+    @State private var lastMagnification: CGFloat = 1.0
+
+    private let maxZoom: CGFloat = 2.4
 
     var body: some View {
         GeometryReader { geometry in
-            let rect = aspectFitRect(imageSize: viewModel.capturedImage.size,
-                                      containerSize: geometry.size)
-
-            ZStack(alignment: .topLeading) {
-                Color.black.opacity(0.85)
-
-                Image(uiImage: viewModel.capturedImage)
-                    .resizable()
-                    .aspectRatio(viewModel.capturedImage.size, contentMode: .fit)
-                    .frame(width: rect.size.width, height: rect.size.height)
-                    .position(x: rect.midX, y: rect.midY)
-
-                overlayContent(size: rect.size)
-                    .frame(width: rect.size.width, height: rect.size.height)
-                    .position(x: rect.midX, y: rect.midY)
+            if viewModel.currentStage == .confirmation {
+                confirmationView(in: geometry.size)
+            } else {
+                interactiveView(in: geometry)
+                    .onAppear { updateBaseZoom(for: viewModel.currentStage) }
+                    .onChange(of: viewModel.currentStage, perform: updateBaseZoom)
+                    .onChange(of: viewModel.currentEye) { _ in
+                        displayZoom = stageBaseZoom
+                    }
             }
         }
+    }
+
+    // MARK: - Etapa de Confirmação
+    private func confirmationView(in size: CGSize) -> some View {
+        ZStack {
+            Color.black
+
+            Image(uiImage: viewModel.displayImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size.width, height: size.height)
+                .clipped()
+
+            confirmationDivider(size: size)
+        }
+    }
+
+    private func confirmationDivider(size: CGSize) -> some View {
+        let normalizedX = viewModel.displayCentralPoint.x
+        return Rectangle()
+            .fill(Color.white.opacity(0.5))
+            .frame(width: 2)
+            .position(x: normalizedX * size.width, y: size.height / 2)
+            .animation(.easeInOut(duration: 0.3), value: viewModel.faceBounds)
+    }
+
+    // MARK: - Etapas Interativas
+    private func interactiveView(in geometry: GeometryProxy) -> some View {
+        let rect = aspectFitRect(imageSize: viewModel.displayImage.size,
+                                  containerSize: geometry.size)
+        let translation = zoomTranslation(for: viewModel.currentDisplayEyeData.pupil,
+                                          in: rect.size)
+
+        return ZStack {
+            Color.black.opacity(0.9)
+            ZStack(alignment: .topLeading) {
+                Image(uiImage: viewModel.displayImage)
+                    .resizable()
+                    .aspectRatio(viewModel.displayImage.size, contentMode: .fit)
+                    .frame(width: rect.size.width, height: rect.size.height)
+                overlayContent(size: rect.size)
+                    .frame(width: rect.size.width, height: rect.size.height)
+            }
+            .frame(width: rect.size.width, height: rect.size.height)
+            .scaleEffect(displayZoom)
+            .offset(translation)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .gesture(magnificationGesture)
+        .animation(.easeInOut(duration: 0.3), value: displayZoom)
     }
 
     // MARK: - Conteúdo da Sobreposição
@@ -42,7 +91,7 @@ struct PostCaptureOverlayView: View {
     }
 
     private func centralDivider(size: CGSize) -> some View {
-        let centerX = viewModel.configuration.centralPoint.x * size.width
+        let centerX = viewModel.displayCentralPoint.x * size.width
         return Rectangle()
             .fill(Color.white.opacity(0.4))
             .frame(width: 2)
@@ -50,14 +99,22 @@ struct PostCaptureOverlayView: View {
     }
 
     private func eyeOverlay(for eye: PostCaptureEye, size: CGSize) -> some View {
-        let data = eye == .right ? viewModel.configuration.rightEye : viewModel.configuration.leftEye
+        let data = viewModel.displayEyeData(for: eye)
         let isActiveEye = eye == viewModel.currentEye
+        let progress = viewModel.progressLevel(for: eye)
 
         return ZStack {
-            verticalBars(for: eye, data: data, size: size, isActiveEye: isActiveEye)
-            horizontalBars(for: eye, data: data, size: size, isActiveEye: isActiveEye)
-            pupilMarker(for: eye, data: data, size: size, isActiveEye: isActiveEye)
+            if progress >= 2 {
+                verticalBars(for: eye, data: data, size: size, isActiveEye: isActiveEye)
+            }
+            if progress >= 3 {
+                horizontalBars(for: eye, data: data, size: size, isActiveEye: isActiveEye)
+            }
+            if progress >= 1 {
+                pupilMarker(for: eye, data: data, size: size, isActiveEye: isActiveEye)
+            }
         }
+        .opacity(progress == 0 ? 0 : (isActiveEye ? 1 : 0.45))
     }
 
     private func pupilMarker(for eye: PostCaptureEye,
@@ -66,7 +123,8 @@ struct PostCaptureOverlayView: View {
                               isActiveEye: Bool) -> some View {
         let center = CGPoint(x: data.pupil.x * size.width,
                              y: data.pupil.y * size.height)
-        let diameter = max(PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width, 12)
+        let baseDiameter = PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
+        let diameter = max(baseDiameter / 5, 6)
         let isActive = isActiveEye && viewModel.currentStage == .pupil
 
         return Circle()
@@ -83,7 +141,6 @@ struct PostCaptureOverlayView: View {
                 viewModel.updatePupil(to: normalized)
             })
             .allowsHitTesting(isActive)
-            .opacity(isActiveEye ? 1 : 0.4)
             .animation(.easeInOut(duration: 0.2), value: viewModel.currentStage)
     }
 
@@ -118,7 +175,6 @@ struct PostCaptureOverlayView: View {
                                       viewModel.updateVerticalBar(isNasal: false, value: value / size.width)
                                   })
         }
-        .opacity(isActiveEye ? 1 : 0.4)
     }
 
     private func draggableVerticalBar(positionX: CGFloat,
@@ -177,7 +233,6 @@ struct PostCaptureOverlayView: View {
                                         viewModel.updateHorizontalBar(isInferior: false, value: value / size.height)
                                     })
         }
-        .opacity(isActiveEye ? 1 : 0.4)
     }
 
     private func draggableHorizontalBar(positionY: CGFloat,
@@ -203,6 +258,42 @@ struct PostCaptureOverlayView: View {
                 update(clampedY)
             })
             .allowsHitTesting(isActive)
+    }
+
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                guard viewModel.currentStage != .summary else { return }
+                let delta = value / lastMagnification
+                let proposed = displayZoom * delta
+                displayZoom = min(max(proposed, stageBaseZoom), maxZoom)
+                lastMagnification = value
+            }
+            .onEnded { _ in
+                lastMagnification = 1.0
+            }
+    }
+
+    /// Mantém o olho ativo centralizado ao aplicar zoom.
+    private func zoomTranslation(for anchor: NormalizedPoint, in size: CGSize) -> CGSize {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let target = CGPoint(x: anchor.x * size.width, y: anchor.y * size.height)
+        let deltaX = (center.x - target.x) * (displayZoom - 1)
+        let deltaY = (center.y - target.y) * (displayZoom - 1)
+        return CGSize(width: deltaX, height: deltaY)
+    }
+
+    private func updateBaseZoom(for stage: PostCaptureStage) {
+        let base: CGFloat
+        switch stage {
+        case .pupil, .horizontal, .vertical:
+            base = 1.9
+        case .summary, .confirmation:
+            base = 1.0
+        }
+        stageBaseZoom = base
+        displayZoom = base
+        lastMagnification = 1.0
     }
 
     // MARK: - Helpers
