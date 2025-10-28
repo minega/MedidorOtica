@@ -10,11 +10,11 @@ import SwiftUI
 // MARK: - Sobreposição Interativa
 struct PostCaptureOverlayView: View {
     @ObservedObject var viewModel: PostCaptureViewModel
-    @State private var displayZoom: CGFloat = 1.35
-    @State private var stageBaseZoom: CGFloat = 1.35
+    @State private var displayZoom: CGFloat = 1.9
+    @State private var stageBaseZoom: CGFloat = 1.9
     @State private var lastMagnification: CGFloat = 1.0
 
-    private let maxZoom: CGFloat = 1.8
+    private let maxZoom: CGFloat = 2.4
 
     var body: some View {
         GeometryReader { geometry in
@@ -36,29 +36,18 @@ struct PostCaptureOverlayView: View {
         ZStack {
             Color.black
 
-            if let preview = viewModel.facePreview {
-                Image(uiImage: preview)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: size.width, height: size.height)
-                    .clipped()
-            } else {
-                Image(uiImage: viewModel.capturedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: size.width, height: size.height)
-                    .clipped()
-            }
+            Image(uiImage: viewModel.displayImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size.width, height: size.height)
+                .clipped()
 
             confirmationDivider(size: size)
         }
     }
 
     private func confirmationDivider(size: CGSize) -> some View {
-        let bounds = viewModel.faceBounds
-        let denominator = bounds.width > 0 ? bounds.width : 1
-        let adjustedX = ((viewModel.configuration.centralPoint.x - bounds.x) / denominator)
-        let normalizedX = min(max(adjustedX, 0), 1)
+        let normalizedX = viewModel.displayCentralPoint.x
         return Rectangle()
             .fill(Color.white.opacity(0.5))
             .frame(width: 2)
@@ -68,25 +57,26 @@ struct PostCaptureOverlayView: View {
 
     // MARK: - Etapas Interativas
     private func interactiveView(in geometry: GeometryProxy) -> some View {
-        let rect = aspectFitRect(imageSize: viewModel.capturedImage.size,
+        let rect = aspectFitRect(imageSize: viewModel.displayImage.size,
                                   containerSize: geometry.size)
-        let anchor = UnitPoint(x: viewModel.currentEyeData.pupil.x,
-                               y: viewModel.currentEyeData.pupil.y)
+        let translation = zoomTranslation(for: viewModel.currentDisplayEyeData.pupil,
+                                          in: rect.size)
 
         return ZStack {
             Color.black.opacity(0.9)
             ZStack(alignment: .topLeading) {
-                Image(uiImage: viewModel.capturedImage)
+                Image(uiImage: viewModel.displayImage)
                     .resizable()
-                    .aspectRatio(viewModel.capturedImage.size, contentMode: .fit)
+                    .aspectRatio(viewModel.displayImage.size, contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                 overlayContent(size: rect.size)
                     .frame(width: rect.size.width, height: rect.size.height)
             }
             .frame(width: rect.size.width, height: rect.size.height)
-            .scaleEffect(displayZoom, anchor: anchor)
-            .position(x: rect.midX, y: rect.midY)
+            .scaleEffect(displayZoom)
+            .offset(translation)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .gesture(magnificationGesture)
         .animation(.easeInOut(duration: 0.3), value: displayZoom)
     }
@@ -101,7 +91,7 @@ struct PostCaptureOverlayView: View {
     }
 
     private func centralDivider(size: CGSize) -> some View {
-        let centerX = viewModel.configuration.centralPoint.x * size.width
+        let centerX = viewModel.displayCentralPoint.x * size.width
         return Rectangle()
             .fill(Color.white.opacity(0.4))
             .frame(width: 2)
@@ -109,7 +99,7 @@ struct PostCaptureOverlayView: View {
     }
 
     private func eyeOverlay(for eye: PostCaptureEye, size: CGSize) -> some View {
-        let data = eye == .right ? viewModel.configuration.rightEye : viewModel.configuration.leftEye
+        let data = viewModel.displayEyeData(for: eye)
         let isActiveEye = eye == viewModel.currentEye
         let progress = viewModel.progressLevel(for: eye)
 
@@ -133,7 +123,8 @@ struct PostCaptureOverlayView: View {
                               isActiveEye: Bool) -> some View {
         let center = CGPoint(x: data.pupil.x * size.width,
                              y: data.pupil.y * size.height)
-        let diameter = max(PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width, 12)
+        let baseDiameter = PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
+        let diameter = max(baseDiameter / 5, 6)
         let isActive = isActiveEye && viewModel.currentStage == .pupil
 
         return Circle()
@@ -283,11 +274,20 @@ struct PostCaptureOverlayView: View {
             }
     }
 
+    /// Mantém o olho ativo centralizado ao aplicar zoom.
+    private func zoomTranslation(for anchor: NormalizedPoint, in size: CGSize) -> CGSize {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let target = CGPoint(x: anchor.x * size.width, y: anchor.y * size.height)
+        let deltaX = (center.x - target.x) * (displayZoom - 1)
+        let deltaY = (center.y - target.y) * (displayZoom - 1)
+        return CGSize(width: deltaX, height: deltaY)
+    }
+
     private func updateBaseZoom(for stage: PostCaptureStage) {
         let base: CGFloat
         switch stage {
         case .pupil, .horizontal, .vertical:
-            base = 1.35
+            base = 1.9
         case .summary, .confirmation:
             base = 1.0
         }
