@@ -78,7 +78,7 @@ struct HistoryView: View {
                     .environmentObject(historyManager)
             }
         }
-        .sheet(item: $editingMeasurement) { measurement in
+        .fullScreenCover(item: $editingMeasurement) { measurement in
             if let image = measurement.getImage() {
                 PostCaptureFlowView(capturedImage: image,
                                     existingMeasurement: measurement,

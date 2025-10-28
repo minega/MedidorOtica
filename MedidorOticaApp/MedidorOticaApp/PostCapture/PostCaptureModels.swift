@@ -111,19 +111,77 @@ extension EyeMeasurementData {
 }
 
 // MARK: - Configuração completa
+/// Representa uma área normalizada dentro da imagem original.
+struct NormalizedRect: Codable, Equatable {
+    var x: CGFloat
+    var y: CGFloat
+    var width: CGFloat
+    var height: CGFloat
+
+    /// Inicializa com valores padrão cobrindo a imagem inteira.
+    init(x: CGFloat = 0,
+         y: CGFloat = 0,
+         width: CGFloat = 1,
+         height: CGFloat = 1) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+extension NormalizedRect {
+    /// Retorna uma versão limitada ao intervalo 0...1.
+    func clamped() -> NormalizedRect {
+        let clampedX = min(max(x, 0), 1)
+        let clampedY = min(max(y, 0), 1)
+        let maxWidth = 1 - clampedX
+        let maxHeight = 1 - clampedY
+        let clampedWidth = min(max(width, 0), maxWidth)
+        let clampedHeight = min(max(height, 0), maxHeight)
+        return NormalizedRect(x: clampedX,
+                              y: clampedY,
+                              width: clampedWidth,
+                              height: clampedHeight)
+    }
+
+    /// Expande ou contrai as bordas respeitando os limites válidos.
+    func insetBy(dx: CGFloat, dy: CGFloat) -> NormalizedRect {
+        let newX = x + dx
+        let newY = y + dy
+        let newWidth = width - (2 * dx)
+        let newHeight = height - (2 * dy)
+        return NormalizedRect(x: newX,
+                              y: newY,
+                              width: newWidth,
+                              height: newHeight).clamped()
+    }
+
+    /// Converte para coordenadas absolutas utilizando o tamanho informado.
+    func absolute(in size: CGSize) -> CGRect {
+        CGRect(x: x * size.width,
+               y: y * size.height,
+               width: width * size.width,
+               height: height * size.height)
+    }
+}
+
 /// Conjunto de dados pós-captura utilizados para reconstruir a edição.
 struct PostCaptureConfiguration: Codable, Equatable {
     var centralPoint: NormalizedPoint
     var rightEye: EyeMeasurementData
     var leftEye: EyeMeasurementData
+    var faceBounds: NormalizedRect
 
     /// Construtor padrão com olhos centralizados.
     init(centralPoint: NormalizedPoint = NormalizedPoint(),
          rightEye: EyeMeasurementData = EyeMeasurementData(),
-         leftEye: EyeMeasurementData = EyeMeasurementData()) {
+         leftEye: EyeMeasurementData = EyeMeasurementData(),
+         faceBounds: NormalizedRect = NormalizedRect()) {
         self.centralPoint = centralPoint
         self.rightEye = rightEye
         self.leftEye = leftEye
+        self.faceBounds = faceBounds
     }
 }
 

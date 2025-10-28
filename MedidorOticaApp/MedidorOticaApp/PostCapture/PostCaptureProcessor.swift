@@ -58,6 +58,13 @@ final class PostCaptureProcessor {
         let width = Int(imageSize.width)
         let height = Int(imageSize.height)
 
+        let normalizedBounds = VisionGeometryHelper
+            .normalizedRect(from: box,
+                            imageWidth: width,
+                            imageHeight: height,
+                            orientation: orientation)
+            .insetBy(dx: -0.05, dy: -0.08)
+
         // Localiza pupilas utilizando Vision
         let rightPupilPoint = landmarks?.rightPupil.flatMap {
             VisionGeometryHelper.normalizedPoint(from: $0,
@@ -98,7 +105,8 @@ final class PostCaptureProcessor {
 
         return PostCaptureConfiguration(centralPoint: centralPoint,
                                         rightEye: rightEyeData.normalizedOrder(),
-                                        leftEye: leftEyeData.normalizedOrder())
+                                        leftEye: leftEyeData.normalizedOrder(),
+                                        faceBounds: normalizedBounds)
     }
 
     private func initialData(for point: CGPoint?,
