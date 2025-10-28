@@ -289,7 +289,7 @@ struct CameraView: View {
             Button("OK", role: .cancel) { }
         }
         // Navegação para a tela de resultados após captura
-        .sheet(isPresented: $showingResultView) {
+        .fullScreenCover(isPresented: $showingResultView) {
             if let image = capturedImage {
                 PostCaptureFlowView(capturedImage: image, onRetake: {
                     capturedImage = nil
