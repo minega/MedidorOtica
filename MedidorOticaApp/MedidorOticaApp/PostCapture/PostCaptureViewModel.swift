@@ -328,13 +328,22 @@ final class PostCaptureViewModel: ObservableObject {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let oriented = capturedImage.normalizedOrientation()
         guard let cgImage = oriented.cgImage else { return nil }
-        let cropRect = bounds.absolute(in: oriented.size)
+        // Expande o recorte original para incluir mais da cabeça e preservar detalhes laterais.
+        let verticalMargin = min(0.12, bounds.height * 0.6)
+        let horizontalMargin = min(0.05, bounds.width * 0.5)
+        var expandedBounds = bounds.insetBy(dx: -horizontalMargin, dy: -verticalMargin)
+        let additionalTop = min(verticalMargin * 0.8, expandedBounds.y)
+        expandedBounds.y -= additionalTop
+        expandedBounds.height = min(expandedBounds.height + additionalTop, 1 - expandedBounds.y)
+        let cropRect = expandedBounds.absolute(in: oriented.size)
         let scaled = CGRect(x: cropRect.origin.x * oriented.scale,
                             y: cropRect.origin.y * oriented.scale,
                             width: cropRect.size.width * oriented.scale,
                             height: cropRect.size.height * oriented.scale)
         guard let cropped = cgImage.cropping(to: scaled) else { return nil }
-        return UIImage(cgImage: cropped, scale: oriented.scale, orientation: .up)
+        let screenScale = max(UIScreen.main.scale, UIScreen.main.nativeScale)
+        let outputScale = max(oriented.scale, screenScale)
+        return UIImage(cgImage: cropped, scale: outputScale, orientation: .up)
     }
 
     /// Fornece os dados de um olho convertidos para o espaço de exibição.
