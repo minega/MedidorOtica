@@ -10,11 +10,25 @@ import SwiftUI
 // MARK: - Sobreposição Interativa
 struct PostCaptureOverlayView: View {
     @ObservedObject var viewModel: PostCaptureViewModel
-    @State private var displayZoom: CGFloat = 1.9
-    @State private var stageBaseZoom: CGFloat = 1.9
+    @State private var displayZoom: CGFloat = 1.0
+    @State private var stageBaseZoom: CGFloat = 1.0
     @State private var lastMagnification: CGFloat = 1.0
+    /// Ponto utilizado como âncora ao centralizar o olho ativo.
+    @State private var anchorReference: NormalizedPoint = NormalizedPoint()
+    /// Deslocamento calculado automaticamente para posicionar o olho ativo.
+    @State private var autoOffset: CGSize = .zero
+    /// Deslocamento adicional aplicado pelo usuário ao arrastar a foto.
+    @State private var manualOffset: CGSize = .zero
+    /// Valor inicial do deslocamento manual ao começar um arraste.
+    @State private var panStartOffset: CGSize = .zero
+    /// Define quando o deslocamento manual deve ser reiniciado ao trocar de etapa ou olho.
+    @State private var shouldResetManualOffset = true
+    /// Indica que precisamos aplicar uma nova âncora na próxima renderização.
+    @State private var pendingAnchor: NormalizedPoint?
+    /// Controle interno para saber se estamos arrastando a imagem.
+    @State private var isPanningImage = false
 
-    private let maxZoom: CGFloat = 2.4
+    private let maxZoom: CGFloat = 3.0
 
     var body: some View {
         GeometryReader { geometry in
@@ -22,10 +36,17 @@ struct PostCaptureOverlayView: View {
                 confirmationView(in: geometry.size)
             } else {
                 interactiveView(in: geometry)
-                    .onAppear { updateBaseZoom(for: viewModel.currentStage) }
-                    .onChange(of: viewModel.currentStage, perform: updateBaseZoom)
+                    .onAppear {
+                        configureStage(for: viewModel.currentStage)
+                        pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+                    }
+                    .onChange(of: viewModel.currentStage) { stage in
+                        configureStage(for: stage)
+                        pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+                    }
                     .onChange(of: viewModel.currentEye) { _ in
-                        displayZoom = stageBaseZoom
+                        pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+                        shouldResetManualOffset = true
                     }
             }
         }
@@ -33,41 +54,76 @@ struct PostCaptureOverlayView: View {
 
     // MARK: - Etapa de Confirmação
     private func confirmationView(in size: CGSize) -> some View {
-        ZStack {
+        let rect = aspectFitRect(imageSize: viewModel.capturedImage.size,
+                                  containerSize: size)
+        let faceRect = viewModel.faceBounds.clamped().absolute(in: rect.size)
+        let cornerRadius = min(faceRect.width, faceRect.height) * 0.12
+        let centerX = viewModel.configuration.centralPoint.x * rect.size.width
+        let dividerHeight = max(faceRect.height * 1.1, rect.size.height * 0.65)
+
+        return ZStack {
             Color.black
 
-            Image(uiImage: viewModel.displayImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size.width, height: size.height)
-                .clipped()
+            ZStack(alignment: .topLeading) {
+                Image(uiImage: viewModel.capturedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: rect.size.width, height: rect.size.height)
 
-            confirmationDivider(size: size)
+                confirmationMask(faceRect: faceRect,
+                                  canvasSize: rect.size,
+                                  cornerRadius: cornerRadius)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: 2, height: dividerHeight)
+                    .position(x: centerX, y: rect.size.height / 2)
+            }
+            .frame(width: rect.size.width, height: rect.size.height)
         }
+        .frame(width: size.width, height: size.height)
     }
 
-    private func confirmationDivider(size: CGSize) -> some View {
-        let normalizedX = viewModel.displayCentralPoint.x
-        return Rectangle()
-            .fill(Color.white.opacity(0.5))
-            .frame(width: 2)
-            .position(x: normalizedX * size.width, y: size.height / 2)
-            .animation(.easeInOut(duration: 0.3), value: viewModel.faceBounds)
+    /// Cria uma máscara que destaca o retângulo do rosto e escurece o entorno.
+    private func confirmationMask(faceRect: CGRect,
+                                  canvasSize: CGSize,
+                                  cornerRadius: CGFloat) -> some View {
+        ZStack {
+            Path { path in
+                let fullRect = CGRect(origin: .zero, size: canvasSize)
+                path.addRect(fullRect)
+                path.addRoundedRect(in: faceRect,
+                                     cornerSize: CGSize(width: cornerRadius, height: cornerRadius))
+            }
+            .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.9), lineWidth: 2)
+                .frame(width: faceRect.width, height: faceRect.height)
+                .position(x: faceRect.midX, y: faceRect.midY)
+
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.blue.opacity(0.35), lineWidth: 6)
+                .frame(width: faceRect.width * 1.04, height: faceRect.height * 1.04)
+                .position(x: faceRect.midX, y: faceRect.midY)
+        }
     }
 
     // MARK: - Etapas Interativas
     private func interactiveView(in geometry: GeometryProxy) -> some View {
         let rect = aspectFitRect(imageSize: viewModel.displayImage.size,
                                   containerSize: geometry.size)
-        let translation = zoomTranslation(for: viewModel.currentDisplayEyeData.pupil,
-                                          in: rect.size)
+        let imageSize = viewModel.displayImage.size
+        let aspectRatio = imageSize.height == 0 ? 1 : imageSize.width / imageSize.height
+        let translation = totalTranslation()
 
+        // Sobrepõe a foto recortada permitindo zoom e deslocamento controlados.
         return ZStack {
             Color.black.opacity(0.9)
             ZStack(alignment: .topLeading) {
                 Image(uiImage: viewModel.displayImage)
                     .resizable()
-                    .aspectRatio(viewModel.displayImage.size, contentMode: .fit)
+                    .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                 overlayContent(size: rect.size)
                     .frame(width: rect.size.width, height: rect.size.height)
@@ -77,8 +133,27 @@ struct PostCaptureOverlayView: View {
             .offset(translation)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .gesture(magnificationGesture)
-        .animation(.easeInOut(duration: 0.3), value: displayZoom)
+        .contentShape(Rectangle())
+        .gesture(panGesture(for: rect.size))
+        .simultaneousGesture(magnificationGesture(for: rect.size))
+        .onAppear {
+            if pendingAnchor == nil {
+                pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+            }
+            applyPendingAnchorIfNeeded(size: rect.size)
+        }
+        .onChange(of: rect.size) { newSize in
+            pendingAnchor = pendingAnchor ?? anchorReference
+            applyPendingAnchorIfNeeded(size: newSize)
+        }
+        .onChange(of: pendingAnchor) { _ in
+            applyPendingAnchorIfNeeded(size: rect.size)
+        }
+        .onChange(of: displayZoom) { _ in
+            pendingAnchor = pendingAnchor ?? anchorReference
+            applyPendingAnchorIfNeeded(size: rect.size)
+        }
+        .animation(.easeInOut(duration: 0.25), value: displayZoom)
     }
 
     // MARK: - Conteúdo da Sobreposição
@@ -124,24 +199,55 @@ struct PostCaptureOverlayView: View {
         let center = CGPoint(x: data.pupil.x * size.width,
                              y: data.pupil.y * size.height)
         let baseDiameter = PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
-        let diameter = max(baseDiameter / 5, 6)
+        let diameter = max(baseDiameter / 5, 8)
+        let interactionSize = max(diameter * 3, 80)
+        let guideLength = max(diameter * 2.1, 36)
+        let handleSize = max(diameter * 0.9, 24)
         let isActive = isActiveEye && viewModel.currentStage == .pupil
+        let centerPoint = center
 
-        return Circle()
-            .fill(isActive ? Color.blue : Color.gray.opacity(0.6))
-            .frame(width: diameter, height: diameter)
-            .position(center)
-            .overlay(
-                Circle()
-                    .stroke(Color.white.opacity(isActive ? 0.9 : 0.5), lineWidth: 1)
-            )
-            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+        // Cria um marcador com alça superior para permitir ajustes sem ocultar o alvo.
+        return ZStack {
+            Circle()
+                .strokeBorder(Color.white.opacity(isActive ? 0.95 : 0.6), lineWidth: 1.6)
+                .background(
+                    Circle()
+                        .fill(isActive ? Color.blue.opacity(0.35) : Color.gray.opacity(0.35))
+                )
+                .frame(width: diameter, height: diameter)
+
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.white.opacity(0.7))
+                .frame(width: 2, height: guideLength)
+                .offset(y: -(guideLength / 2) - (diameter / 2))
+
+            Circle()
+                .fill(isActive ? Color.blue : Color.white.opacity(0.85))
+                .frame(width: handleSize, height: handleSize)
+                .overlay(
+                    Circle()
+                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
+                )
+                .offset(y: -(guideLength + diameter * 0.6))
+        }
+        .frame(width: interactionSize, height: interactionSize)
+        .position(center)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0).onChanged { value in
                 guard isActive else { return }
-                let normalized = NormalizedPoint.fromAbsolute(value.location, size: size)
+                let absoluteX = centerPoint.x - (interactionSize / 2) + value.location.x
+                let absoluteY = centerPoint.y - (interactionSize / 2) + value.location.y
+                let normalized = NormalizedPoint.fromAbsolute(CGPoint(x: absoluteX, y: absoluteY), size: size)
                 viewModel.updatePupil(to: normalized)
-            })
-            .allowsHitTesting(isActive)
-            .animation(.easeInOut(duration: 0.2), value: viewModel.currentStage)
+            }
+            .onEnded { _ in
+                guard isActive else { return }
+                pendingAnchor = pendingAnchor ?? anchorReference
+            }
+        )
+        .allowsHitTesting(isActive)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.currentStage)
     }
 
     private func verticalBars(for eye: PostCaptureEye,
@@ -260,40 +366,133 @@ struct PostCaptureOverlayView: View {
             .allowsHitTesting(isActive)
     }
 
-    private var magnificationGesture: some Gesture {
+    /// Permite arrastar a imagem mantendo o deslocamento dentro da área segura.
+    private func panGesture(for size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard viewModel.currentStage != .summary else { return }
+                if !isPanningImage {
+                    panStartOffset = manualOffset
+                    isPanningImage = true
+                }
+                let translation = value.translation
+                let proposed = CGSize(width: panStartOffset.width + translation.width,
+                                      height: panStartOffset.height + translation.height)
+                manualOffset = clampManualOffset(proposed, size: size, auto: autoOffset)
+            }
+            .onEnded { _ in
+                panStartOffset = manualOffset
+                isPanningImage = false
+            }
+    }
+
+    /// Controla o gesto de pinça atualizando o zoom e recalculando os limites.
+    private func magnificationGesture(for size: CGSize) -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
                 guard viewModel.currentStage != .summary else { return }
                 let delta = value / lastMagnification
                 let proposed = displayZoom * delta
-                displayZoom = min(max(proposed, stageBaseZoom), maxZoom)
+                let clamped = min(max(proposed, stageBaseZoom), maxZoom)
+                displayZoom = clamped
                 lastMagnification = value
+                pendingAnchor = anchorReference
             }
             .onEnded { _ in
                 lastMagnification = 1.0
+                pendingAnchor = anchorReference
+                manualOffset = clampManualOffset(manualOffset, size: size, auto: autoOffset)
+                panStartOffset = manualOffset
             }
     }
 
-    /// Mantém o olho ativo centralizado ao aplicar zoom.
-    private func zoomTranslation(for anchor: NormalizedPoint, in size: CGSize) -> CGSize {
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let target = CGPoint(x: anchor.x * size.width, y: anchor.y * size.height)
-        let deltaX = (center.x - target.x) * (displayZoom - 1)
-        let deltaY = (center.y - target.y) * (displayZoom - 1)
-        return CGSize(width: deltaX, height: deltaY)
+    /// Calcula o deslocamento total aplicando a centralização automática e o ajuste manual.
+    private func totalTranslation() -> CGSize {
+        CGSize(width: autoOffset.width + manualOffset.width,
+               height: autoOffset.height + manualOffset.height)
     }
 
-    private func updateBaseZoom(for stage: PostCaptureStage) {
+    /// Ajusta zoom e âncoras ao entrar em uma nova etapa interativa.
+    private func configureStage(for stage: PostCaptureStage) {
         let base: CGFloat
         switch stage {
         case .pupil, .horizontal, .vertical:
-            base = 1.9
+            base = 2.6
         case .summary, .confirmation:
             base = 1.0
         }
         stageBaseZoom = base
         displayZoom = base
         lastMagnification = 1.0
+        if stage == .pupil || stage == .horizontal || stage == .vertical {
+            shouldResetManualOffset = true
+            pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+        } else {
+            shouldResetManualOffset = true
+            manualOffset = .zero
+            autoOffset = .zero
+            anchorReference = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+        }
+    }
+
+    /// Atualiza deslocamentos quando um novo âncora for definido ou o layout mudar.
+    private func applyPendingAnchorIfNeeded(size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        DispatchQueue.main.async {
+            let anchor = pendingAnchor ?? anchorReference
+            let centeredOffset = centeringOffset(for: anchor, size: size, zoom: displayZoom)
+            autoOffset = centeredOffset
+            anchorReference = anchor
+
+            if shouldResetManualOffset {
+                manualOffset = .zero
+                panStartOffset = .zero
+                shouldResetManualOffset = false
+            } else {
+                manualOffset = clampManualOffset(manualOffset, size: size, auto: centeredOffset)
+                panStartOffset = manualOffset
+            }
+
+            pendingAnchor = nil
+        }
+    }
+
+    /// Centraliza o olho ativo respeitando os limites visíveis após aplicar zoom.
+    private func centeringOffset(for anchor: NormalizedPoint,
+                                 size: CGSize,
+                                 zoom: CGFloat) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return .zero }
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let target = CGPoint(x: anchor.x * size.width, y: anchor.y * size.height)
+        let desiredX = -(target.x - center.x) * zoom
+        let desiredY = -(target.y - center.y) * zoom
+        let limitX = (size.width * (zoom - 1)) / 2
+        let limitY = (size.height * (zoom - 1)) / 2
+        let clampedX = min(max(desiredX, -limitX), limitX)
+        let clampedY = min(max(desiredY, -limitY), limitY)
+        return CGSize(width: clampedX, height: clampedY)
+    }
+
+    /// Limita o deslocamento manual mantendo a imagem sempre cobrindo todo o quadro.
+    private func clampManualOffset(_ offset: CGSize,
+                                   size: CGSize,
+                                   auto: CGSize) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return .zero }
+        let limitX = (size.width * (displayZoom - 1)) / 2
+        let limitY = (size.height * (displayZoom - 1)) / 2
+        if limitX <= 0 && limitY <= 0 {
+            return .zero
+        }
+
+        let minX = -limitX - auto.width
+        let maxX = limitX - auto.width
+        let minY = -limitY - auto.height
+        let maxY = limitY - auto.height
+
+        let clampedWidth = min(max(offset.width, minX), maxX)
+        let clampedHeight = min(max(offset.height, minY), maxY)
+        return CGSize(width: clampedWidth.isFinite ? clampedWidth : 0,
+                      height: clampedHeight.isFinite ? clampedHeight : 0)
     }
 
     // MARK: - Helpers

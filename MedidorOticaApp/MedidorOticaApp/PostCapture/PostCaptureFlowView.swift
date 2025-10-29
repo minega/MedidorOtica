@@ -66,36 +66,44 @@ struct PostCaptureFlowView: View {
     }
 
     private var confirmationScreen: some View {
-        ZStack {
-            PostCaptureOverlayView(viewModel: viewModel)
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                VStack(spacing: 0) {
+                    header
+                        .padding(.horizontal, 20)
+                        .padding(.top, geometry.safeAreaInsets.top + 12)
 
-            VStack(spacing: 24) {
-                header
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    Spacer(minLength: 16)
 
-                Spacer()
+                    PostCaptureOverlayView(viewModel: viewModel)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: geometry.size.height * 0.64)
 
-                Text(viewModel.stageInstructions)
-                    .font(.body)
-                    .foregroundColor(.white)
+                    Spacer(minLength: 12)
+
+                    VStack(spacing: 20) {
+                        Text(viewModel.stageInstructions)
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+
+                        confirmationActions
+                    }
                     .padding(.horizontal, 24)
-                    .multilineTextAlignment(.center)
+                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 24))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                confirmationActions
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 32)
+                if viewModel.isProcessing {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                    ProgressView("Processando rosto...")
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .foregroundColor(.white)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-            if viewModel.isProcessing {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                ProgressView("Processando rosto...")
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .foregroundColor(.white)
-            }
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -104,9 +112,11 @@ struct PostCaptureFlowView: View {
             VStack(spacing: 16) {
                 header
                 overlaySection(in: geometry)
-                stageContent
                 Spacer()
-                bottomActions
+                VStack(spacing: 16) {
+                    stageContent
+                    bottomActions
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, 20)
@@ -165,9 +175,9 @@ struct PostCaptureFlowView: View {
     }
 
     private func overlaySection(in geometry: GeometryProxy) -> some View {
-        let ratio: CGFloat = viewModel.isOnSummary ? 0.45 : 0.62
+        let ratio: CGFloat = viewModel.isOnSummary ? 0.42 : 0.76
         let baseHeight = geometry.size.height * ratio
-        let targetHeight = min(baseHeight, 460)
+        let targetHeight = min(baseHeight, geometry.size.height * 0.78)
 
         return ZStack {
             if viewModel.isProcessing {
@@ -195,7 +205,8 @@ struct PostCaptureFlowView: View {
             Text(viewModel.stageInstructions)
                 .font(.body)
                 .foregroundColor(.white)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
         }
     }
 
