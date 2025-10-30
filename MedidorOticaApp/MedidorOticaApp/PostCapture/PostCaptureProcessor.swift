@@ -101,8 +101,8 @@ final class PostCaptureProcessor {
                                       mirroredFrom: rightEyeData)
 
         return PostCaptureConfiguration(centralPoint: centralPoint,
-                                        rightEye: rightEyeData.normalizedOrder(),
-                                        leftEye: leftEyeData.normalizedOrder(),
+                                        rightEye: rightEyeData.normalized(centralX: centralPoint.x),
+                                        leftEye: leftEyeData.normalized(centralX: centralPoint.x),
                                         faceBounds: normalizedBounds)
     }
 
@@ -218,7 +218,7 @@ final class PostCaptureProcessor {
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
         // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
         if !isRightEye, point == nil, let mirror = reference {
-            return mirror.mirrored(around: centralPoint.x).normalizedOrder()
+            return mirror.mirrored(around: centralPoint.x).normalized(centralX: centralPoint.x)
         }
 
         let defaultX: CGFloat = isRightEye ? 0.35 : 0.65
