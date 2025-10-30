@@ -11,7 +11,8 @@ import SwiftUI
 struct PostCaptureOverlayView: View {
     @ObservedObject var viewModel: PostCaptureViewModel
     @State private var displayZoom: CGFloat = 1.0
-    @State private var stageBaseZoom: CGFloat = 1.0
+    /// Valor mínimo permitido de zoom para a etapa atual.
+    @State private var stageMinZoom: CGFloat = 1.0
     @State private var lastMagnification: CGFloat = 1.0
     /// Ponto utilizado como âncora ao centralizar o olho ativo.
     @State private var anchorReference: NormalizedPoint = NormalizedPoint()
@@ -27,6 +28,8 @@ struct PostCaptureOverlayView: View {
     @State private var pendingAnchor: NormalizedPoint?
     /// Controle interno para saber se estamos arrastando a imagem.
     @State private var isPanningImage = false
+    /// Guarda o ponto inicial do arraste da pupila para aplicar deslocamentos precisos.
+    @State private var pupilDragStart: NormalizedPoint?
 
     private let maxZoom: CGFloat = 3.0
 
@@ -43,10 +46,12 @@ struct PostCaptureOverlayView: View {
                     .onChange(of: viewModel.currentStage) { stage in
                         configureStage(for: stage)
                         pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
+                        pupilDragStart = nil
                     }
                     .onChange(of: viewModel.currentEye) { _ in
                         pendingAnchor = viewModel.displayEyeData(for: viewModel.currentEye).pupil
                         shouldResetManualOffset = true
+                        pupilDragStart = nil
                     }
             }
         }
@@ -169,7 +174,7 @@ struct PostCaptureOverlayView: View {
                     .resizable()
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
-                overlayContent(size: rect.size)
+                overlayContent(size: rect.size, zoom: displayZoom)
                     .frame(width: rect.size.width, height: rect.size.height)
             }
             .frame(width: rect.size.width, height: rect.size.height)
@@ -201,11 +206,11 @@ struct PostCaptureOverlayView: View {
     }
 
     // MARK: - Conteúdo da Sobreposição
-    private func overlayContent(size: CGSize) -> some View {
+    private func overlayContent(size: CGSize, zoom: CGFloat) -> some View {
         ZStack {
             centralDivider(size: size)
-            eyeOverlay(for: .right, size: size)
-            eyeOverlay(for: .left, size: size)
+            eyeOverlay(for: .right, size: size, zoom: zoom)
+            eyeOverlay(for: .left, size: size, zoom: zoom)
         }
     }
 
@@ -217,7 +222,7 @@ struct PostCaptureOverlayView: View {
             .position(x: centerX, y: size.height / 2)
     }
 
-    private func eyeOverlay(for eye: PostCaptureEye, size: CGSize) -> some View {
+    private func eyeOverlay(for eye: PostCaptureEye, size: CGSize, zoom: CGFloat) -> some View {
         let data = viewModel.displayEyeData(for: eye)
         let isActiveEye = eye == viewModel.currentEye
         let progress = viewModel.progressLevel(for: eye)
@@ -230,7 +235,11 @@ struct PostCaptureOverlayView: View {
                 horizontalBars(for: eye, data: data, size: size, isActiveEye: isActiveEye)
             }
             if progress >= 1 {
-                pupilMarker(for: eye, data: data, size: size, isActiveEye: isActiveEye)
+                pupilMarker(for: eye,
+                             data: data,
+                             size: size,
+                             zoom: zoom,
+                             isActiveEye: isActiveEye)
             }
         }
         .opacity(progress == 0 ? 0 : (isActiveEye ? 1 : 0.45))
@@ -239,54 +248,58 @@ struct PostCaptureOverlayView: View {
     private func pupilMarker(for eye: PostCaptureEye,
                               data: EyeMeasurementData,
                               size: CGSize,
+                              zoom: CGFloat,
                               isActiveEye: Bool) -> some View {
         let center = CGPoint(x: data.pupil.x * size.width,
                              y: data.pupil.y * size.height)
         let baseDiameter = PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
         let diameter = max(baseDiameter / 5, 8)
-        let interactionSize = max(diameter * 3, 80)
-        let guideLength = max(diameter * 2.1, 36)
-        let handleSize = max(diameter * 0.9, 24)
+        let interactionSize = max(diameter * 3.1, 88)
+        let crossLength = max(diameter * 1.6, 34)
+        let crossWidth = max(diameter * 0.14, 2.4)
+        let innerDot = max(diameter * 0.22, 4)
         let isActive = isActiveEye && viewModel.currentStage == .pupil
-        let centerPoint = center
+        let ringColor = isActive ? Color.blue : Color.white.opacity(0.85)
+        let fillColor = isActive ? Color.blue.opacity(0.28) : Color.white.opacity(0.18)
 
-        // Cria um marcador com alça superior para permitir ajustes sem ocultar o alvo.
+        // Cria um marcador em formato de mira para deixar claro qual é o ponto correto.
         return ZStack {
             Circle()
-                .strokeBorder(Color.white.opacity(isActive ? 0.95 : 0.6), lineWidth: 1.6)
-                .background(
-                    Circle()
-                        .fill(isActive ? Color.blue.opacity(0.35) : Color.gray.opacity(0.35))
-                )
+                .strokeBorder(ringColor, lineWidth: max(2, diameter * 0.12))
+                .background(Circle().fill(fillColor))
                 .frame(width: diameter, height: diameter)
 
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(Color.white.opacity(0.7))
-                .frame(width: 2, height: guideLength)
-                .offset(y: -(guideLength / 2) - (diameter / 2))
+            Capsule(style: .circular)
+                .fill(ringColor)
+                .frame(width: crossLength, height: crossWidth)
+
+            Capsule(style: .circular)
+                .fill(ringColor)
+                .frame(width: crossWidth, height: crossLength)
 
             Circle()
-                .fill(isActive ? Color.blue : Color.white.opacity(0.85))
-                .frame(width: handleSize, height: handleSize)
-                .overlay(
-                    Circle()
-                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                )
-                .offset(y: -(guideLength + diameter * 0.6))
+                .fill(Color.white)
+                .frame(width: innerDot, height: innerDot)
         }
         .frame(width: interactionSize, height: interactionSize)
         .position(center)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0).onChanged { value in
-                guard isActive else { return }
-                let absoluteX = centerPoint.x - (interactionSize / 2) + value.location.x
-                let absoluteY = centerPoint.y - (interactionSize / 2) + value.location.y
-                let normalized = NormalizedPoint.fromAbsolute(CGPoint(x: absoluteX, y: absoluteY), size: size)
-                viewModel.updatePupil(to: normalized)
+                guard isActive, size.width > 0, size.height > 0 else { return }
+                if pupilDragStart == nil {
+                    pupilDragStart = data.pupil
+                }
+                let start = pupilDragStart ?? data.pupil
+                let deltaX = (value.translation.width / max(zoom, 0.0001)) / size.width
+                let deltaY = (value.translation.height / max(zoom, 0.0001)) / size.height
+                let proposed = NormalizedPoint(x: start.x + deltaX,
+                                               y: start.y + deltaY).clamped()
+                viewModel.updatePupil(to: proposed)
             }
             .onEnded { _ in
                 guard isActive else { return }
+                pupilDragStart = nil
                 pendingAnchor = pendingAnchor ?? anchorReference
             }
         )
@@ -437,7 +450,7 @@ struct PostCaptureOverlayView: View {
                 guard viewModel.currentStage != .summary else { return }
                 let delta = value / lastMagnification
                 let proposed = displayZoom * delta
-                let clamped = min(max(proposed, stageBaseZoom), maxZoom)
+                let clamped = min(max(proposed, stageMinZoom), maxZoom)
                 displayZoom = clamped
                 lastMagnification = value
                 pendingAnchor = anchorReference
@@ -458,15 +471,18 @@ struct PostCaptureOverlayView: View {
 
     /// Ajusta zoom e âncoras ao entrar em uma nova etapa interativa.
     private func configureStage(for stage: PostCaptureStage) {
-        let base: CGFloat
+        let preferred: CGFloat
+        let minZoom: CGFloat
         switch stage {
         case .pupil, .horizontal, .vertical:
-            base = 2.6
+            preferred = 2.6
+            minZoom = 1.15
         case .summary, .confirmation:
-            base = 1.0
+            preferred = 1.0
+            minZoom = 1.0
         }
-        stageBaseZoom = base
-        displayZoom = base
+        stageMinZoom = minZoom
+        displayZoom = preferred
         lastMagnification = 1.0
         if stage == .pupil || stage == .horizontal || stage == .vertical {
             shouldResetManualOffset = true
