@@ -15,7 +15,7 @@ enum PostCaptureScale {
     static let verticalBarHeightMM: CGFloat = 50
     static let horizontalBarLengthMM: CGFloat = 60
     static let nasalOffsetMM: CGFloat = 9
-    static let horizontalGapMM: CGFloat = 50
+    static let temporalOffsetMM: CGFloat = 60
     static let inferiorOffsetMM: CGFloat = 15
     static let superiorOffsetMM: CGFloat = 20
 

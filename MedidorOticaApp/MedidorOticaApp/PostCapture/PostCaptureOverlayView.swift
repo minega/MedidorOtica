@@ -82,6 +82,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: image)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -116,6 +118,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: viewModel.capturedImage)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
 
@@ -172,6 +176,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: viewModel.displayImage)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                 overlayContent(size: rect.size, zoom: displayZoom)

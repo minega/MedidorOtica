@@ -370,8 +370,8 @@ final class PostCaptureViewModel: ObservableObject {
     private func convertToDisplay(_ point: NormalizedPoint) -> NormalizedPoint {
         let bounds = activeBounds()
         guard bounds.width > 0, bounds.height > 0 else { return point.clamped() }
-        let convertedX = (point.x - bounds.x) / bounds.width
-        let convertedY = (point.y - bounds.y) / bounds.height
+        let convertedX = convertToDisplayX(point.x)
+        let convertedY = convertToDisplayY(point.y)
         return NormalizedPoint(x: convertedX, y: convertedY).clamped()
     }
 
