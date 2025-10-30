@@ -16,8 +16,8 @@ enum PostCaptureScale {
     static let horizontalBarLengthMM: CGFloat = 60
     static let nasalOffsetMM: CGFloat = 9
     static let temporalOffsetMM: CGFloat = 60
-    static let inferiorOffsetMM: CGFloat = 15
-    static let superiorOffsetMM: CGFloat = 20
+    static let inferiorOffsetMM: CGFloat = 25
+    static let superiorOffsetMM: CGFloat = 15
 
     /// Converte um valor em milímetros para escala horizontal normalizada (0...1).
     static func normalizedHorizontal(_ millimeters: CGFloat) -> CGFloat {

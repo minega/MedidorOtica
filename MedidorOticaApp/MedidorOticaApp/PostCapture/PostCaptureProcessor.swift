@@ -242,8 +242,9 @@ final class PostCaptureProcessor {
         let nasal = centralPoint.x + (direction * nasalOffset)
         let temporal = centralPoint.x + (direction * temporalOffset)
 
-        let inferior = (pupilPoint.y + inferiorOffset)
-        let superior = (pupilPoint.y - superiorOffset)
+        // Ajusta as barras verticais utilizando os deslocamentos fixos solicitados.
+        let inferior = min(max(pupilPoint.y + inferiorOffset, 0), 1)
+        let superior = min(max(pupilPoint.y - superiorOffset, 0), 1)
 
         return EyeMeasurementData(pupil: pupilPoint,
                                   nasalBarX: nasal,
