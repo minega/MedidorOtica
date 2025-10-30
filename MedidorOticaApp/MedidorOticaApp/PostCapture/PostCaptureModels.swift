@@ -93,19 +93,38 @@ extension EyeMeasurementData {
         )
     }
 
-    /// Atualiza garantindo que as barras fiquem ordenadas e dentro do intervalo válido.
-    func normalizedOrder() -> EyeMeasurementData {
-        let nasal = min(max(nasalBarX, 0), 1)
-        let temporal = min(max(temporalBarX, 0), 1)
-        let inferior = min(max(inferiorBarY, 0), 1)
-        let superior = min(max(superiorBarY, 0), 1)
+    /// Normaliza os valores mantendo a barra nasal sempre próxima ao ponto central informado.
+    /// - Parameter centralX: Coordenada X do ponto central utilizado como referência para o lado nasal.
+    func normalized(centralX: CGFloat) -> EyeMeasurementData {
+        let reference = min(max(centralX, 0), 1)
+        let nasalClamped = min(max(nasalBarX, 0), 1)
+        let temporalClamped = min(max(temporalBarX, 0), 1)
+        let inferiorClamped = min(max(inferiorBarY, 0), 1)
+        let superiorClamped = min(max(superiorBarY, 0), 1)
+
+        let nasalDistance = abs(nasalClamped - reference)
+        let temporalDistance = abs(temporalClamped - reference)
+
+        let nasalValue: CGFloat
+        let temporalValue: CGFloat
+
+        if nasalDistance <= temporalDistance {
+            nasalValue = nasalClamped
+            temporalValue = temporalClamped
+        } else {
+            nasalValue = temporalClamped
+            temporalValue = nasalClamped
+        }
+
+        let inferiorValue = max(inferiorClamped, superiorClamped)
+        let superiorValue = min(inferiorClamped, superiorClamped)
 
         return EyeMeasurementData(
             pupil: pupil.clamped(),
-            nasalBarX: min(nasal, temporal),
-            temporalBarX: max(nasal, temporal),
-            inferiorBarY: max(inferior, superior),
-            superiorBarY: min(inferior, superior)
+            nasalBarX: nasalValue,
+            temporalBarX: temporalValue,
+            inferiorBarY: inferiorValue,
+            superiorBarY: superiorValue
         )
     }
 }

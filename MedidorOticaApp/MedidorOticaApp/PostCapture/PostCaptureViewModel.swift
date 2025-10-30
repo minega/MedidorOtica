@@ -197,7 +197,7 @@ final class PostCaptureViewModel: ObservableObject {
     private func mirrorLeftEyeIfNeeded() {
         guard !didMirrorLeftEye else { return }
         let mirrored = configuration.rightEye.mirrored(around: configuration.centralPoint.x)
-        configuration.leftEye = mirrored.normalizedOrder()
+        configuration.leftEye = mirrored.normalized(centralX: configuration.centralPoint.x)
         didMirrorLeftEye = true
     }
 
@@ -262,7 +262,7 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     private func apply(updatedEye: EyeMeasurementData) {
-        let normalized = updatedEye.normalizedOrder()
+        let normalized = updatedEye.normalized(centralX: configuration.centralPoint.x)
         switch currentEye {
         case .right:
             configuration = PostCaptureConfiguration(centralPoint: configuration.centralPoint,
@@ -280,8 +280,8 @@ final class PostCaptureViewModel: ObservableObject {
 
     // MARK: - Cálculo de Métricas
     func finalizeMetrics() {
-        let orderedRight = configuration.rightEye.normalizedOrder()
-        let orderedLeft = configuration.leftEye.normalizedOrder()
+        let orderedRight = configuration.rightEye.normalized(centralX: configuration.centralPoint.x)
+        let orderedLeft = configuration.leftEye.normalized(centralX: configuration.centralPoint.x)
         let center = configuration.centralPoint.clamped()
 
         let rightHorizontal = abs(orderedRight.temporalBarX - orderedRight.nasalBarX) * PostCaptureScale.horizontalReferenceMM
@@ -363,7 +363,7 @@ final class PostCaptureViewModel: ObservableObject {
         data.temporalBarX = convertToDisplayX(data.temporalBarX)
         data.inferiorBarY = convertToDisplayY(data.inferiorBarY)
         data.superiorBarY = convertToDisplayY(data.superiorBarY)
-        return data.normalizedOrder()
+        return data.normalized(centralX: displayCentralPoint.x)
     }
 
     /// Converte um ponto para o espaço recortado mostrado na tela.
