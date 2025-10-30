@@ -171,6 +171,12 @@ final class PostCaptureViewModel: ObservableObject {
         }
     }
 
+    /// Reinicia o fluxo pós-captura retornando para a etapa de confirmação.
+    func restartFlowFromBeginning() {
+        currentStage = .confirmation
+        currentEye = .right
+    }
+
     func goBack() {
         guard !isProcessing else { return }
 
@@ -313,15 +319,17 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Construção de Measurement
-    func buildMeasurement(clientName: String) -> Measurement? {
+    func buildMeasurement(clientName: String, orderNumber: String) -> Measurement? {
         guard let metrics else { return nil }
         let trimmed = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        let trimmedOrder = orderNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmedOrder.isEmpty else { return nil }
 
         let identifier = baseMeasurement?.id ?? UUID()
         let date = baseMeasurement?.date ?? Date()
 
         return Measurement(clientName: trimmed,
+                           orderNumber: trimmedOrder,
                            capturedImage: capturedImage,
                            postCaptureConfiguration: configuration,
                            postCaptureMetrics: metrics,

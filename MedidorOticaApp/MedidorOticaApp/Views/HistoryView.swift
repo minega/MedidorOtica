@@ -131,6 +131,12 @@ struct MeasurementRow: View {
                 Text(measurement.clientName)
                     .font(.headline)
 
+                if !measurement.orderNumber.isEmpty {
+                    Text("OS: \(measurement.orderNumber)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
                 Text("DP: \(measurement.formattedDistanciaPupilar)")
                     .font(.subheadline)
                     .foregroundColor(.blue)
@@ -209,15 +215,31 @@ struct MeasurementDetailView: View {
                             Text("Distância Pupilar:")
                                 .font(.headline)
                                 .foregroundColor(.gray)
-                            
+
                             Spacer()
-                            
+
                             Text(measurement.formattedDistanciaPupilar)
                                 .font(.headline)
                                 .foregroundColor(.blue)
                         }
                         .padding(.horizontal)
-                        
+
+                        if !measurement.orderNumber.isEmpty {
+                            Divider()
+
+                            HStack {
+                                Text("Número da OS:")
+                                    .font(.headline)
+                                    .foregroundColor(.gray)
+
+                                Spacer()
+
+                                Text(measurement.orderNumber)
+                                    .font(.headline)
+                            }
+                            .padding(.horizontal)
+                        }
+
                         Divider()
 
                         // Data da medição
@@ -349,18 +371,32 @@ fileprivate struct MeasurementShareFormatter {
     /// - Returns: Texto pronto para ser compartilhado.
     func makeSummary(for measurement: Measurement) -> String {
         var lines: [String] = []
-        lines.reserveCapacity(8)
+        lines.reserveCapacity(9)
 
         lines.append("Cliente: \(measurement.clientName)")
+
+        if !measurement.orderNumber.isEmpty {
+            lines.append("OS: \(measurement.orderNumber)")
+        }
+
         lines.append("Distância Pupilar: \(measurement.formattedDistanciaPupilar)")
         lines.append("Data: \(measurement.formattedDate)")
 
         if let metrics = measurement.postCaptureMetrics {
-            lines.append("Horizontal OD: \(format(metrics.rightEye.horizontalMaior))")
-            lines.append("Horizontal OE: \(format(metrics.leftEye.horizontalMaior))")
-            lines.append("Vertical OD: \(format(metrics.rightEye.verticalMaior))")
-            lines.append("Vertical OE: \(format(metrics.leftEye.verticalMaior))")
-            lines.append("Ponte: \(format(metrics.ponte))")
+            lines.append(summaryLine(title: "Horizontal maior",
+                                     rightValue: metrics.rightEye.horizontalMaior,
+                                     leftValue: metrics.leftEye.horizontalMaior))
+            lines.append(summaryLine(title: "Vertical maior",
+                                     rightValue: metrics.rightEye.verticalMaior,
+                                     leftValue: metrics.leftEye.verticalMaior))
+            lines.append(summaryLine(title: "DNP",
+                                     rightValue: metrics.rightEye.dnp,
+                                     leftValue: metrics.leftEye.dnp))
+            lines.append(summaryLine(title: "Altura pupilar",
+                                     rightValue: metrics.rightEye.alturaPupilar,
+                                     leftValue: metrics.leftEye.alturaPupilar))
+            lines.append(summaryLine(title: "Ponte",
+                                     singleValue: metrics.ponte))
         }
 
         return lines.joined(separator: "\n")
@@ -369,6 +405,30 @@ fileprivate struct MeasurementShareFormatter {
     /// Formata um valor métrico com uma casa decimal seguida de "mm".
     private func format(_ value: Double) -> String {
         String(format: "%.1f mm", value)
+    }
+
+    /// Replica o padrão "Nome - OD/OE" para uso em compartilhamento histórico.
+    private func summaryLine(title: String,
+                             rightValue: Double? = nil,
+                             leftValue: Double? = nil,
+                             singleValue: Double? = nil) -> String {
+        if let singleValue {
+            return "\(title): \(format(singleValue))"
+        }
+
+        if let rightValue, let leftValue {
+            return "\(title): \(format(rightValue)) OD / \(format(leftValue)) OE"
+        }
+
+        if let rightValue {
+            return "\(title): \(format(rightValue)) OD"
+        }
+
+        if let leftValue {
+            return "\(title): \(format(leftValue)) OE"
+        }
+
+        return "\(title): -"
     }
 }
 
