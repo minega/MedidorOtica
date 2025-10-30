@@ -156,31 +156,36 @@ final class PostCaptureProcessor {
                             bottomPadding: baseBounds.height * 0.1)
         }
 
-        let minX = contourPoints.map { $0.x }.min() ?? baseBounds.x
-        let maxX = contourPoints.map { $0.x }.max() ?? (baseBounds.x + baseBounds.width)
-        let chinY = contourPoints.map { $0.y }.min() ?? baseBounds.y
-        let contourTop = contourPoints.map { $0.y }.max() ?? (baseBounds.y + baseBounds.height)
+        // Calcula as extremidades reais no sistema normalizado com origem no topo.
+        let contourLeft = contourPoints.map { $0.x }.min() ?? baseBounds.x
+        let contourRight = contourPoints.map { $0.x }.max() ?? (baseBounds.x + baseBounds.width)
+        let contourTop = contourPoints.map { $0.y }.min() ?? baseBounds.y
+        let contourBottom = contourPoints.map { $0.y }.max() ?? (baseBounds.y + baseBounds.height)
 
         // Determina o topo facial usando sobrancelhas e linha mediana, caso disponíveis.
-        let eyebrowTop = eyebrowPoints.map { $0.y }.max() ?? contourTop
-        let medianTop = medianPoints.map { $0.y }.max() ?? contourTop
-        let faceTop = max(eyebrowTop, medianTop, contourTop)
+        let eyebrowTop = eyebrowPoints.map { $0.y }.min() ?? contourTop
+        let medianTop = medianPoints.map { $0.y }.min() ?? contourTop
+        let faceTop = min(contourTop, eyebrowTop, medianTop)
 
-        let facialHeight = max(faceTop - chinY, baseBounds.height)
-        let lateralPadding = max((maxX - minX) * 0.08, 0.015)
+        let facialHeight = max(contourBottom - faceTop, baseBounds.height)
+        let lateralPadding = max((contourRight - contourLeft) * 0.08, 0.015)
         let topPadding = max(facialHeight * 0.35, 0.05)
         let bottomPadding = max(facialHeight * 0.1, 0.02)
 
-        let finalMinX = max(minX - lateralPadding, 0)
-        let finalMaxX = min(maxX + lateralPadding, 1)
-        let finalBottom = max(chinY - bottomPadding, 0)
-        let finalTop = min(faceTop + topPadding, 1)
+        let finalMinX = max(contourLeft - lateralPadding, 0)
+        let finalMaxX = min(contourRight + lateralPadding, 1)
+        let finalTop = max(faceTop - topPadding, 0)
+        let finalBottom = min(contourBottom + bottomPadding, 1)
 
         let finalWidth = finalMaxX - finalMinX
-        let finalHeight = finalTop - finalBottom
+        let finalHeight = finalBottom - finalTop
+
+        guard finalWidth > 0, finalHeight > 0 else {
+            return baseBounds.clamped()
+        }
 
         return NormalizedRect(x: finalMinX,
-                              y: finalBottom,
+                              y: finalTop,
                               width: finalWidth,
                               height: finalHeight).clamped()
     }
@@ -194,13 +199,17 @@ final class PostCaptureProcessor {
 
         let minX = max(bounds.x - lateralPadding, 0)
         let maxX = min(bounds.x + bounds.width + lateralPadding, 1)
-        let bottom = max(bounds.y - bottomPadding, 0)
-        let top = min(bounds.y + bounds.height + topPadding, 1)
+        let top = max(bounds.y - topPadding, 0)
+        let bottom = min(bounds.y + bounds.height + bottomPadding, 1)
+
+        let width = maxX - minX
+        let height = bottom - top
+        guard width > 0, height > 0 else { return bounds.clamped() }
 
         return NormalizedRect(x: minX,
-                              y: bottom,
-                              width: maxX - minX,
-                              height: top - bottom).clamped()
+                              y: top,
+                              width: width,
+                              height: height).clamped()
     }
 
     private func initialData(for point: CGPoint?,
