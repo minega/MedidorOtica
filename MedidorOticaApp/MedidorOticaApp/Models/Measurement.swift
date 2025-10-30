@@ -57,7 +57,7 @@ struct Measurement: Identifiable, Codable {
         self.distanciaPupilar = postCaptureMetrics.distanciaPupilarTotal
         self.postCaptureConfiguration = postCaptureConfiguration
         self.postCaptureMetrics = postCaptureMetrics
-        self.imageData = capturedImage.jpegData(compressionQuality: 0.75)
+        self.imageData = capturedImage.jpegData(compressionQuality: 0.92)
     }
 
     // MARK: - Codable

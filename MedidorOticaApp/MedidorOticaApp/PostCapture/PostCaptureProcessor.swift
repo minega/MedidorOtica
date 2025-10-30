@@ -89,7 +89,8 @@ final class PostCaptureProcessor {
 
         let pupilsY = [rightPupilPoint?.y ?? 0.5, leftPupilPoint?.y ?? 0.5]
         let averagePupilY = pupilsY.reduce(0, +) / CGFloat(pupilsY.count)
-        let centralPoint = NormalizedPoint(x: nosePoint?.x ?? 0.5, y: averagePupilY).clamped()
+        let centralX = nosePoint?.x ?? 0.5
+        let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
 
         // Monta dados por olho utilizando offsets padrão
         let rightEyeData = initialData(for: rightPupilPoint,
@@ -101,8 +102,8 @@ final class PostCaptureProcessor {
                                       mirroredFrom: rightEyeData)
 
         return PostCaptureConfiguration(centralPoint: centralPoint,
-                                        rightEye: rightEyeData.normalizedOrder(),
-                                        leftEye: leftEyeData.normalizedOrder(),
+                                        rightEye: rightEyeData.normalized(centralX: centralPoint.x),
+                                        leftEye: leftEyeData.normalized(centralX: centralPoint.x),
                                         faceBounds: normalizedBounds)
     }
 
@@ -218,7 +219,7 @@ final class PostCaptureProcessor {
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
         // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
         if !isRightEye, point == nil, let mirror = reference {
-            return mirror.mirrored(around: centralPoint.x).normalizedOrder()
+            return mirror.mirrored(around: centralPoint.x).normalized(centralX: centralPoint.x)
         }
 
         let defaultX: CGFloat = isRightEye ? 0.35 : 0.65
@@ -227,20 +228,19 @@ final class PostCaptureProcessor {
 
         // Conversões de milímetros para valores normalizados
         let nasalOffset = PostCaptureScale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM)
-        let temporalOffset = PostCaptureScale.normalizedHorizontal(PostCaptureScale.horizontalGapMM)
+        let temporalOffset = PostCaptureScale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM)
         let inferiorOffset = PostCaptureScale.normalizedVertical(PostCaptureScale.inferiorOffsetMM)
         let superiorOffset = PostCaptureScale.normalizedVertical(PostCaptureScale.superiorOffsetMM)
 
-        let nasal: CGFloat
-        let temporal: CGFloat
-
-        if isRightEye {
-            nasal = (centralPoint.x - nasalOffset)
-            temporal = nasal - temporalOffset
+        let direction: CGFloat
+        if let point {
+            direction = point.x >= centralPoint.x ? 1 : -1
         } else {
-            nasal = (centralPoint.x + nasalOffset)
-            temporal = nasal + temporalOffset
+            direction = isRightEye ? -1 : 1
         }
+
+        let nasal = centralPoint.x + (direction * nasalOffset)
+        let temporal = centralPoint.x + (direction * temporalOffset)
 
         let inferior = (pupilPoint.y + inferiorOffset)
         let superior = (pupilPoint.y - superiorOffset)
