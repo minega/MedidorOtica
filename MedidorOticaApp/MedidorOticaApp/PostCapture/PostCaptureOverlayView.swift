@@ -353,7 +353,7 @@ struct PostCaptureOverlayView: View {
                                        isActive: Bool,
                                        size: CGSize,
                                        update: @escaping (CGFloat) -> Void) -> some View {
-        let lineWidth: CGFloat = isActive ? 2.2 : 1.4
+        let lineWidth: CGFloat = isActive ? 0.75 : 0.45
         let handleSize: CGFloat = isActive ? 14 : 10
 
         return Capsule()
@@ -414,7 +414,7 @@ struct PostCaptureOverlayView: View {
                                          isActive: Bool,
                                          size: CGSize,
                                          update: @escaping (CGFloat) -> Void) -> some View {
-        let lineHeight: CGFloat = isActive ? 2.2 : 1.4
+        let lineHeight: CGFloat = isActive ? 0.75 : 0.45
         let handleSize: CGFloat = isActive ? 14 : 10
 
         return Capsule()
