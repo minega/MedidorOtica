@@ -44,7 +44,10 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var isProcessing = false
     @Published var errorMessage: String?
     @Published var facePreview: UIImage?
+    /// Define o recorte original do rosto identificado na foto completa.
     @Published var faceBounds: NormalizedRect = NormalizedRect()
+    /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
+    @Published var previewBounds: NormalizedRect = NormalizedRect()
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -127,7 +130,9 @@ final class PostCaptureViewModel: ObservableObject {
             await MainActor.run {
                 self.configuration = result.configuration
                 self.faceBounds = result.configuration.faceBounds
-                self.facePreview = generateFacePreview(from: result.configuration.faceBounds)
+                let preview = generateFacePreview(from: result.configuration.faceBounds)
+                self.facePreview = preview.image
+                self.previewBounds = preview.bounds
                 self.isProcessing = false
             }
         } catch {
@@ -135,6 +140,7 @@ final class PostCaptureViewModel: ObservableObject {
                 self.isProcessing = false
                 self.errorMessage = error.localizedDescription
                 self.configuration = PostCaptureConfiguration()
+                self.previewBounds = NormalizedRect()
             }
         }
     }
@@ -324,10 +330,14 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Pré-visualização
-    private func generateFacePreview(from bounds: NormalizedRect) -> UIImage? {
-        guard bounds.width > 0, bounds.height > 0 else { return nil }
+    private func generateFacePreview(from bounds: NormalizedRect) -> (image: UIImage?, bounds: NormalizedRect) {
+        guard bounds.width > 0, bounds.height > 0 else {
+            return (nil, bounds.clamped())
+        }
         let oriented = capturedImage.normalizedOrientation()
-        guard let cgImage = oriented.cgImage else { return nil }
+        guard let cgImage = oriented.cgImage else {
+            return (nil, bounds.clamped())
+        }
         // Expande o recorte original para incluir mais da cabeça e preservar detalhes laterais.
         let verticalMargin = min(0.12, bounds.height * 0.6)
         let horizontalMargin = min(0.05, bounds.width * 0.5)
@@ -340,10 +350,12 @@ final class PostCaptureViewModel: ObservableObject {
                             y: cropRect.origin.y * oriented.scale,
                             width: cropRect.size.width * oriented.scale,
                             height: cropRect.size.height * oriented.scale)
-        guard let cropped = cgImage.cropping(to: scaled) else { return nil }
+        guard let cropped = cgImage.cropping(to: scaled) else {
+            return (nil, bounds.clamped())
+        }
         let screenScale = max(UIScreen.main.scale, UIScreen.main.nativeScale)
         let outputScale = max(oriented.scale, screenScale)
-        return UIImage(cgImage: cropped, scale: outputScale, orientation: .up)
+        return (UIImage(cgImage: cropped, scale: outputScale, orientation: .up), expandedBounds.clamped())
     }
 
     /// Fornece os dados de um olho convertidos para o espaço de exibição.
@@ -359,43 +371,58 @@ final class PostCaptureViewModel: ObservableObject {
 
     /// Converte um ponto para o espaço recortado mostrado na tela.
     private func convertToDisplay(_ point: NormalizedPoint) -> NormalizedPoint {
-        guard faceBounds.width > 0, faceBounds.height > 0 else { return point.clamped() }
-        let convertedX = (point.x - faceBounds.x) / faceBounds.width
-        let convertedY = (point.y - faceBounds.y) / faceBounds.height
+        let bounds = activeBounds()
+        guard bounds.width > 0, bounds.height > 0 else { return point.clamped() }
+        let convertedX = (point.x - bounds.x) / bounds.width
+        let convertedY = (point.y - bounds.y) / bounds.height
         return NormalizedPoint(x: convertedX, y: convertedY).clamped()
     }
 
     /// Converte o eixo horizontal para o recorte exibido.
     private func convertToDisplayX(_ value: CGFloat) -> CGFloat {
-        guard faceBounds.width > 0 else { return value }
-        return min(max((value - faceBounds.x) / faceBounds.width, 0), 1)
+        let bounds = activeBounds()
+        guard bounds.width > 0 else { return value }
+        return min(max((value - bounds.x) / bounds.width, 0), 1)
     }
 
     /// Converte o eixo vertical para o recorte exibido.
     private func convertToDisplayY(_ value: CGFloat) -> CGFloat {
-        guard faceBounds.height > 0 else { return value }
-        return min(max((value - faceBounds.y) / faceBounds.height, 0), 1)
+        let bounds = activeBounds()
+        guard bounds.height > 0 else { return value }
+        return min(max((value - bounds.y) / bounds.height, 0), 1)
     }
 
     /// Converte um ponto do recorte exibido para o espaço original da foto.
     private func convertFromDisplay(_ point: NormalizedPoint) -> NormalizedPoint {
-        guard faceBounds.width > 0, faceBounds.height > 0 else { return point.clamped() }
-        let convertedX = faceBounds.x + (point.x * faceBounds.width)
-        let convertedY = faceBounds.y + (point.y * faceBounds.height)
+        let bounds = activeBounds()
+        guard bounds.width > 0, bounds.height > 0 else { return point.clamped() }
+        let convertedX = bounds.x + (point.x * bounds.width)
+        let convertedY = bounds.y + (point.y * bounds.height)
         return NormalizedPoint(x: convertedX, y: convertedY).clamped()
     }
 
     /// Converte a coordenada horizontal do recorte exibido para o espaço original.
     private func convertFromDisplayX(_ value: CGFloat) -> CGFloat {
-        guard faceBounds.width > 0 else { return value }
-        let converted = faceBounds.x + (value * faceBounds.width)
+        let bounds = activeBounds()
+        guard bounds.width > 0 else { return value }
+        let converted = bounds.x + (value * bounds.width)
         return min(max(converted, 0), 1)
     }
 
     /// Converte a coordenada vertical do recorte exibido para o espaço original.
     private func convertFromDisplayY(_ value: CGFloat) -> CGFloat {
-        guard faceBounds.height > 0 else { return value }
-        let converted = faceBounds.y + (value * faceBounds.height)
+        let bounds = activeBounds()
+        guard bounds.height > 0 else { return value }
+        let converted = bounds.y + (value * bounds.height)
         return min(max(converted, 0), 1)
+    }
+
+    /// Resolve qual recorte deve ser usado nas conversões considerando a existência da pré-visualização expandida.
+    private func activeBounds() -> NormalizedRect {
+        let preview = previewBounds.clamped()
+        if facePreview != nil, preview.width > 0, preview.height > 0 {
+            return preview
+        }
+        return faceBounds.clamped()
     }
 }
