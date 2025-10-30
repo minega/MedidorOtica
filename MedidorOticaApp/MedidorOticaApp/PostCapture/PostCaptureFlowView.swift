@@ -14,7 +14,8 @@ struct PostCaptureFlowView: View {
 
     @StateObject private var viewModel: PostCaptureViewModel
     @State private var clientName: String
-    @State private var showingSaveError = false
+    @State private var orderNumber: String
+    @State private var validationErrorMessage: String?
     @State private var showingShareSheet = false
     @State private var renderedOverlay: UIImage?
 
@@ -30,6 +31,7 @@ struct PostCaptureFlowView: View {
         self._clientName = State(initialValue: existingMeasurement?.clientName ?? "")
         self.onRetake = onRetake
         self.existingMeasurement = existingMeasurement
+        self._orderNumber = State(initialValue: existingMeasurement?.orderNumber ?? "")
     }
 
     // MARK: - View
@@ -58,10 +60,14 @@ struct PostCaptureFlowView: View {
                 ShareSheet(items: [image, description])
             }
         }
-        .alert("Informe o nome do cliente", isPresented: $showingSaveError) {
+        .alert("Atenção", isPresented: Binding(get: {
+            validationErrorMessage != nil
+        }, set: { _ in
+            validationErrorMessage = nil
+        })) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Preencha o nome antes de salvar no histórico.")
+            Text(validationErrorMessage ?? "")
         }
     }
 
@@ -210,6 +216,7 @@ struct PostCaptureFlowView: View {
         }
     }
 
+    /// Painel exibido no resumo com métricas, identificação do cliente e ações finais.
     private var summaryContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             Divider().background(Color.white.opacity(0.2))
@@ -222,76 +229,142 @@ struct PostCaptureFlowView: View {
                 summaryMetricsView(metrics)
             }
 
-            TextField("Nome do cliente", text: $clientName)
-                .textFieldStyle(.roundedBorder)
-                .padding(.top, 8)
-
-            HStack(spacing: 12) {
-                Button(action: shareSummary) {
-                    Label("Compartilhar", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-
-                Button(action: saveMeasurement) {
-                    Label(existingMeasurement == nil ? "Salvar" : "Atualizar", systemImage: "tray.and.arrow.down")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-            }
+            summaryFormFields
+            summaryActionButtons
         }
         .padding()
         .background(Color.white.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func summaryMetricsView(_ metrics: PostCaptureMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            metricRow(title: "Horizontal Maior OD", value: metrics.rightEye.horizontalMaior)
-            metricRow(title: "Horizontal Maior OE", value: metrics.leftEye.horizontalMaior)
-            metricRow(title: "Vertical Maior OD", value: metrics.rightEye.verticalMaior)
-            metricRow(title: "Vertical Maior OE", value: metrics.leftEye.verticalMaior)
-            metricRow(title: "Ponte da Armação", value: metrics.ponte)
-            metricRow(title: "DNP OD", value: metrics.rightEye.dnp)
-            metricRow(title: "DNP OE", value: metrics.leftEye.dnp)
-            metricRow(title: "Altura Pupilar OD", value: metrics.rightEye.alturaPupilar)
-            metricRow(title: "Altura Pupilar OE", value: metrics.leftEye.alturaPupilar)
-            metricRow(title: "DP Total", value: metrics.distanciaPupilarTotal)
+    /// Campos que solicitam os dados necessários para salvar no histórico.
+    private var summaryFormFields: some View {
+        VStack(spacing: 12) {
+            TextField("Nome do cliente", text: $clientName)
+                .textFieldStyle(.roundedBorder)
+
+            TextField("Número da OS", text: $orderNumber)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(.numbersAndPunctuation)
         }
+        .padding(.top, 4)
     }
 
-    private func metricRow(title: String, value: Double) -> some View {
-        HStack {
-            Text(title)
-                .foregroundColor(.white.opacity(0.85))
-            Spacer()
-            Text(String(format: "%.1f mm", value))
-                .foregroundColor(.yellow)
-                .fontWeight(.semibold)
-        }
-    }
-
-    private var bottomActions: some View {
-        HStack(spacing: 12) {
-            Button(action: onRetake) {
-                Label("Refazer", systemImage: "arrow.counterclockwise")
+    /// Conjunto de botões disponibilizados no resumo para compartilhar, revisar, salvar ou cancelar.
+    private var summaryActionButtons: some View {
+        VStack(spacing: 12) {
+            Button(action: shareSummary) {
+                Label("Compartilhar", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(.red)
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
 
-            if viewModel.canGoBack && !viewModel.isOnSummary {
-                Button(action: viewModel.goBack) {
-                    Label("Voltar", systemImage: "chevron.left")
+            HStack(spacing: 12) {
+                Button(action: startReview) {
+                    Label("Revisar", systemImage: "arrow.uturn.backward")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.gray)
+                .buttonStyle(.bordered)
+                .tint(.orange)
+
+                Button(action: cancelSummary) {
+                    Label("Cancelar", systemImage: "xmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
 
-            if !viewModel.isOnSummary {
+            Button(action: saveMeasurement) {
+                Label(existingMeasurement == nil ? "Salvar" : "Atualizar", systemImage: "tray.and.arrow.down")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+        }
+    }
+
+    /// Apresenta as métricas finais seguindo o padrão solicitado: "Nome - OD/OE".
+    private func summaryMetricsView(_ metrics: PostCaptureMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(summaryLine(title: "Horizontal maior",
+                             rightValue: metrics.rightEye.horizontalMaior,
+                             leftValue: metrics.leftEye.horizontalMaior))
+
+            Text(summaryLine(title: "Vertical maior",
+                             rightValue: metrics.rightEye.verticalMaior,
+                             leftValue: metrics.leftEye.verticalMaior))
+
+            Text(summaryLine(title: "DNP",
+                             rightValue: metrics.rightEye.dnp,
+                             leftValue: metrics.leftEye.dnp))
+
+            Text(summaryLine(title: "Altura pupilar",
+                             rightValue: metrics.rightEye.alturaPupilar,
+                             leftValue: metrics.leftEye.alturaPupilar))
+
+            Text(summaryLine(title: "Ponte",
+                             singleValue: metrics.ponte))
+        }
+        .foregroundColor(.white.opacity(0.9))
+        .font(.subheadline)
+        .fontWeight(.semibold)
+    }
+
+    /// Monta a string usada tanto no resumo visual quanto no compartilhamento.
+    private func summaryLine(title: String,
+                             rightValue: Double? = nil,
+                             leftValue: Double? = nil,
+                             singleValue: Double? = nil) -> String {
+        if let singleValue {
+            return "\(title) - \(formatValue(singleValue))"
+        }
+
+        if let rightValue, let leftValue {
+            return "\(title) - \(formatValue(rightValue, suffix: "OD"))/\(formatValue(leftValue, suffix: "OE"))"
+        }
+
+        if let rightValue {
+            return "\(title) - \(formatValue(rightValue, suffix: "OD"))"
+        }
+
+        if let leftValue {
+            return "\(title) - \(formatValue(leftValue, suffix: "OE"))"
+        }
+
+        return "\(title) - -"
+    }
+
+    /// Formata um valor double para apresentação com unidade e sufixo opcional.
+    private func formatValue(_ value: Double, suffix: String? = nil) -> String {
+        let base = String(format: "%.1f mm", value)
+        guard let suffix else { return base }
+        return "\(base) \(suffix)"
+    }
+
+    @ViewBuilder
+    private var bottomActions: some View {
+        if viewModel.isOnSummary {
+            EmptyView()
+        } else {
+            HStack(spacing: 12) {
+                Button(action: onRetake) {
+                    Label("Refazer", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+
+                if viewModel.canGoBack {
+                    Button(action: viewModel.goBack) {
+                        Label("Voltar", systemImage: "chevron.left")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.gray)
+                }
+
                 Button(action: viewModel.advanceStage) {
                     Label(viewModel.currentStage == .confirmation ? "Iniciar" : "Próximo",
                           systemImage: viewModel.currentStage == .confirmation ? "play.fill" : "chevron.right")
@@ -306,10 +379,25 @@ struct PostCaptureFlowView: View {
 
     // MARK: - Ações
     private func saveMeasurement() {
-        showingSaveError = false
+        validationErrorMessage = nil
+        let trimmedName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrder = orderNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty else {
+            validationErrorMessage = "Preencha o nome do cliente antes de salvar no histórico."
+            return
+        }
+
+        guard !trimmedOrder.isEmpty else {
+            validationErrorMessage = "Informe o número da OS para salvar no histórico."
+            return
+        }
+
         viewModel.finalizeMetrics()
-        guard let measurement = viewModel.buildMeasurement(clientName: clientName) else {
-            showingSaveError = true
+
+        guard let measurement = viewModel.buildMeasurement(clientName: trimmedName,
+                                                           orderNumber: trimmedOrder) else {
+            validationErrorMessage = "Não foi possível gerar o resumo das medidas."
             return
         }
 
@@ -325,6 +413,18 @@ struct PostCaptureFlowView: View {
         }
     }
 
+    /// Retorna a etapa inicial para permitir que o usuário revise todas as marcações.
+    private func startReview() {
+        validationErrorMessage = nil
+        viewModel.restartFlowFromBeginning()
+    }
+
+    /// Cancela o fluxo atual e fecha a tela sem salvar alterações.
+    private func cancelSummary() {
+        validationErrorMessage = nil
+        dismiss()
+    }
+
     private func shareSummary() {
         viewModel.finalizeMetrics()
         guard let metrics = viewModel.metrics else { return }
@@ -337,12 +437,37 @@ struct PostCaptureFlowView: View {
     }
 
     private func shareDescription(from metrics: PostCaptureMetrics) -> String {
-        "Horizontal OD: \(String(format: "%.1f", metrics.rightEye.horizontalMaior)) mm\n" +
-        "Horizontal OE: \(String(format: "%.1f", metrics.leftEye.horizontalMaior)) mm\n" +
-        "Vertical OD: \(String(format: "%.1f", metrics.rightEye.verticalMaior)) mm\n" +
-        "Vertical OE: \(String(format: "%.1f", metrics.leftEye.verticalMaior)) mm\n" +
-        "Ponte: \(String(format: "%.1f", metrics.ponte)) mm\n" +
-        "DNP Total: \(String(format: "%.1f", metrics.distanciaPupilarTotal)) mm"
+        var lines: [String] = []
+
+        let trimmedName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrder = orderNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmedName.isEmpty {
+            lines.append("Cliente: \(trimmedName)")
+        }
+
+        if !trimmedOrder.isEmpty {
+            lines.append("OS: \(trimmedOrder)")
+        }
+
+        lines.append(contentsOf: [
+            summaryLine(title: "Horizontal maior",
+                        rightValue: metrics.rightEye.horizontalMaior,
+                        leftValue: metrics.leftEye.horizontalMaior),
+            summaryLine(title: "Vertical maior",
+                        rightValue: metrics.rightEye.verticalMaior,
+                        leftValue: metrics.leftEye.verticalMaior),
+            summaryLine(title: "DNP",
+                        rightValue: metrics.rightEye.dnp,
+                        leftValue: metrics.leftEye.dnp),
+            summaryLine(title: "Altura pupilar",
+                        rightValue: metrics.rightEye.alturaPupilar,
+                        leftValue: metrics.leftEye.alturaPupilar),
+            summaryLine(title: "Ponte",
+                        singleValue: metrics.ponte)
+        ])
+
+        return lines.joined(separator: "\n")
     }
 
     @ViewBuilder
