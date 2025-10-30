@@ -353,8 +353,8 @@ struct PostCaptureOverlayView: View {
                                        isActive: Bool,
                                        size: CGSize,
                                        update: @escaping (CGFloat) -> Void) -> some View {
-        let lineWidth: CGFloat = isActive ? 0.75 : 0.45
-        let handleSize: CGFloat = isActive ? 14 : 10
+        let lineWidth = BarAppearance.lineThickness(isActive: isActive)
+        let handleSize = BarAppearance.handleSize(isActive: isActive)
 
         return Capsule()
             .fill(color.opacity(isActive ? 0.9 : 0.45))
@@ -385,11 +385,12 @@ struct PostCaptureOverlayView: View {
         let superiorY = data.superiorBarY * size.height
         let isActive = isActiveEye && viewModel.currentStage == .vertical
 
+        // Aplica o mesmo padrão visual das barras verticais para facilitar a leitura.
         return ZStack {
             draggableHorizontalBar(positionY: inferiorY,
                                     centerX: centerX,
                                     width: barWidth,
-                                    color: .green,
+                                    color: .orange,
                                     isActive: isActive,
                                     size: size,
                                     update: { value in
@@ -398,7 +399,7 @@ struct PostCaptureOverlayView: View {
             draggableHorizontalBar(positionY: superiorY,
                                     centerX: centerX,
                                     width: barWidth,
-                                    color: .mint,
+                                    color: .yellow,
                                     isActive: isActive,
                                     size: size,
                                     update: { value in
@@ -414,8 +415,8 @@ struct PostCaptureOverlayView: View {
                                          isActive: Bool,
                                          size: CGSize,
                                          update: @escaping (CGFloat) -> Void) -> some View {
-        let lineHeight: CGFloat = isActive ? 0.75 : 0.45
-        let handleSize: CGFloat = isActive ? 14 : 10
+        let lineHeight = BarAppearance.lineThickness(isActive: isActive)
+        let handleSize = BarAppearance.handleSize(isActive: isActive)
 
         return Capsule()
             .fill(color.opacity(isActive ? 0.9 : 0.45))
@@ -433,6 +434,13 @@ struct PostCaptureOverlayView: View {
                 update(clampedY)
             })
             .allowsHitTesting(isActive)
+    }
+
+    // MARK: - Aparência das Barras
+    /// Mantém a espessura e o tamanho dos controles consistentes entre as etapas 3 e 4.
+    private enum BarAppearance {
+        static func lineThickness(isActive: Bool) -> CGFloat { isActive ? 0.75 : 0.45 }
+        static func handleSize(isActive: Bool) -> CGFloat { isActive ? 14 : 10 }
     }
 
     /// Permite arrastar a imagem mantendo o deslocamento dentro da área segura.
