@@ -82,6 +82,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: image)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -116,6 +118,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: viewModel.capturedImage)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
 
@@ -172,6 +176,8 @@ struct PostCaptureOverlayView: View {
             ZStack(alignment: .topLeading) {
                 Image(uiImage: viewModel.displayImage)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
                 overlayContent(size: rect.size, zoom: displayZoom)
@@ -347,14 +353,17 @@ struct PostCaptureOverlayView: View {
                                        isActive: Bool,
                                        size: CGSize,
                                        update: @escaping (CGFloat) -> Void) -> some View {
-        Capsule()
-            .fill(color.opacity(isActive ? 0.9 : 0.4))
-            .frame(width: isActive ? 6 : 4, height: height)
+        let lineWidth: CGFloat = isActive ? 0.75 : 0.45
+        let handleSize: CGFloat = isActive ? 14 : 10
+
+        return Capsule()
+            .fill(color.opacity(isActive ? 0.9 : 0.45))
+            .frame(width: lineWidth, height: height)
             .position(x: positionX, y: centerY)
             .overlay(
                 Circle()
-                    .fill(Color.white.opacity(isActive ? 0.9 : 0.5))
-                    .frame(width: 20, height: 20)
+                    .fill(Color.white.opacity(isActive ? 0.85 : 0.55))
+                    .frame(width: handleSize, height: handleSize)
                     .position(x: positionX, y: centerY)
             )
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -405,14 +414,17 @@ struct PostCaptureOverlayView: View {
                                          isActive: Bool,
                                          size: CGSize,
                                          update: @escaping (CGFloat) -> Void) -> some View {
-        Capsule()
-            .fill(color.opacity(isActive ? 0.9 : 0.4))
-            .frame(width: width, height: isActive ? 6 : 4)
+        let lineHeight: CGFloat = isActive ? 0.75 : 0.45
+        let handleSize: CGFloat = isActive ? 14 : 10
+
+        return Capsule()
+            .fill(color.opacity(isActive ? 0.9 : 0.45))
+            .frame(width: width, height: lineHeight)
             .position(x: centerX, y: positionY)
             .overlay(
                 Circle()
-                    .fill(Color.white.opacity(isActive ? 0.9 : 0.5))
-                    .frame(width: 20, height: 20)
+                    .fill(Color.white.opacity(isActive ? 0.85 : 0.55))
+                    .frame(width: handleSize, height: handleSize)
                     .position(x: centerX, y: positionY)
             )
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -425,7 +437,7 @@ struct PostCaptureOverlayView: View {
 
     /// Permite arrastar a imagem mantendo o deslocamento dentro da área segura.
     private func panGesture(for size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        return DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard viewModel.currentStage != .summary else { return }
                 if !isPanningImage {
@@ -445,7 +457,7 @@ struct PostCaptureOverlayView: View {
 
     /// Controla o gesto de pinça atualizando o zoom e recalculando os limites.
     private func magnificationGesture(for size: CGSize) -> some Gesture {
-        MagnificationGesture()
+        return MagnificationGesture()
             .onChanged { value in
                 guard viewModel.currentStage != .summary else { return }
                 let delta = value / lastMagnification
