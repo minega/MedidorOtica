@@ -58,12 +58,9 @@ final class PostCaptureProcessor {
         let width = Int(imageSize.width)
         let height = Int(imageSize.height)
 
-        let rawBounds = VisionGeometryHelper
-            .normalizedRect(from: box,
-                            imageWidth: width,
-                            imageHeight: height,
-                            orientation: orientation)
-        let normalizedBounds = refinedFaceBounds(from: rawBounds)
+        let normalizedBounds = refinedFaceBounds(from: observation,
+                                                 imageSize: imageSize,
+                                                 orientation: orientation)
 
         // Localiza pupilas utilizando Vision
         let rightPupilPoint = landmarks?.rightPupil.flatMap {
@@ -109,32 +106,108 @@ final class PostCaptureProcessor {
                                         faceBounds: normalizedBounds)
     }
 
-    /// Ajusta o recorte do rosto privilegiando a região facial com margens reduzidas.
-    private func refinedFaceBounds(from bounds: NormalizedRect) -> NormalizedRect {
+    /// Utiliza os landmarks do Vision para recortar toda a cabeça (orelhas, queixo e topo do cabelo).
+    private func refinedFaceBounds(from observation: VNFaceObservation,
+                                   imageSize: CGSize,
+                                   orientation: CGImagePropertyOrientation) -> NormalizedRect {
+        let imageWidth = Int(imageSize.width)
+        let imageHeight = Int(imageSize.height)
+        let baseBounds = VisionGeometryHelper
+            .normalizedRect(from: observation.boundingBox,
+                            imageWidth: imageWidth,
+                            imageHeight: imageHeight,
+                            orientation: orientation)
+
+        guard let landmarks = observation.landmarks else {
+            return expanded(bounds: baseBounds,
+                            lateralPadding: baseBounds.width * 0.1,
+                            topPadding: baseBounds.height * 0.25,
+                            bottomPadding: baseBounds.height * 0.08)
+        }
+
+        // Converte regiões relevantes para o mesmo espaço normalizado, permitindo calcular extremidades reais da cabeça.
+        let boundingBox = observation.boundingBox
+        let contourPoints = VisionGeometryHelper.normalizedPoints(from: landmarks.faceContour,
+                                                                  boundingBox: boundingBox,
+                                                                  imageWidth: imageWidth,
+                                                                  imageHeight: imageHeight,
+                                                                  orientation: orientation)
+        let eyebrowPoints = VisionGeometryHelper.normalizedPoints(from: landmarks.leftEyebrow,
+                                                                  boundingBox: boundingBox,
+                                                                  imageWidth: imageWidth,
+                                                                  imageHeight: imageHeight,
+                                                                  orientation: orientation) +
+            VisionGeometryHelper.normalizedPoints(from: landmarks.rightEyebrow,
+                                                  boundingBox: boundingBox,
+                                                  imageWidth: imageWidth,
+                                                  imageHeight: imageHeight,
+                                                  orientation: orientation)
+        let medianPoints = VisionGeometryHelper.normalizedPoints(from: landmarks.medianLine,
+                                                                 boundingBox: boundingBox,
+                                                                 imageWidth: imageWidth,
+                                                                 imageHeight: imageHeight,
+                                                                 orientation: orientation)
+
+        // Se os contornos não forem detectados, utiliza o retângulo base expandido como fallback seguro.
+        guard !contourPoints.isEmpty else {
+            return expanded(bounds: baseBounds,
+                            lateralPadding: baseBounds.width * 0.12,
+                            topPadding: baseBounds.height * 0.3,
+                            bottomPadding: baseBounds.height * 0.1)
+        }
+
+        // Calcula as extremidades reais no sistema normalizado com origem no topo.
+        let contourLeft = contourPoints.map { $0.x }.min() ?? baseBounds.x
+        let contourRight = contourPoints.map { $0.x }.max() ?? (baseBounds.x + baseBounds.width)
+        let contourTop = contourPoints.map { $0.y }.min() ?? baseBounds.y
+        let contourBottom = contourPoints.map { $0.y }.max() ?? (baseBounds.y + baseBounds.height)
+
+        // Determina o topo facial usando sobrancelhas e linha mediana, caso disponíveis.
+        let eyebrowTop = eyebrowPoints.map { $0.y }.min() ?? contourTop
+        let medianTop = medianPoints.map { $0.y }.min() ?? contourTop
+        let faceTop = min(contourTop, eyebrowTop, medianTop)
+
+        let facialHeight = max(contourBottom - faceTop, baseBounds.height)
+        let lateralPadding = max((contourRight - contourLeft) * 0.08, 0.015)
+        let topPadding = max(facialHeight * 0.35, 0.05)
+        let bottomPadding = max(facialHeight * 0.1, 0.02)
+
+        let finalMinX = max(contourLeft - lateralPadding, 0)
+        let finalMaxX = min(contourRight + lateralPadding, 1)
+        let finalTop = max(faceTop - topPadding, 0)
+        let finalBottom = min(contourBottom + bottomPadding, 1)
+
+        let finalWidth = finalMaxX - finalMinX
+        let finalHeight = finalBottom - finalTop
+
+        guard finalWidth > 0, finalHeight > 0 else {
+            return baseBounds.clamped()
+        }
+
+        return NormalizedRect(x: finalMinX,
+                              y: finalTop,
+                              width: finalWidth,
+                              height: finalHeight).clamped()
+    }
+
+    /// Expande o retângulo indicado utilizando margens personalizadas.
+    private func expanded(bounds: NormalizedRect,
+                          lateralPadding: CGFloat,
+                          topPadding: CGFloat,
+                          bottomPadding: CGFloat) -> NormalizedRect {
         guard bounds.width > 0, bounds.height > 0 else { return NormalizedRect() }
 
-        let horizontalPadding = bounds.width * 0.12
-        var originX = max(bounds.x - horizontalPadding, 0)
-        var width = bounds.width + (horizontalPadding * 2)
-        if originX + width > 1 {
-            width = 1 - originX
-        }
+        let minX = max(bounds.x - lateralPadding, 0)
+        let maxX = min(bounds.x + bounds.width + lateralPadding, 1)
+        let top = max(bounds.y - topPadding, 0)
+        let bottom = min(bounds.y + bounds.height + bottomPadding, 1)
 
-        let topExpansion = bounds.height * 0.25
-        var originY = max(bounds.y - topExpansion, 0)
-        var height = bounds.height + topExpansion
-        if originY + height > 1 {
-            height = 1 - originY
-        }
+        let width = maxX - minX
+        let height = bottom - top
+        guard width > 0, height > 0 else { return bounds.clamped() }
 
-        let bottomTrim = bounds.height * 0.28
-        height = max(height - bottomTrim, 0.35)
-        if originY + height > 1 {
-            height = 1 - originY
-        }
-
-        return NormalizedRect(x: originX,
-                              y: originY,
+        return NormalizedRect(x: minX,
+                              y: top,
                               width: width,
                               height: height).clamped()
     }

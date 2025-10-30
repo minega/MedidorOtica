@@ -53,7 +53,51 @@ struct PostCaptureOverlayView: View {
     }
 
     // MARK: - Etapa de Confirmação
+    /// Seleciona o layout adequado para a etapa de confirmação, priorizando o recorte real quando disponível.
+    @ViewBuilder
     private func confirmationView(in size: CGSize) -> some View {
+        if viewModel.facePreview != nil {
+            croppedConfirmationView(in: size)
+        } else {
+            legacyConfirmationView(in: size)
+        }
+    }
+
+    /// Exibe a imagem já recortada destacando o alinhamento do ponto central.
+    private func croppedConfirmationView(in size: CGSize) -> some View {
+        let image = viewModel.displayImage
+        let rect = aspectFitRect(imageSize: image.size,
+                                  containerSize: size)
+        let cornerRadius = min(rect.size.width, rect.size.height) * 0.12
+        let centerX = viewModel.displayCentralPoint.x * rect.size.width
+
+        return ZStack {
+            Color.black
+
+            ZStack(alignment: .topLeading) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: rect.size.width, height: rect.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(Color.white.opacity(0.85), lineWidth: 2)
+                    )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: 2, height: rect.size.height)
+                    .position(x: centerX, y: rect.size.height / 2)
+            }
+            .frame(width: rect.size.width, height: rect.size.height)
+            .shadow(color: Color.black.opacity(0.45), radius: 16, x: 0, y: 8)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    /// Fallback que mantém o comportamento anterior caso o recorte falhe.
+    private func legacyConfirmationView(in size: CGSize) -> some View {
         let rect = aspectFitRect(imageSize: viewModel.capturedImage.size,
                                   containerSize: size)
         let faceRect = viewModel.faceBounds.clamped().absolute(in: rect.size)
@@ -70,9 +114,9 @@ struct PostCaptureOverlayView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: rect.size.width, height: rect.size.height)
 
-                confirmationMask(faceRect: faceRect,
-                                  canvasSize: rect.size,
-                                  cornerRadius: cornerRadius)
+                legacyConfirmationMask(faceRect: faceRect,
+                                       canvasSize: rect.size,
+                                       cornerRadius: cornerRadius)
 
                 Rectangle()
                     .fill(Color.white.opacity(0.45))
@@ -84,10 +128,10 @@ struct PostCaptureOverlayView: View {
         .frame(width: size.width, height: size.height)
     }
 
-    /// Cria uma máscara que destaca o retângulo do rosto e escurece o entorno.
-    private func confirmationMask(faceRect: CGRect,
-                                  canvasSize: CGSize,
-                                  cornerRadius: CGFloat) -> some View {
+    /// Cria a máscara do modo legado destacando apenas a área estimada quando o recorte não está disponível.
+    private func legacyConfirmationMask(faceRect: CGRect,
+                                        canvasSize: CGSize,
+                                        cornerRadius: CGFloat) -> some View {
         ZStack {
             Path { path in
                 let fullRect = CGRect(origin: .zero, size: canvasSize)
