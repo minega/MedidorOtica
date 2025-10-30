@@ -216,11 +216,13 @@ final class PostCaptureProcessor {
                              isRightEye: Bool,
                              centralPoint: NormalizedPoint,
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
-        if !isRightEye, let mirror = reference {
+        // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
+        if !isRightEye, point == nil, let mirror = reference {
             return mirror.mirrored(around: centralPoint.x).normalizedOrder()
         }
 
-        let pupilPoint = NormalizedPoint(x: point?.x ?? (isRightEye ? 0.35 : 0.65),
+        let defaultX: CGFloat = isRightEye ? 0.35 : 0.65
+        let pupilPoint = NormalizedPoint(x: point?.x ?? defaultX,
                                          y: point?.y ?? 0.5).clamped()
 
         // Conversões de milímetros para valores normalizados
