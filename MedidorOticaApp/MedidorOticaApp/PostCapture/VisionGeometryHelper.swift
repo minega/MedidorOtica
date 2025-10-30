@@ -76,6 +76,34 @@ enum VisionGeometryHelper {
                                orientation: orientation)
     }
 
+    /// Converte todos os pontos de uma região de landmarks para coordenadas normalizadas, respeitando a orientação da imagem.
+    static func normalizedPoints(from region: VNFaceLandmarkRegion2D?,
+                                 boundingBox: CGRect,
+                                 imageWidth: Int,
+                                 imageHeight: Int,
+                                 orientation: CGImagePropertyOrientation) -> [CGPoint] {
+        guard let region, region.pointCount > 0 else { return [] }
+
+        var points: [CGPoint] = []
+        points.reserveCapacity(Int(region.pointCount))
+
+        for index in 0..<region.pointCount {
+            let normalized = region.normalizedPoints[index]
+            let translatedX = boundingBox.origin.x + normalized.x * boundingBox.width
+            let translatedY = boundingBox.origin.y + normalized.y * boundingBox.height
+            let pixelPoint = VNImagePointForNormalizedPoint(CGPoint(x: translatedX, y: translatedY),
+                                                            imageWidth,
+                                                            imageHeight)
+            let converted = normalizedPoint(pixelPoint,
+                                            width: imageWidth,
+                                            height: imageHeight,
+                                            orientation: orientation)
+            points.append(converted)
+        }
+
+        return points
+    }
+
     /// Converte uma bounding box do Vision para um retângulo normalizado alinhado ao preview.
     static func normalizedRect(from boundingBox: CGRect,
                                 imageWidth: Int,

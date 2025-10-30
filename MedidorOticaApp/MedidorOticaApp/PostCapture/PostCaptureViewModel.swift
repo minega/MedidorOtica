@@ -338,13 +338,10 @@ final class PostCaptureViewModel: ObservableObject {
         guard let cgImage = oriented.cgImage else {
             return (nil, bounds.clamped())
         }
-        // Expande o recorte original para incluir mais da cabeça e preservar detalhes laterais.
-        let verticalMargin = min(0.12, bounds.height * 0.6)
-        let horizontalMargin = min(0.05, bounds.width * 0.5)
-        var expandedBounds = bounds.insetBy(dx: -horizontalMargin, dy: -verticalMargin)
-        let additionalTop = min(verticalMargin * 0.8, expandedBounds.y)
-        expandedBounds.y -= additionalTop
-        expandedBounds.height = min(expandedBounds.height + additionalTop, 1 - expandedBounds.y)
+        // Ajusta levemente o recorte para evitar cortes por arredondamento mantendo somente a cabeça no quadro.
+        let verticalMargin = min(0.04, bounds.height * 0.12)
+        let horizontalMargin = min(0.03, bounds.width * 0.1)
+        let expandedBounds = bounds.insetBy(dx: -horizontalMargin, dy: -verticalMargin).clamped()
         let cropRect = expandedBounds.absolute(in: oriented.size)
         let scaled = CGRect(x: cropRect.origin.x * oriented.scale,
                             y: cropRect.origin.y * oriented.scale,
