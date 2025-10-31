@@ -170,8 +170,14 @@ final class PostCaptureViewModel: ObservableObject {
                 currentEye = .left
                 currentStage = .pupil
             } else {
-                finalizeMetrics()
-                currentStage = .summary
+                do {
+                    try finalizeMetrics()
+                    currentStage = .summary
+                    errorMessage = nil
+                } catch {
+                    metrics = nil
+                    errorMessage = error.localizedDescription
+                }
             }
         case .summary:
             break
@@ -292,37 +298,12 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Cálculo de Métricas
-    func finalizeMetrics() {
-        let orderedRight = configuration.rightEye.normalized(centralX: configuration.centralPoint.x)
-        let orderedLeft = configuration.leftEye.normalized(centralX: configuration.centralPoint.x)
-        let center = configuration.centralPoint.clamped()
-
-        let rightHorizontal = abs(orderedRight.temporalBarX - orderedRight.nasalBarX) * scale.horizontalReferenceMM
-        let leftHorizontal = abs(orderedLeft.temporalBarX - orderedLeft.nasalBarX) * scale.horizontalReferenceMM
-
-        let rightVertical = abs(orderedRight.inferiorBarY - orderedRight.superiorBarY) * scale.verticalReferenceMM
-        let leftVertical = abs(orderedLeft.inferiorBarY - orderedLeft.superiorBarY) * scale.verticalReferenceMM
-
-        let rightDNP = abs(orderedRight.pupil.x - center.x) * scale.horizontalReferenceMM
-        let leftDNP = abs(orderedLeft.pupil.x - center.x) * scale.horizontalReferenceMM
-
-        let rightAltura = abs(orderedRight.inferiorBarY - orderedRight.pupil.y) * scale.verticalReferenceMM
-        let leftAltura = abs(orderedLeft.inferiorBarY - orderedLeft.pupil.y) * scale.verticalReferenceMM
-
-        let ponte = abs(orderedLeft.nasalBarX - orderedRight.nasalBarX) * scale.horizontalReferenceMM
-
-        let rightSummary = EyeMeasurementSummary(horizontalMaior: Double(rightHorizontal),
-                                                 verticalMaior: Double(rightVertical),
-                                                 dnp: Double(rightDNP),
-                                                 alturaPupilar: Double(rightAltura))
-        let leftSummary = EyeMeasurementSummary(horizontalMaior: Double(leftHorizontal),
-                                                verticalMaior: Double(leftVertical),
-                                                dnp: Double(leftDNP),
-                                                alturaPupilar: Double(leftAltura))
-
-        metrics = PostCaptureMetrics(rightEye: rightSummary,
-                                     leftEye: leftSummary,
-                                     ponte: Double(ponte))
+    func finalizeMetrics() throws {
+        // Utiliza a calculadora dedicada para garantir que todas as medidas usem a calibração correta.
+        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
+                                                         centralPoint: configuration.centralPoint,
+                                                         scale: scale)
+        metrics = try calculator.makeMetrics()
     }
 
     // MARK: - Construção de Measurement

@@ -339,7 +339,12 @@ struct PostCaptureFlowView: View {
             return
         }
 
-        viewModel.finalizeMetrics()
+        do {
+            try viewModel.finalizeMetrics()
+        } catch {
+            validationErrorMessage = error.localizedDescription
+            return
+        }
 
         guard let measurement = viewModel.buildMeasurement(clientName: trimmedName,
                                                            orderNumber: trimmedOrder) else {
@@ -372,7 +377,12 @@ struct PostCaptureFlowView: View {
     }
 
     private func shareSummary() {
-        viewModel.finalizeMetrics()
+        do {
+            try viewModel.finalizeMetrics()
+        } catch {
+            viewModel.errorMessage = error.localizedDescription
+            return
+        }
         guard let metrics = viewModel.metrics else { return }
         let renderer = ImageRenderer(content: shareSnapshotView(metrics: metrics))
         renderer.scale = UIScreen.main.scale
