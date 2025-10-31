@@ -322,7 +322,6 @@ struct PostCaptureFlowView: View {
                 summaryMetricCard(for: entry)
             }
         }
-    }
 
     /// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
     private func summaryMetricCard(for entry: PostCaptureMetrics.SummaryMetricEntry) -> some View {
