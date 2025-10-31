@@ -80,7 +80,9 @@ struct HistoryView: View {
         }
         .fullScreenCover(item: $editingMeasurement) { measurement in
             if let image = measurement.getImage() {
-                PostCaptureFlowView(capturedImage: image,
+                let photo = CapturedPhoto(image: image,
+                                          calibration: measurement.postCaptureCalibration)
+                PostCaptureFlowView(capturedPhoto: photo,
                                     existingMeasurement: measurement,
                                     onRetake: {
                                         editingMeasurement = nil

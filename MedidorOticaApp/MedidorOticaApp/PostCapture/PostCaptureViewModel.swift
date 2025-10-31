@@ -51,14 +51,20 @@ final class PostCaptureViewModel: ObservableObject {
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
+    /// Calibração aplicada à imagem atual.
+    let calibration: PostCaptureCalibration
+    /// Conversor de escalas utilizado em todos os cálculos normalizados.
+    let scale: PostCaptureScale
 
     // MARK: - Estados Internos
     private var didMirrorLeftEye = false
 
     // MARK: - Inicialização
-    init(image: UIImage, existingMeasurement: Measurement? = nil) {
-        self.capturedImage = image
+    init(photo: CapturedPhoto, existingMeasurement: Measurement? = nil) {
+        self.capturedImage = photo.image
         self.baseMeasurement = existingMeasurement
+        self.calibration = existingMeasurement?.postCaptureCalibration ?? photo.calibration
+        self.scale = PostCaptureScale(calibration: self.calibration)
         self.configuration = PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
         self.isProcessing = true
@@ -126,7 +132,8 @@ final class PostCaptureViewModel: ObservableObject {
     // MARK: - Processamento Inicial
     private func runAnalysis() async {
         do {
-            let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage)
+            let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage,
+                                                                       scale: scale)
             await MainActor.run {
                 self.configuration = result.configuration
                 self.faceBounds = result.configuration.faceBounds
@@ -290,19 +297,19 @@ final class PostCaptureViewModel: ObservableObject {
         let orderedLeft = configuration.leftEye.normalized(centralX: configuration.centralPoint.x)
         let center = configuration.centralPoint.clamped()
 
-        let rightHorizontal = abs(orderedRight.temporalBarX - orderedRight.nasalBarX) * PostCaptureScale.horizontalReferenceMM
-        let leftHorizontal = abs(orderedLeft.temporalBarX - orderedLeft.nasalBarX) * PostCaptureScale.horizontalReferenceMM
+        let rightHorizontal = abs(orderedRight.temporalBarX - orderedRight.nasalBarX) * scale.horizontalReferenceMM
+        let leftHorizontal = abs(orderedLeft.temporalBarX - orderedLeft.nasalBarX) * scale.horizontalReferenceMM
 
-        let rightVertical = abs(orderedRight.inferiorBarY - orderedRight.superiorBarY) * PostCaptureScale.verticalReferenceMM
-        let leftVertical = abs(orderedLeft.inferiorBarY - orderedLeft.superiorBarY) * PostCaptureScale.verticalReferenceMM
+        let rightVertical = abs(orderedRight.inferiorBarY - orderedRight.superiorBarY) * scale.verticalReferenceMM
+        let leftVertical = abs(orderedLeft.inferiorBarY - orderedLeft.superiorBarY) * scale.verticalReferenceMM
 
-        let rightDNP = abs(orderedRight.pupil.x - center.x) * PostCaptureScale.horizontalReferenceMM
-        let leftDNP = abs(orderedLeft.pupil.x - center.x) * PostCaptureScale.horizontalReferenceMM
+        let rightDNP = abs(orderedRight.pupil.x - center.x) * scale.horizontalReferenceMM
+        let leftDNP = abs(orderedLeft.pupil.x - center.x) * scale.horizontalReferenceMM
 
-        let rightAltura = abs(orderedRight.inferiorBarY - orderedRight.pupil.y) * PostCaptureScale.verticalReferenceMM
-        let leftAltura = abs(orderedLeft.inferiorBarY - orderedLeft.pupil.y) * PostCaptureScale.verticalReferenceMM
+        let rightAltura = abs(orderedRight.inferiorBarY - orderedRight.pupil.y) * scale.verticalReferenceMM
+        let leftAltura = abs(orderedLeft.inferiorBarY - orderedLeft.pupil.y) * scale.verticalReferenceMM
 
-        let ponte = abs(orderedLeft.nasalBarX - orderedRight.nasalBarX) * PostCaptureScale.horizontalReferenceMM
+        let ponte = abs(orderedLeft.nasalBarX - orderedRight.nasalBarX) * scale.horizontalReferenceMM
 
         let rightSummary = EyeMeasurementSummary(horizontalMaior: Double(rightHorizontal),
                                                  verticalMaior: Double(rightVertical),
@@ -333,6 +340,7 @@ final class PostCaptureViewModel: ObservableObject {
                            capturedImage: capturedImage,
                            postCaptureConfiguration: configuration,
                            postCaptureMetrics: metrics,
+                           postCaptureCalibration: calibration,
                            id: identifier,
                            date: date)
     }
