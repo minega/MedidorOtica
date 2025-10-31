@@ -12,7 +12,7 @@ import ARKit
 extension CameraManager {
     // MARK: - Captura de Foto
     /// Captura uma foto utilizando ARKit ou AVCaptureSession.
-    func capturePhoto(completion: @escaping (UIImage?) -> Void) {
+    func capturePhoto(completion: @escaping (CapturedPhoto?) -> Void) {
         if isUsingARSession {
             captureARPhoto(completion: completion)
         } else {
@@ -20,7 +20,7 @@ extension CameraManager {
         }
     }
 
-    private func captureARPhoto(completion: @escaping (UIImage?) -> Void) {
+    private func captureARPhoto(completion: @escaping (CapturedPhoto?) -> Void) {
         guard let frame = arSession?.currentFrame else {
             print("ERRO: Não foi possível obter o frame atual da sessão AR")
             DispatchQueue.main.async { completion(nil) }
@@ -33,8 +33,9 @@ extension CameraManager {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = photoProcessingContext
         // Reaproveita a orientação calculada pelo VerificationManager para alinhar a foto ao preview
-        let orientation = VerificationManager.shared.currentCGOrientation()
-        let orientedCIImage = ciImage.oriented(forExifOrientation: orientation.exifOrientation)
+        let cgOrientation = VerificationManager.shared.currentCGOrientation()
+        let uiOrientation = VerificationManager.shared.currentUIOrientation()
+        let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
 
         guard let cgImageFull = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
             print("ERRO: Falha ao criar CGImage a partir do buffer de pixel")
@@ -57,11 +58,17 @@ extension CameraManager {
 
         // Normaliza a orientação para manter a foto na vertical independente do sensor
         let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: .up)
+        let calibration = buildCalibration(from: frame,
+                                           cropRect: cropRect,
+                                           cgOrientation: cgOrientation,
+                                           uiOrientation: uiOrientation)
         print("Imagem capturada da sessão AR com sucesso")
-        DispatchQueue.main.async { completion(image) }
+        DispatchQueue.main.async {
+            completion(CapturedPhoto(image: image, calibration: calibration))
+        }
     }
 
-    private func captureAVPhoto(completion: @escaping (UIImage?) -> Void) {
+    private func captureAVPhoto(completion: @escaping (CapturedPhoto?) -> Void) {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
@@ -80,6 +87,35 @@ extension CameraManager {
             self.currentPhotoCaptureProcessor = processor
             self.videoOutput.capturePhoto(with: settings, delegate: processor)
         }
+    }
+
+    /// Calcula a calibração da imagem utilizando dados do TrueDepth.
+    private func buildCalibration(from frame: ARFrame,
+                                  cropRect: CGRect,
+                                  cgOrientation: CGImagePropertyOrientation,
+                                  uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration {
+        if let refined = calibrationEstimator.refinedCalibration(for: frame,
+                                                                 cropRect: cropRect,
+                                                                 cgOrientation: cgOrientation,
+                                                                 uiOrientation: uiOrientation) {
+            let horizontalMMPerPixel = refined.horizontalReferenceMM / Double(cropRect.width)
+            let verticalMMPerPixel = refined.verticalReferenceMM / Double(cropRect.height)
+            print("✅ Calibração TrueDepth refinada mm/pixel: \(String(format: \"%.5f\", horizontalMMPerPixel)) x \(String(format: \"%.5f\", verticalMMPerPixel))")
+            return refined
+        }
+
+        guard let fallback = calibrationEstimator.instantCalibration(for: frame,
+                                                                     cropRect: cropRect,
+                                                                     cgOrientation: cgOrientation,
+                                                                     uiOrientation: uiOrientation) else {
+            print("⚠️ Calibração TrueDepth indisponível: usando padrão")
+            return .default
+        }
+
+        let horizontalMMPerPixel = fallback.horizontalReferenceMM / Double(cropRect.width)
+        let verticalMMPerPixel = fallback.verticalReferenceMM / Double(cropRect.height)
+        print("ℹ️ Calibração TrueDepth instantânea mm/pixel: \(String(format: \"%.5f\", horizontalMMPerPixel)) x \(String(format: \"%.5f\", verticalMMPerPixel))")
+        return fallback
     }
 
     private func createPhotoSettings() -> AVCapturePhotoSettings {
@@ -126,7 +162,7 @@ extension CameraManager {
         return UIImage(cgImage: orientedCG, scale: image.scale, orientation: .up)
     }
 
-    private func handleCapturedPhoto(image: UIImage?, completion: @escaping (UIImage?) -> Void) {
+    private func handleCapturedPhoto(image: UIImage?, completion: @escaping (CapturedPhoto?) -> Void) {
         DispatchQueue.main.async { [weak self] in
             self?.currentPhotoCaptureProcessor = nil
 
@@ -139,7 +175,7 @@ extension CameraManager {
             let normalized = self?.normalizeOrientation(of: img) ?? img
             let cropped = self?.cropToScreenAspect(normalized) ?? normalized
             print("Foto capturada com sucesso")
-            completion(cropped)
+            completion(CapturedPhoto(image: cropped, calibration: .default))
         }
     }
 }

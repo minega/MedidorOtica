@@ -23,9 +23,11 @@ final class PostCaptureProcessor {
 
     // MARK: - Processamento
     /// Executa a análise assíncrona retornando as posições normalizadas de interesse.
-    /// - Parameter image: Imagem capturada.
+    /// - Parameters:
+    ///   - image: Imagem capturada.
+    ///   - scale: Escala utilizada para converter milímetros em coordenadas normalizadas.
     /// - Returns: Estrutura com configuração inicial calculada.
-    func analyze(image: UIImage) async throws -> PostCaptureAnalysisResult {
+    func analyze(image: UIImage, scale: PostCaptureScale) async throws -> PostCaptureAnalysisResult {
         guard let cgImage = image.cgImage else {
             throw NSError(domain: "PostCaptureProcessor", code: -1, userInfo: [NSLocalizedDescriptionKey: "Imagem inválida para análise"])
         }
@@ -45,14 +47,16 @@ final class PostCaptureProcessor {
         let imageSize = CGSize(width: dimensions.width, height: dimensions.height)
         let configuration = buildConfiguration(from: observation,
                                                imageSize: imageSize,
-                                               orientation: orientation)
+                                               orientation: orientation,
+                                               scale: scale)
         return PostCaptureAnalysisResult(configuration: configuration)
     }
 
     // MARK: - Montagem da Configuração
     private func buildConfiguration(from observation: VNFaceObservation,
                                     imageSize: CGSize,
-                                    orientation: CGImagePropertyOrientation) -> PostCaptureConfiguration {
+                                    orientation: CGImagePropertyOrientation,
+                                    scale: PostCaptureScale) -> PostCaptureConfiguration {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -95,10 +99,12 @@ final class PostCaptureProcessor {
         // Monta dados por olho utilizando offsets padrão
         let rightEyeData = initialData(for: rightPupilPoint,
                                        isRightEye: true,
-                                       centralPoint: centralPoint)
+                                       centralPoint: centralPoint,
+                                       scale: scale)
         let leftEyeData = initialData(for: leftPupilPoint,
                                       isRightEye: false,
                                       centralPoint: centralPoint,
+                                      scale: scale,
                                       mirroredFrom: rightEyeData)
 
         return PostCaptureConfiguration(centralPoint: centralPoint,
@@ -216,6 +222,7 @@ final class PostCaptureProcessor {
     private func initialData(for point: CGPoint?,
                              isRightEye: Bool,
                              centralPoint: NormalizedPoint,
+                             scale: PostCaptureScale,
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
         // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
         if !isRightEye, point == nil, let mirror = reference {
@@ -227,10 +234,10 @@ final class PostCaptureProcessor {
                                          y: point?.y ?? 0.5).clamped()
 
         // Conversões de milímetros para valores normalizados
-        let nasalOffset = PostCaptureScale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM)
-        let temporalOffset = PostCaptureScale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM)
-        let inferiorOffset = PostCaptureScale.normalizedVertical(PostCaptureScale.inferiorOffsetMM)
-        let superiorOffset = PostCaptureScale.normalizedVertical(PostCaptureScale.superiorOffsetMM)
+        let nasalOffset = scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM)
+        let temporalOffset = scale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM)
+        let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM)
+        let superiorOffset = scale.normalizedVertical(PostCaptureScale.superiorOffsetMM)
 
         let direction: CGFloat
         if let point {
