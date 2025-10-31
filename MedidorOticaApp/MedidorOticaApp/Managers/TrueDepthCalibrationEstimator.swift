@@ -203,17 +203,13 @@ final class TrueDepthCalibrationEstimator {
         let leftPosition = worldPosition(from: leftTransform)
         let rightPosition = worldPosition(from: rightTransform)
 
-        let distanceMM = simd_distance(leftPosition, rightPosition) * 1000
+        let distanceMM = Double(simd_distance(leftPosition, rightPosition)) * 1000
         guard distanceMM.isFinite, distanceMM > 40, distanceMM < 80 else { return nil }
 
-        let projectedLeft = camera.projectPoint(SIMD3<Float>(Float(leftPosition.x),
-                                                             Float(leftPosition.y),
-                                                             Float(leftPosition.z)),
+        let projectedLeft = camera.projectPoint(leftPosition,
                                                 orientation: uiOrientation,
                                                 viewportSize: viewportSize)
-        let projectedRight = camera.projectPoint(SIMD3<Float>(Float(rightPosition.x),
-                                                              Float(rightPosition.y),
-                                                              Float(rightPosition.z)),
+        let projectedRight = camera.projectPoint(rightPosition,
                                                  orientation: uiOrientation,
                                                  viewportSize: viewportSize)
 
@@ -313,20 +309,17 @@ final class TrueDepthCalibrationEstimator {
                                     camera: ARCamera,
                                     uiOrientation: UIInterfaceOrientation,
                                     viewportSize: CGSize) -> PairMeasurement? {
-        let distanceMeters = euclideanDistance(first, second) * Double(faceAnchor.estimatedScaleFactor)
+        // Converte os vértices para coordenadas reais considerando a escala do rosto detectado.
+        let worldFirst: simd_float3 = worldPosition(of: first, transform: faceAnchor.transform)
+        let worldSecond: simd_float3 = worldPosition(of: second, transform: faceAnchor.transform)
+
+        let distanceMeters = Double(simd_distance(worldFirst, worldSecond))
         guard distanceMeters.isFinite, distanceMeters > 0 else { return nil }
 
-        let worldFirst = worldPosition(of: first, transform: faceAnchor.transform)
-        let worldSecond = worldPosition(of: second, transform: faceAnchor.transform)
-
-        let projectedFirst = camera.projectPoint(SIMD3<Float>(Float(worldFirst.x),
-                                                              Float(worldFirst.y),
-                                                              Float(worldFirst.z)),
+        let projectedFirst = camera.projectPoint(worldFirst,
                                                  orientation: uiOrientation,
                                                  viewportSize: viewportSize)
-        let projectedSecond = camera.projectPoint(SIMD3<Float>(Float(worldSecond.x),
-                                                               Float(worldSecond.y),
-                                                               Float(worldSecond.z)),
+        let projectedSecond = camera.projectPoint(worldSecond,
                                                   orientation: uiOrientation,
                                                   viewportSize: viewportSize)
 
@@ -342,24 +335,16 @@ final class TrueDepthCalibrationEstimator {
 
     /// Converte um vértice da malha facial para coordenadas de mundo.
     private static func worldPosition(of vertex: simd_float3,
-                                      transform: simd_float4x4) -> SIMD3<Double> {
+                                      transform: simd_float4x4) -> simd_float3 {
         let position = simd_mul(transform, SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1))
-        return SIMD3<Double>(Double(position.x), Double(position.y), Double(position.z))
+        return simd_float3(position.x, position.y, position.z)
     }
 
     /// Extrai a posição no espaço tridimensional a partir de uma matriz de transformação.
-    private static func worldPosition(from transform: simd_float4x4) -> SIMD3<Double> {
-        SIMD3<Double>(Double(transform.columns.3.x),
-                      Double(transform.columns.3.y),
-                      Double(transform.columns.3.z))
-    }
-
-    /// Calcula a distância euclidiana entre dois vértices em metros.
-    private static func euclideanDistance(_ a: simd_float3, _ b: simd_float3) -> Double {
-        let dx = Double(a.x - b.x)
-        let dy = Double(a.y - b.y)
-        let dz = Double(a.z - b.z)
-        return sqrt(dx * dx + dy * dy + dz * dz)
+    private static func worldPosition(from transform: simd_float4x4) -> simd_float3 {
+        simd_float3(transform.columns.3.x,
+                    transform.columns.3.y,
+                    transform.columns.3.z)
     }
 
     private static func orientedFocalLengths(from intrinsics: simd_float3x3,

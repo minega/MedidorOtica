@@ -75,7 +75,7 @@ class CameraManager: NSObject, ObservableObject {
     /// Indica se o hardware possui suporte ao sensor TrueDepth.
     private(set) var hardwareHasTrueDepth = false
     /// Estimador dedicado a consolidar a calibração proveniente do sensor TrueDepth.
-    private let calibrationEstimator = TrueDepthCalibrationEstimator()
+    let calibrationEstimator = TrueDepthCalibrationEstimator()
     /// Observadores dedicados ao monitoramento de condições relacionadas à lente frontal.
     private var lensMonitorCancellables: Set<AnyCancellable> = []
     /// Heurística que estima a limpeza da lente frontal analisando resultados das verificações.
