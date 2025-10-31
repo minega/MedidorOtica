@@ -100,7 +100,9 @@ extension CameraManager {
                                                                  uiOrientation: uiOrientation) {
             let horizontalMMPerPixel = refined.horizontalReferenceMM / Double(cropRect.width)
             let verticalMMPerPixel = refined.verticalReferenceMM / Double(cropRect.height)
-            print("✅ Calibração TrueDepth refinada mm/pixel: \(String(format: \"%.5f\", horizontalMMPerPixel)) x \(String(format: \"%.5f\", verticalMMPerPixel))")
+            let formattedHorizontal = String(format: "%.5f", horizontalMMPerPixel)
+            let formattedVertical = String(format: "%.5f", verticalMMPerPixel)
+            print("✅ Calibração TrueDepth refinada mm/pixel: \(formattedHorizontal) x \(formattedVertical)")
             return refined
         }
 
@@ -114,7 +116,9 @@ extension CameraManager {
 
         let horizontalMMPerPixel = fallback.horizontalReferenceMM / Double(cropRect.width)
         let verticalMMPerPixel = fallback.verticalReferenceMM / Double(cropRect.height)
-        print("ℹ️ Calibração TrueDepth instantânea mm/pixel: \(String(format: \"%.5f\", horizontalMMPerPixel)) x \(String(format: \"%.5f\", verticalMMPerPixel))")
+        let formattedHorizontal = String(format: "%.5f", horizontalMMPerPixel)
+        let formattedVertical = String(format: "%.5f", verticalMMPerPixel)
+        print("ℹ️ Calibração TrueDepth instantânea mm/pixel: \(formattedHorizontal) x \(formattedVertical)")
         return fallback
     }
 
