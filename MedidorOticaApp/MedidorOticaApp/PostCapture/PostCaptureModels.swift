@@ -224,3 +224,102 @@ struct PostCaptureMetrics: Codable, Equatable {
         rightEye.dnp + leftEye.dnp
     }
 }
+
+// MARK: - Resumo formatado das métricas
+extension PostCaptureMetrics {
+    /// Entrada utilizada para exibir ou compartilhar uma linha do resumo final.
+    struct SummaryMetricEntry: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let rightValue: Double?
+        let leftValue: Double?
+        let singleValue: Double?
+
+        /// Indica quando o item possui valores para ambos os olhos.
+        var hasPair: Bool {
+            rightValue != nil && leftValue != nil
+        }
+    }
+
+    /// Formata um valor numérico com uma casa decimal respeitando a localidade brasileira.
+    /// Usado para manter o padrão em todo o fluxo pós-captura.
+    static let summaryNumberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
+        return formatter
+    }()
+
+    /// Retorna os itens padronizados que compõem o resumo visual e textual.
+    func summaryEntries() -> [SummaryMetricEntry] {
+        [
+            SummaryMetricEntry(id: "horizontalMaior",
+                               title: "Horizontal maior",
+                               rightValue: rightEye.horizontalMaior,
+                               leftValue: leftEye.horizontalMaior,
+                               singleValue: nil),
+            SummaryMetricEntry(id: "verticalMaior",
+                               title: "Vertical maior",
+                               rightValue: rightEye.verticalMaior,
+                               leftValue: leftEye.verticalMaior,
+                               singleValue: nil),
+            SummaryMetricEntry(id: "dnp",
+                               title: "DNP",
+                               rightValue: rightEye.dnp,
+                               leftValue: leftEye.dnp,
+                               singleValue: nil),
+            SummaryMetricEntry(id: "alturaPupilar",
+                               title: "Altura pupilar",
+                               rightValue: rightEye.alturaPupilar,
+                               leftValue: leftEye.alturaPupilar,
+                               singleValue: nil),
+            SummaryMetricEntry(id: "ponte",
+                               title: "Ponte",
+                               rightValue: nil,
+                               leftValue: nil,
+                               singleValue: ponte)
+        ]
+    }
+
+    /// Gera uma string compacta no padrão "Nome - valor OD/valor OE" sem repetir unidades.
+    /// - Parameter item: Item do resumo que terá os valores convertidos para texto.
+    /// - Returns: Linha formatada pronta para compartilhar ou exibir.
+    func compactLine(for item: SummaryMetricEntry) -> String {
+        "\(item.title) - \(item.compactDisplay(using: Self.summaryNumberFormatter))"
+    }
+
+    /// Lista todas as linhas compactas respeitando o padrão definido.
+    func compactSummaryLines() -> [String] {
+        summaryEntries().map { compactLine(for: $0) }
+    }
+}
+
+extension PostCaptureMetrics.SummaryMetricEntry {
+    /// Converte os valores numéricos para texto usando o formatador fornecido.
+    /// - Parameter formatter: `NumberFormatter` configurado com uma casa decimal.
+    /// - Returns: Texto já no padrão "valor OD/valor OE" ou apenas um valor.
+    func compactDisplay(using formatter: NumberFormatter) -> String {
+        let format: (Double) -> String = { value in
+            formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
+        }
+
+        if let singleValue {
+            return format(singleValue)
+        }
+
+        let rightText = rightValue.map(format)
+        let leftText = leftValue.map(format)
+
+        switch (rightText, leftText) {
+        case let (right?, left?):
+            return "\(right) / \(left)"
+        case let (right?, nil):
+            return right
+        case let (nil, left?):
+            return left
+        default:
+            return "-"
+        }
+    }
+}
