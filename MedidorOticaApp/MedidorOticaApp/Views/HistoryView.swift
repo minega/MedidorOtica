@@ -131,6 +131,12 @@ struct MeasurementRow: View {
                 Text(measurement.clientName)
                     .font(.headline)
 
+                if !measurement.orderNumber.isEmpty {
+                    Text("OS: \(measurement.orderNumber)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
                 Text("DP: \(measurement.formattedDistanciaPupilar)")
                     .font(.subheadline)
                     .foregroundColor(.blue)
@@ -209,15 +215,31 @@ struct MeasurementDetailView: View {
                             Text("Distância Pupilar:")
                                 .font(.headline)
                                 .foregroundColor(.gray)
-                            
+
                             Spacer()
-                            
+
                             Text(measurement.formattedDistanciaPupilar)
                                 .font(.headline)
                                 .foregroundColor(.blue)
                         }
                         .padding(.horizontal)
-                        
+
+                        if !measurement.orderNumber.isEmpty {
+                            Divider()
+
+                            HStack {
+                                Text("Número da OS:")
+                                    .font(.headline)
+                                    .foregroundColor(.gray)
+
+                                Spacer()
+
+                                Text(measurement.orderNumber)
+                                    .font(.headline)
+                            }
+                            .padding(.horizontal)
+                        }
+
                         Divider()
 
                         // Data da medição
@@ -349,26 +371,23 @@ fileprivate struct MeasurementShareFormatter {
     /// - Returns: Texto pronto para ser compartilhado.
     func makeSummary(for measurement: Measurement) -> String {
         var lines: [String] = []
-        lines.reserveCapacity(8)
+        lines.reserveCapacity(9)
 
         lines.append("Cliente: \(measurement.clientName)")
+
+        if !measurement.orderNumber.isEmpty {
+            lines.append("OS: \(measurement.orderNumber)")
+        }
+
         lines.append("Distância Pupilar: \(measurement.formattedDistanciaPupilar)")
         lines.append("Data: \(measurement.formattedDate)")
 
         if let metrics = measurement.postCaptureMetrics {
-            lines.append("Horizontal OD: \(format(metrics.rightEye.horizontalMaior))")
-            lines.append("Horizontal OE: \(format(metrics.leftEye.horizontalMaior))")
-            lines.append("Vertical OD: \(format(metrics.rightEye.verticalMaior))")
-            lines.append("Vertical OE: \(format(metrics.leftEye.verticalMaior))")
-            lines.append("Ponte: \(format(metrics.ponte))")
+            lines.append("Valores em mm — OD / OE")
+            lines.append(contentsOf: metrics.compactSummaryLines())
         }
 
         return lines.joined(separator: "\n")
-    }
-
-    /// Formata um valor métrico com uma casa decimal seguida de "mm".
-    private func format(_ value: Double) -> String {
-        String(format: "%.1f mm", value)
     }
 }
 

@@ -13,6 +13,8 @@ import UIKit
 struct Measurement: Identifiable, Codable {
     var id: UUID
     var clientName: String
+    /// Número da ordem de serviço associado à medição.
+    var orderNumber: String
     var date: Date
     var distanciaPupilar: Double
     var imageData: Data?
@@ -46,6 +48,7 @@ struct Measurement: Identifiable, Codable {
 
     // MARK: - Inicialização
     init(clientName: String,
+         orderNumber: String,
          capturedImage: UIImage,
          postCaptureConfiguration: PostCaptureConfiguration,
          postCaptureMetrics: PostCaptureMetrics,
@@ -53,6 +56,7 @@ struct Measurement: Identifiable, Codable {
          date: Date = Date()) {
         self.id = id
         self.clientName = clientName
+        self.orderNumber = orderNumber
         self.date = date
         self.distanciaPupilar = postCaptureMetrics.distanciaPupilarTotal
         self.postCaptureConfiguration = postCaptureConfiguration
@@ -64,6 +68,7 @@ struct Measurement: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id
         case clientName
+        case orderNumber
         case date
         case distanciaPupilar
         case imageData
@@ -75,6 +80,7 @@ struct Measurement: Identifiable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         clientName = try container.decodeIfPresent(String.self, forKey: .clientName) ?? "Cliente"
+        orderNumber = try container.decodeIfPresent(String.self, forKey: .orderNumber) ?? ""
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? Date()
         distanciaPupilar = try container.decodeIfPresent(Double.self, forKey: .distanciaPupilar) ?? 0
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
@@ -86,6 +92,7 @@ struct Measurement: Identifiable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(clientName, forKey: .clientName)
+        try container.encode(orderNumber, forKey: .orderNumber)
         try container.encode(date, forKey: .date)
         try container.encode(distanciaPupilar, forKey: .distanciaPupilar)
         try container.encodeIfPresent(imageData, forKey: .imageData)
