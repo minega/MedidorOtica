@@ -74,6 +74,8 @@ class CameraManager: NSObject, ObservableObject {
     let photoProcessingContext = CIContext()
     /// Indica se o hardware possui suporte ao sensor TrueDepth.
     private(set) var hardwareHasTrueDepth = false
+    /// Estimador dedicado a consolidar a calibração proveniente do sensor TrueDepth.
+    fileprivate let calibrationEstimator = TrueDepthCalibrationEstimator()
     /// Observadores dedicados ao monitoramento de condições relacionadas à lente frontal.
     private var lensMonitorCancellables: Set<AnyCancellable> = []
     /// Heurística que estima a limpeza da lente frontal analisando resultados das verificações.
@@ -336,6 +338,13 @@ private final class FrontLensCleanlinessMonitor {
 extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         outputDelegate?(frame)
+
+        guard cameraPosition == .front, hasTrueDepth else { return }
+        let cgOrientation = VerificationManager.shared.currentCGOrientation()
+        let uiOrientation = VerificationManager.shared.currentUIOrientation()
+        calibrationEstimator.ingest(frame: frame,
+                                    cgOrientation: cgOrientation,
+                                    uiOrientation: uiOrientation)
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {

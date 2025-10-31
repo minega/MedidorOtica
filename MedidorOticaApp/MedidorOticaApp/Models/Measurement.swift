@@ -20,6 +20,8 @@ struct Measurement: Identifiable, Codable {
     var imageData: Data?
     var postCaptureConfiguration: PostCaptureConfiguration?
     var postCaptureMetrics: PostCaptureMetrics?
+    /// Calibração utilizada para converter valores normalizados em milímetros.
+    var postCaptureCalibration: PostCaptureCalibration
 
     // MARK: - Computados
     var formattedDate: String {
@@ -52,6 +54,7 @@ struct Measurement: Identifiable, Codable {
          capturedImage: UIImage,
          postCaptureConfiguration: PostCaptureConfiguration,
          postCaptureMetrics: PostCaptureMetrics,
+         postCaptureCalibration: PostCaptureCalibration,
          id: UUID = UUID(),
          date: Date = Date()) {
         self.id = id
@@ -61,6 +64,7 @@ struct Measurement: Identifiable, Codable {
         self.distanciaPupilar = postCaptureMetrics.distanciaPupilarTotal
         self.postCaptureConfiguration = postCaptureConfiguration
         self.postCaptureMetrics = postCaptureMetrics
+        self.postCaptureCalibration = postCaptureCalibration
         self.imageData = capturedImage.jpegData(compressionQuality: 0.92)
     }
 
@@ -74,6 +78,7 @@ struct Measurement: Identifiable, Codable {
         case imageData
         case postCaptureConfiguration
         case postCaptureMetrics
+        case postCaptureCalibration
     }
 
     init(from decoder: Decoder) throws {
@@ -86,6 +91,7 @@ struct Measurement: Identifiable, Codable {
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         postCaptureConfiguration = try container.decodeIfPresent(PostCaptureConfiguration.self, forKey: .postCaptureConfiguration)
         postCaptureMetrics = try container.decodeIfPresent(PostCaptureMetrics.self, forKey: .postCaptureMetrics)
+        postCaptureCalibration = try container.decodeIfPresent(PostCaptureCalibration.self, forKey: .postCaptureCalibration) ?? .default
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,5 +104,6 @@ struct Measurement: Identifiable, Codable {
         try container.encodeIfPresent(imageData, forKey: .imageData)
         try container.encodeIfPresent(postCaptureConfiguration, forKey: .postCaptureConfiguration)
         try container.encodeIfPresent(postCaptureMetrics, forKey: .postCaptureMetrics)
+        try container.encode(postCaptureCalibration, forKey: .postCaptureCalibration)
     }
 }

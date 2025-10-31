@@ -2,31 +2,60 @@
 //  PostCaptureScale.swift
 //  MedidorOticaApp
 //
-//  Constantes e conversões para transformar milímetros em valores normalizados.
+//  Estruturas responsáveis por definir a calibração e as conversões de escala pós-captura.
 //
 
 import CoreGraphics
 
-// MARK: - Escalas do Fluxo Pós-Captura
-enum PostCaptureScale {
-    static let horizontalReferenceMM: CGFloat = 120
-    static let verticalReferenceMM: CGFloat = 80
+// MARK: - Calibração Pós-Captura
+/// Armazena os valores de referência utilizados para converter pontos normalizados em milímetros.
+struct PostCaptureCalibration: Codable, Equatable {
+    /// Valor em milímetros correspondente a toda a largura útil da imagem normalizada.
+    var horizontalReferenceMM: Double
+    /// Valor em milímetros correspondente a toda a altura útil da imagem normalizada.
+    var verticalReferenceMM: Double
+
+    /// Calibração padrão utilizada quando não é possível calcular valores reais.
+    static let `default` = PostCaptureCalibration(horizontalReferenceMM: 120, verticalReferenceMM: 80)
+}
+
+// MARK: - Conversões de Escala
+/// Responsável por converter valores milimétricos para o espaço normalizado (0...1).
+struct PostCaptureScale {
+    /// Referência horizontal em milímetros para o intervalo normalizado completo.
+    let horizontalReferenceMM: CGFloat
+    /// Referência vertical em milímetros para o intervalo normalizado completo.
+    let verticalReferenceMM: CGFloat
+
+    /// Diâmetro padrão da pupila utilizado para desenhar o marcador.
     static let pupilDiameterMM: CGFloat = 2
+    /// Altura padrão das barras horizontais exibidas durante o ajuste vertical.
     static let verticalBarHeightMM: CGFloat = 50
+    /// Comprimento padrão das barras verticais exibidas durante o ajuste horizontal.
     static let horizontalBarLengthMM: CGFloat = 60
+    /// Deslocamento nasal inicial solicitado pelo time de ótica.
     static let nasalOffsetMM: CGFloat = 9
+    /// Deslocamento temporal inicial solicitado pelo time de ótica.
     static let temporalOffsetMM: CGFloat = 60
+    /// Deslocamento inferior inicial para o ajuste das barras horizontais.
     static let inferiorOffsetMM: CGFloat = 25
+    /// Deslocamento superior inicial para o ajuste das barras horizontais.
     static let superiorOffsetMM: CGFloat = 15
 
+    /// Inicializa a escala garantindo que os valores sejam positivos.
+    init(calibration: PostCaptureCalibration = .default) {
+        self.horizontalReferenceMM = max(CGFloat(calibration.horizontalReferenceMM), 1)
+        self.verticalReferenceMM = max(CGFloat(calibration.verticalReferenceMM), 1)
+    }
+
     /// Converte um valor em milímetros para escala horizontal normalizada (0...1).
-    static func normalizedHorizontal(_ millimeters: CGFloat) -> CGFloat {
+    func normalizedHorizontal(_ millimeters: CGFloat) -> CGFloat {
         guard horizontalReferenceMM > 0 else { return 0 }
         return millimeters / horizontalReferenceMM
     }
 
     /// Converte um valor em milímetros para escala vertical normalizada (0...1).
-    static func normalizedVertical(_ millimeters: CGFloat) -> CGFloat {
+    func normalizedVertical(_ millimeters: CGFloat) -> CGFloat {
         guard verticalReferenceMM > 0 else { return 0 }
         return millimeters / verticalReferenceMM
     }
