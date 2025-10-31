@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - Fluxo Pós-Captura
 struct PostCaptureFlowView: View {
@@ -56,7 +57,8 @@ struct PostCaptureFlowView: View {
         .sheet(isPresented: $showingShareSheet) {
             if let image = renderedOverlay,
                let metrics = viewModel.metrics {
-                let description = shareDescription(from: metrics)
+                let description = metrics.shareDescription(clientName: clientName,
+                                                           orderNumber: orderNumber)
                 ShareSheet(items: [image, description])
             }
         }
@@ -129,7 +131,7 @@ struct PostCaptureFlowView: View {
                 }
 
                 if !viewModel.isOnSummary {
-                    bottomActions
+                    bottomActionsView()
                         .padding(.horizontal, 20)
                         .padding(.bottom, max(geometry.safeAreaInsets.bottom, 24))
                         .background(Color.black.opacity(0.001))
@@ -239,7 +241,7 @@ struct PostCaptureFlowView: View {
             }
 
             if let metrics = viewModel.metrics {
-                summaryMetricsView(metrics)
+                SummaryMetricsSection(metrics: metrics)
             }
 
             summaryFormFields
@@ -274,6 +276,16 @@ struct PostCaptureFlowView: View {
                               text: $orderNumber,
                               keyboardType: .numbersAndPunctuation)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
     }
 
     /// Conjunto de botões disponibilizados no resumo para compartilhar, revisar, salvar ou cancelar.
@@ -308,106 +320,6 @@ struct PostCaptureFlowView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
-        }
-    }
-
-    /// Apresenta as métricas finais em cartões compactos seguindo o padrão definido.
-    private func summaryMetricsView(_ metrics: PostCaptureMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Valores em mm — OD / OE")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.65))
-
-            ForEach(metrics.summaryEntries()) { entry in
-                summaryMetricCard(for: entry)
-            }
-        }
-
-    /// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
-    private func summaryMetricCard(for entry: PostCaptureMetrics.SummaryMetricEntry) -> some View {
-        let formattedHeader = "\(entry.title) - \(entry.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
-        let formattedRight = entry.rightValue.map(formattedMetricValue)
-        let formattedLeft = entry.leftValue.map(formattedMetricValue)
-        let formattedSingle = entry.singleValue.map(formattedMetricValue)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(formattedHeader)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-                .monospacedDigit()
-
-            if entry.hasPair {
-                HStack(spacing: 12) {
-                    if let formattedRight {
-                        SummaryValueChip(text: formattedRight)
-                    }
-
-                    Text("/")
-                        .font(.headline)
-                        .foregroundColor(.white.opacity(0.5))
-
-                    if let formattedLeft {
-                        SummaryValueChip(text: formattedLeft)
-                    }
-                }
-            } else if let formattedSingle {
-                SummaryValueChip(text: formattedSingle)
-            } else {
-                Text("-")
-                    .font(.body)
-                    .foregroundColor(.white.opacity(0.6))
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-        )
-    }
-
-    /// Converte o valor em string respeitando o formatador do resumo.
-    private func formattedMetricValue(_ value: Double) -> String {
-        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
-        ?? String(format: "%.1f", value)
-    }
-
-    @ViewBuilder
-    private var bottomActions: some View {
-        if viewModel.isOnSummary {
-            EmptyView()
-        } else {
-            HStack(spacing: 12) {
-                Button(action: onRetake) {
-                    Label("Refazer", systemImage: "arrow.counterclockwise")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-
-                if viewModel.canGoBack {
-                    Button(action: viewModel.goBack) {
-                        Label("Voltar", systemImage: "chevron.left")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.gray)
-                }
-
-                Button(action: viewModel.advanceStage) {
-                    Label(viewModel.currentStage == .confirmation ? "Iniciar" : "Próximo",
-                          systemImage: viewModel.currentStage == .confirmation ? "play.fill" : "chevron.right")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
-                .disabled(viewModel.isProcessing)
-            }
         }
     }
 
@@ -470,26 +382,6 @@ struct PostCaptureFlowView: View {
         }
     }
 
-    private func shareDescription(from metrics: PostCaptureMetrics) -> String {
-        var lines: [String] = []
-
-        let trimmedName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedOrder = orderNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if !trimmedName.isEmpty {
-            lines.append("Cliente: \(trimmedName)")
-        }
-
-        if !trimmedOrder.isEmpty {
-            lines.append("OS: \(trimmedOrder)")
-        }
-
-        lines.append("Valores em mm — OD / OE")
-        lines.append(contentsOf: metrics.compactSummaryLines())
-
-        return lines.joined(separator: "\n")
-    }
-
     @ViewBuilder
     private func shareSnapshotView(metrics: PostCaptureMetrics) -> some View {
         VStack(spacing: 24) {
@@ -503,7 +395,7 @@ struct PostCaptureFlowView: View {
                     .foregroundColor(.white)
                     .bold()
 
-                summaryMetricsView(metrics)
+                SummaryMetricsSection(metrics: metrics)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
@@ -512,6 +404,44 @@ struct PostCaptureFlowView: View {
         }
         .padding(40)
         .background(Color.black)
+    }
+}
+
+// MARK: - Ações auxiliares
+private extension PostCaptureFlowView {
+    /// Conjunto de botões inferiores exibidos durante as etapas intermediárias.
+    @ViewBuilder
+    func bottomActionsView() -> some View {
+        if viewModel.isOnSummary {
+            EmptyView()
+        } else {
+            HStack(spacing: 12) {
+                Button(action: onRetake) {
+                    Label("Refazer", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+
+                if viewModel.canGoBack {
+                    Button(action: viewModel.goBack) {
+                        Label("Voltar", systemImage: "chevron.left")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.gray)
+                }
+
+                Button(action: viewModel.advanceStage) {
+                    Label(viewModel.currentStage == .confirmation ? "Iniciar" : "Próximo",
+                          systemImage: viewModel.currentStage == .confirmation ? "play.fill" : "chevron.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .disabled(viewModel.isProcessing)
+            }
+        }
     }
 }
 
@@ -534,6 +464,84 @@ private struct SummaryValueChip: View {
                             .stroke(Color.white.opacity(0.2), lineWidth: 1)
                     )
             )
+    }
+}
+
+/// Conjunto que organiza e exibe as métricas calculadas no formato "Nome - OD/OE".
+private struct SummaryMetricsSection: View {
+    let metrics: PostCaptureMetrics
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Valores em mm — OD / OE")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.65))
+
+            ForEach(metrics.summaryEntries()) { entry in
+                SummaryMetricCard(entry: entry)
+            }
+        }
+    }
+
+    /// Cartão responsável por aplicar o padrão textual e visual de cada medida.
+    private struct SummaryMetricCard: View {
+        let entry: PostCaptureMetrics.SummaryMetricEntry
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(headerText)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .monospacedDigit()
+
+                content
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            )
+        }
+
+        private var headerText: String {
+            "\(entry.title) - \(entry.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
+        }
+
+        @ViewBuilder
+        private var content: some View {
+            if entry.hasPair {
+                HStack(spacing: 12) {
+                    if let value = entry.rightValue.map(formattedMetricValue) {
+                        SummaryValueChip(text: value)
+                    }
+
+                    Text("/")
+                        .font(.headline)
+                        .foregroundColor(.white.opacity(0.5))
+
+                    if let value = entry.leftValue.map(formattedMetricValue) {
+                        SummaryValueChip(text: value)
+                    }
+                }
+            } else if let value = entry.singleValue.map(formattedMetricValue) {
+                SummaryValueChip(text: value)
+            } else {
+                Text("-")
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+
+        private func formattedMetricValue(_ value: Double) -> String {
+            PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+            ?? String(format: "%.1f", value)
+        }
     }
 }
 

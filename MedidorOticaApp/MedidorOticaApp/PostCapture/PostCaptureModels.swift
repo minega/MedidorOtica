@@ -293,6 +293,31 @@ extension PostCaptureMetrics {
     func compactSummaryLines() -> [String] {
         summaryEntries().map { compactLine(for: $0) }
     }
+
+    /// Monta o texto utilizado ao compartilhar o resumo das medidas.
+    /// - Parameters:
+    ///   - clientName: Nome bruto informado pelo usuário.
+    ///   - orderNumber: Número da OS informado no formulário.
+    /// - Returns: Texto formatado com identificação e métricas compactas.
+    func shareDescription(clientName: String, orderNumber: String) -> String {
+        var lines: [String] = []
+
+        let trimmedName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrder = orderNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmedName.isEmpty {
+            lines.append("Cliente: \(trimmedName)")
+        }
+
+        if !trimmedOrder.isEmpty {
+            lines.append("OS: \(trimmedOrder)")
+        }
+
+        lines.append("Valores em mm — OD / OE")
+        lines.append(contentsOf: compactSummaryLines())
+
+        return lines.joined(separator: "\n")
+    }
 }
 
 extension PostCaptureMetrics.SummaryMetricEntry {
