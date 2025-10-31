@@ -318,13 +318,9 @@ struct PostCaptureFlowView: View {
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.65))
 
-            ForEach(metrics.summaryItems()) { item in
+            ForEach(metrics.summaryEntries()) { item in
                 SummaryMetricRow(item: item)
             }
-        }
-
-        if let rightValue, let leftValue {
-            return "\(title) - \(formatValue(rightValue, suffix: "OD"))/\(formatValue(leftValue, suffix: "OE"))"
         }
 
         if let rightValue {
@@ -479,7 +475,7 @@ struct PostCaptureFlowView: View {
 // MARK: - Componentes de resumo
 /// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
 private struct SummaryMetricRow: View {
-    let item: PostCaptureMetrics.SummaryItem
+    let item: PostCaptureMetrics.SummaryMetricEntry
 
     private var formattedLine: String {
         "\(item.title) - \(item.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
