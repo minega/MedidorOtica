@@ -276,6 +276,16 @@ struct PostCaptureFlowView: View {
                               text: $orderNumber,
                               keyboardType: .numbersAndPunctuation)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
     }
 
     /// Conjunto de botões disponibilizados no resumo para compartilhar, revisar, salvar ou cancelar.
