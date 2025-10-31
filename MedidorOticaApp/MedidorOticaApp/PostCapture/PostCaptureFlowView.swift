@@ -322,6 +322,16 @@ struct PostCaptureFlowView: View {
                 SummaryMetricRow(item: item)
             }
         }
+
+        if let rightValue {
+            return "\(title) - \(formatValue(rightValue, suffix: "OD"))"
+        }
+
+        if let leftValue {
+            return "\(title) - \(formatValue(leftValue, suffix: "OE"))"
+        }
+
+        return "\(title) - -"
     }
 
     @ViewBuilder
