@@ -24,7 +24,7 @@ struct CameraView: View {
     @State private var countdownTimer: Timer?
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var capturedImage: UIImage?
+    @State private var capturedPhoto: CapturedPhoto?
     @State private var isProcessing = false
     @State private var showFlash = false
     @State private var showingResultView = false
@@ -290,9 +290,9 @@ struct CameraView: View {
         }
         // Navegação para a tela de resultados após captura
         .fullScreenCover(isPresented: $showingResultView) {
-            if let image = capturedImage {
-                PostCaptureFlowView(capturedImage: image, onRetake: {
-                    capturedImage = nil
+            if let photo = capturedPhoto {
+                PostCaptureFlowView(capturedPhoto: photo, onRetake: {
+                    capturedPhoto = nil
                     showingResultView = false
                 })
                 .environmentObject(historyManager)
@@ -484,15 +484,16 @@ struct CameraView: View {
         
         // Tenta capturar a foto com tratamento de erro
         print("Iniciando captura de foto...")
-        cameraManager.capturePhoto { image in
+        cameraManager.capturePhoto { photo in
             // Certifica-se de processar na thread principal
             DispatchQueue.main.async {
                 // Marca o fim do processamento
                 isProcessing = false
-                
-                if let image = image {
-                    print("Imagem capturada com sucesso, tamanho: \(image.size.width) x \(image.size.height)")
-                    capturedImage = image
+
+                if let photo = photo {
+                    let size = photo.image.size
+                    print("Imagem capturada com sucesso, tamanho: \(size.width) x \(size.height)")
+                    capturedPhoto = photo
                     showingResultView = true
                 } else {
                     print("Falha ao capturar imagem")

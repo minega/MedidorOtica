@@ -258,7 +258,7 @@ struct PostCaptureOverlayView: View {
                               isActiveEye: Bool) -> some View {
         let center = CGPoint(x: data.pupil.x * size.width,
                              y: data.pupil.y * size.height)
-        let baseDiameter = PostCaptureScale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
+        let baseDiameter = viewModel.scale.normalizedHorizontal(PostCaptureScale.pupilDiameterMM) * size.width
         let diameter = max(baseDiameter / 5, 8)
         let interactionSize = max(diameter * 3.1, 88)
         let crossLength = max(diameter * 1.6, 34)
@@ -317,7 +317,7 @@ struct PostCaptureOverlayView: View {
                                data: EyeMeasurementData,
                                size: CGSize,
                                isActiveEye: Bool) -> some View {
-        let barHeight = min(PostCaptureScale.normalizedVertical(PostCaptureScale.verticalBarHeightMM) * size.height,
+        let barHeight = min(viewModel.scale.normalizedVertical(PostCaptureScale.verticalBarHeightMM) * size.height,
                             size.height)
         let centerY = data.pupil.y * size.height
         let isActive = isActiveEye && viewModel.currentStage == .horizontal
@@ -378,7 +378,7 @@ struct PostCaptureOverlayView: View {
                                  data: EyeMeasurementData,
                                  size: CGSize,
                                  isActiveEye: Bool) -> some View {
-        let barWidth = min(PostCaptureScale.normalizedHorizontal(PostCaptureScale.horizontalBarLengthMM) * size.width,
+        let barWidth = min(viewModel.scale.normalizedHorizontal(PostCaptureScale.horizontalBarLengthMM) * size.width,
                            size.width)
         let centerX = data.pupil.x * size.width
         let inferiorY = data.inferiorBarY * size.height

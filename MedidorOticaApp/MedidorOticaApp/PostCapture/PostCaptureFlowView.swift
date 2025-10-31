@@ -24,10 +24,10 @@ struct PostCaptureFlowView: View {
     private let existingMeasurement: Measurement?
 
     // MARK: - Inicialização
-    init(capturedImage: UIImage,
+    init(capturedPhoto: CapturedPhoto,
          existingMeasurement: Measurement? = nil,
          onRetake: @escaping () -> Void) {
-        self._viewModel = StateObject(wrappedValue: PostCaptureViewModel(image: capturedImage,
+        self._viewModel = StateObject(wrappedValue: PostCaptureViewModel(photo: capturedPhoto,
                                                                          existingMeasurement: existingMeasurement))
         self._clientName = State(initialValue: existingMeasurement?.clientName ?? "")
         self.onRetake = onRetake
