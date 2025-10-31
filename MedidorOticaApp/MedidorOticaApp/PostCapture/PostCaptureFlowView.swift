@@ -318,20 +318,63 @@ struct PostCaptureFlowView: View {
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.65))
 
-            ForEach(metrics.summaryEntries()) { item in
-                SummaryMetricRow(item: item)
+            ForEach(metrics.summaryEntries()) { entry in
+                summaryMetricCard(for: entry)
             }
         }
 
-        if let rightValue {
-            return "\(title) - \(formatValue(rightValue, suffix: "OD"))"
-        }
+    /// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
+    private func summaryMetricCard(for entry: PostCaptureMetrics.SummaryMetricEntry) -> some View {
+        let formattedHeader = "\(entry.title) - \(entry.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
+        let formattedRight = entry.rightValue.map(formattedMetricValue)
+        let formattedLeft = entry.leftValue.map(formattedMetricValue)
+        let formattedSingle = entry.singleValue.map(formattedMetricValue)
 
-        if let leftValue {
-            return "\(title) - \(formatValue(leftValue, suffix: "OE"))"
-        }
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(formattedHeader)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .monospacedDigit()
 
-        return "\(title) - -"
+            if entry.hasPair {
+                HStack(spacing: 12) {
+                    if let formattedRight {
+                        SummaryValueChip(text: formattedRight)
+                    }
+
+                    Text("/")
+                        .font(.headline)
+                        .foregroundColor(.white.opacity(0.5))
+
+                    if let formattedLeft {
+                        SummaryValueChip(text: formattedLeft)
+                    }
+                }
+            } else if let formattedSingle {
+                SummaryValueChip(text: formattedSingle)
+            } else {
+                Text("-")
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+    }
+
+    /// Converte o valor em string respeitando o formatador do resumo.
+    private func formattedMetricValue(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
     }
 
     @ViewBuilder
@@ -473,75 +516,6 @@ struct PostCaptureFlowView: View {
 }
 
 // MARK: - Componentes de resumo
-/// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
-private struct SummaryMetricRow: View {
-    let item: PostCaptureMetrics.SummaryMetricEntry
-
-    private var formattedLine: String {
-        "\(item.title) - \(item.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
-    }
-
-    private var rightText: String? {
-        item.rightValue.map { format($0) }
-    }
-
-    private var leftText: String? {
-        item.leftValue.map { format($0) }
-    }
-
-    private var singleText: String? {
-        item.singleValue.map { format($0) }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(formattedLine)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-                .monospacedDigit()
-
-            if item.hasPair {
-                HStack(spacing: 12) {
-                    if let rightText {
-                        SummaryValueChip(text: rightText)
-                    }
-
-                    Text("/")
-                        .font(.headline)
-                        .foregroundColor(.white.opacity(0.5))
-
-                    if let leftText {
-                        SummaryValueChip(text: leftText)
-                    }
-                }
-            } else if let singleText {
-                SummaryValueChip(text: singleText)
-            } else {
-                Text("-")
-                    .font(.body)
-                    .foregroundColor(.white.opacity(0.6))
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-        )
-    }
-
-    /// Converte o valor em string respeitando o formatador do resumo.
-    private func format(_ value: Double) -> String {
-        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
-        ?? String(format: "%.1f", value)
-    }
-}
-
 /// Estiliza cada valor numérico com um chip arredondado para fácil leitura.
 private struct SummaryValueChip: View {
     let text: String
