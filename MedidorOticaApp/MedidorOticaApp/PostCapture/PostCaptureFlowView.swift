@@ -115,19 +115,27 @@ struct PostCaptureFlowView: View {
 
     private var standardScreen: some View {
         GeometryReader { geometry in
-            VStack(spacing: 16) {
-                header
-                overlaySection(in: geometry)
-                Spacer()
-                VStack(spacing: 16) {
-                    stageContent
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        header
+                        overlaySection(in: geometry)
+                        stageContent
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, geometry.safeAreaInsets.top + 16)
+                    .padding(.bottom, viewModel.isOnSummary ? geometry.safeAreaInsets.bottom + 32 : 32)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+
+                if !viewModel.isOnSummary {
                     bottomActions
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, max(geometry.safeAreaInsets.bottom, 24))
+                        .background(Color.black.opacity(0.001))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
         }
     }
 
@@ -218,12 +226,17 @@ struct PostCaptureFlowView: View {
 
     /// Painel exibido no resumo com métricas, identificação do cliente e ações finais.
     private var summaryContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Divider().background(Color.white.opacity(0.2))
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Resumo das Medidas")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
 
-            Text("Resumo das Medidas")
-                .font(.headline)
-                .foregroundColor(.white)
+                Text("Confira, edite e salve as informações antes de finalizar.")
+                    .font(.footnote)
+                    .foregroundColor(.white.opacity(0.7))
+            }
 
             if let metrics = viewModel.metrics {
                 summaryMetricsView(metrics)
@@ -232,22 +245,35 @@ struct PostCaptureFlowView: View {
             summaryFormFields
             summaryActionButtons
         }
-        .padding()
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [Color.white.opacity(0.12),
+                                             Color.white.opacity(0.04)],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
+        )
     }
 
     /// Campos que solicitam os dados necessários para salvar no histórico.
     private var summaryFormFields: some View {
-        VStack(spacing: 12) {
-            TextField("Nome do cliente", text: $clientName)
-                .textFieldStyle(.roundedBorder)
+        VStack(spacing: 14) {
+            SummaryInputField(placeholder: "Nome do cliente",
+                              text: $clientName,
+                              keyboardType: .default,
+                              capitalization: .words,
+                              disableAutocorrection: false)
 
-            TextField("Número da OS", text: $orderNumber)
-                .textFieldStyle(.roundedBorder)
-                .keyboardType(.numbersAndPunctuation)
+            SummaryInputField(placeholder: "Número da OS",
+                              text: $orderNumber,
+                              keyboardType: .numbersAndPunctuation)
         }
-        .padding(.top, 4)
     }
 
     /// Conjunto de botões disponibilizados no resumo para compartilhar, revisar, salvar ou cancelar.
@@ -285,40 +311,16 @@ struct PostCaptureFlowView: View {
         }
     }
 
-    /// Apresenta as métricas finais seguindo o padrão solicitado: "Nome - OD/OE".
+    /// Apresenta as métricas finais em cartões compactos seguindo o padrão definido.
     private func summaryMetricsView(_ metrics: PostCaptureMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(summaryLine(title: "Horizontal maior",
-                             rightValue: metrics.rightEye.horizontalMaior,
-                             leftValue: metrics.leftEye.horizontalMaior))
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Valores em mm — OD / OE")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.65))
 
-            Text(summaryLine(title: "Vertical maior",
-                             rightValue: metrics.rightEye.verticalMaior,
-                             leftValue: metrics.leftEye.verticalMaior))
-
-            Text(summaryLine(title: "DNP",
-                             rightValue: metrics.rightEye.dnp,
-                             leftValue: metrics.leftEye.dnp))
-
-            Text(summaryLine(title: "Altura pupilar",
-                             rightValue: metrics.rightEye.alturaPupilar,
-                             leftValue: metrics.leftEye.alturaPupilar))
-
-            Text(summaryLine(title: "Ponte",
-                             singleValue: metrics.ponte))
-        }
-        .foregroundColor(.white.opacity(0.9))
-        .font(.subheadline)
-        .fontWeight(.semibold)
-    }
-
-    /// Monta a string usada tanto no resumo visual quanto no compartilhamento.
-    private func summaryLine(title: String,
-                             rightValue: Double? = nil,
-                             leftValue: Double? = nil,
-                             singleValue: Double? = nil) -> String {
-        if let singleValue {
-            return "\(title) - \(formatValue(singleValue))"
+            ForEach(metrics.summaryItems()) { item in
+                SummaryMetricRow(item: item)
+            }
         }
 
         if let rightValue, let leftValue {
@@ -334,13 +336,6 @@ struct PostCaptureFlowView: View {
         }
 
         return "\(title) - -"
-    }
-
-    /// Formata um valor double para apresentação com unidade e sufixo opcional.
-    private func formatValue(_ value: Double, suffix: String? = nil) -> String {
-        let base = String(format: "%.1f mm", value)
-        guard let suffix else { return base }
-        return "\(base) \(suffix)"
     }
 
     @ViewBuilder
@@ -450,22 +445,8 @@ struct PostCaptureFlowView: View {
             lines.append("OS: \(trimmedOrder)")
         }
 
-        lines.append(contentsOf: [
-            summaryLine(title: "Horizontal maior",
-                        rightValue: metrics.rightEye.horizontalMaior,
-                        leftValue: metrics.leftEye.horizontalMaior),
-            summaryLine(title: "Vertical maior",
-                        rightValue: metrics.rightEye.verticalMaior,
-                        leftValue: metrics.leftEye.verticalMaior),
-            summaryLine(title: "DNP",
-                        rightValue: metrics.rightEye.dnp,
-                        leftValue: metrics.leftEye.dnp),
-            summaryLine(title: "Altura pupilar",
-                        rightValue: metrics.rightEye.alturaPupilar,
-                        leftValue: metrics.leftEye.alturaPupilar),
-            summaryLine(title: "Ponte",
-                        singleValue: metrics.ponte)
-        ])
+        lines.append("Valores em mm — OD / OE")
+        lines.append(contentsOf: metrics.compactSummaryLines())
 
         return lines.joined(separator: "\n")
     }
@@ -492,5 +473,136 @@ struct PostCaptureFlowView: View {
         }
         .padding(40)
         .background(Color.black)
+    }
+}
+
+// MARK: - Componentes de resumo
+/// Cartão que exibe uma medida formatada seguindo o padrão "Nome - OD/OE".
+private struct SummaryMetricRow: View {
+    let item: PostCaptureMetrics.SummaryItem
+
+    private var formattedLine: String {
+        "\(item.title) - \(item.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))"
+    }
+
+    private var rightText: String? {
+        item.rightValue.map { format($0) }
+    }
+
+    private var leftText: String? {
+        item.leftValue.map { format($0) }
+    }
+
+    private var singleText: String? {
+        item.singleValue.map { format($0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(formattedLine)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .monospacedDigit()
+
+            if item.hasPair {
+                HStack(spacing: 12) {
+                    if let rightText {
+                        SummaryValueChip(text: rightText)
+                    }
+
+                    Text("/")
+                        .font(.headline)
+                        .foregroundColor(.white.opacity(0.5))
+
+                    if let leftText {
+                        SummaryValueChip(text: leftText)
+                    }
+                }
+            } else if let singleText {
+                SummaryValueChip(text: singleText)
+            } else {
+                Text("-")
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+    }
+
+    /// Converte o valor em string respeitando o formatador do resumo.
+    private func format(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
+    }
+}
+
+/// Estiliza cada valor numérico com um chip arredondado para fácil leitura.
+private struct SummaryValueChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(.body, design: .rounded).monospacedDigit())
+            .foregroundColor(.white)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.14))
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+            )
+    }
+}
+
+/// Campo reutilizável utilizado no formulário de identificação do resumo final.
+private struct SummaryInputField: View {
+    let placeholder: String
+    @Binding var text: String
+    let keyboardType: UIKeyboardType
+    let capitalization: TextInputAutocapitalization
+    let disableAutocorrection: Bool
+
+    init(placeholder: String,
+         text: Binding<String>,
+         keyboardType: UIKeyboardType,
+         capitalization: TextInputAutocapitalization = .never,
+         disableAutocorrection: Bool = true) {
+        self.placeholder = placeholder
+        self._text = text
+        self.keyboardType = keyboardType
+        self.capitalization = capitalization
+        self.disableAutocorrection = disableAutocorrection
+    }
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .keyboardType(keyboardType)
+            .textInputAutocapitalization(capitalization)
+            .autocorrectionDisabled(disableAutocorrection)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .foregroundColor(.white)
+            .tint(.purple)
     }
 }

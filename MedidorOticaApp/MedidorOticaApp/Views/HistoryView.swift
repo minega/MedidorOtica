@@ -383,52 +383,11 @@ fileprivate struct MeasurementShareFormatter {
         lines.append("Data: \(measurement.formattedDate)")
 
         if let metrics = measurement.postCaptureMetrics {
-            lines.append(summaryLine(title: "Horizontal maior",
-                                     rightValue: metrics.rightEye.horizontalMaior,
-                                     leftValue: metrics.leftEye.horizontalMaior))
-            lines.append(summaryLine(title: "Vertical maior",
-                                     rightValue: metrics.rightEye.verticalMaior,
-                                     leftValue: metrics.leftEye.verticalMaior))
-            lines.append(summaryLine(title: "DNP",
-                                     rightValue: metrics.rightEye.dnp,
-                                     leftValue: metrics.leftEye.dnp))
-            lines.append(summaryLine(title: "Altura pupilar",
-                                     rightValue: metrics.rightEye.alturaPupilar,
-                                     leftValue: metrics.leftEye.alturaPupilar))
-            lines.append(summaryLine(title: "Ponte",
-                                     singleValue: metrics.ponte))
+            lines.append("Valores em mm — OD / OE")
+            lines.append(contentsOf: metrics.compactSummaryLines())
         }
 
         return lines.joined(separator: "\n")
-    }
-
-    /// Formata um valor métrico com uma casa decimal seguida de "mm".
-    private func format(_ value: Double) -> String {
-        String(format: "%.1f mm", value)
-    }
-
-    /// Replica o padrão "Nome - OD/OE" para uso em compartilhamento histórico.
-    private func summaryLine(title: String,
-                             rightValue: Double? = nil,
-                             leftValue: Double? = nil,
-                             singleValue: Double? = nil) -> String {
-        if let singleValue {
-            return "\(title): \(format(singleValue))"
-        }
-
-        if let rightValue, let leftValue {
-            return "\(title): \(format(rightValue)) OD / \(format(leftValue)) OE"
-        }
-
-        if let rightValue {
-            return "\(title): \(format(rightValue)) OD"
-        }
-
-        if let leftValue {
-            return "\(title): \(format(leftValue)) OE"
-        }
-
-        return "\(title): -"
     }
 }
 
