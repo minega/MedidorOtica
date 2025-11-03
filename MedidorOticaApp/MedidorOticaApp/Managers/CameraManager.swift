@@ -26,6 +26,7 @@ enum CameraError: Error, LocalizedError {
     case createCaptureInput(Error)
     case deviceConfigurationFailed
     case captureFailed
+    case missingTrueDepthData
 
     var errorDescription: String {
         switch self {
@@ -36,6 +37,7 @@ enum CameraError: Error, LocalizedError {
         case .createCaptureInput(let error): return "Erro na câmera: \(error.localizedDescription)"
         case .deviceConfigurationFailed: return "Falha na configuração da câmera."
         case .captureFailed: return "Falha ao capturar a foto."
+        case .missingTrueDepthData: return "Sensor TrueDepth obrigatório não forneceu dados confiáveis."
         }
     }
 }
@@ -68,7 +70,6 @@ class CameraManager: NSObject, ObservableObject {
     let sessionQueue = DispatchQueue(label: "com.oticaManzolli.sessionQueue", qos: .userInitiated)
     let videoOutput = AVCapturePhotoOutput()
     var videoDeviceInput: AVCaptureDeviceInput?
-    var currentPhotoCaptureProcessor: PhotoCaptureProcessor?
     var arSession: ARSession?
     /// Contexto compartilhado para operações de processamento de imagem e correção de orientação.
     let photoProcessingContext = CIContext()
