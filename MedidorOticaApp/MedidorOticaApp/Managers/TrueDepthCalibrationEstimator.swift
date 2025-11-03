@@ -19,6 +19,13 @@ final class TrueDepthCalibrationEstimator {
         let timestamp: TimeInterval
     }
 
+    /// Valores coletados diretamente do mapa de profundidade ponto a ponto.
+    private struct DepthCalibrationCandidates {
+        let horizontal: [Double]
+        let vertical: [Double]
+        let meanDepth: Double
+    }
+
     /// Faixas utilizadas para validar as amostras provenientes do TrueDepth.
     private enum CalibrationBounds {
         static let interpupillaryRange = 40.0...80.0
@@ -146,13 +153,12 @@ final class TrueDepthCalibrationEstimator {
         let viewportSize = orientedViewportSize(resolution: frame.camera.imageResolution,
                                                 orientation: cgOrientation)
 
-        let depthCandidates = depthSamples(faceAnchor: faceAnchor,
-                                           cameraTransform: frame.camera.transform)
-        guard let depth = stabilizedMean(depthCandidates),
-              CalibrationBounds.depthRange.contains(depth) else { return nil }
+        guard let depthCandidates = perPixelCandidates(from: frame,
+                                                       cgOrientation: cgOrientation) else { return nil }
+        guard CalibrationBounds.depthRange.contains(depthCandidates.meanDepth) else { return nil }
 
-        var horizontalCandidates: [Double] = []
-        var verticalCandidates: [Double] = []
+        var horizontalCandidates = depthCandidates.horizontal
+        var verticalCandidates = depthCandidates.vertical
 
         let focal = orientedFocalLengths(from: frame.camera.intrinsics,
                                          orientation: cgOrientation)
@@ -263,44 +269,11 @@ final class TrueDepthCalibrationEstimator {
         return mmPerPixelX
     }
 
-    /// Calcula profundidades confiáveis do rosto no espaço da câmera.
-    private static func depthSamples(faceAnchor: ARFaceAnchor,
-                                     cameraTransform: simd_float4x4) -> [Double] {
-        let worldPoints: [simd_float3] = [
-            worldPosition(from: faceAnchor.transform),
-            worldPosition(from: simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)),
-            worldPosition(from: simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform))
-        ]
-
-        return worldPoints.compactMap { depthInCameraSpace(of: $0, cameraTransform: cameraTransform) }
-    }
-
     /// Extrai a posição no espaço tridimensional a partir de uma matriz de transformação.
     private static func worldPosition(from transform: simd_float4x4) -> simd_float3 {
         simd_float3(transform.columns.3.x,
                     transform.columns.3.y,
                     transform.columns.3.z)
-    }
-
-    /// Retorna a profundidade em metros no espaço da câmera a partir de um ponto no mundo.
-    private static func depthInCameraSpace(of worldPoint: simd_float3,
-                                           cameraTransform: simd_float4x4) -> Double? {
-        let worldToCamera = cameraTransform.inverse
-        let homogeneous = simd_float4(worldPoint.x, worldPoint.y, worldPoint.z, 1)
-        let cameraSpace = simd_mul(worldToCamera, homogeneous)
-        let depth = Double(abs(cameraSpace.z))
-        guard depth.isFinite, depth > 0 else { return nil }
-        return depth
-    }
-
-    private static func orientedFocalLengths(from intrinsics: simd_float3x3,
-                                             orientation: CGImagePropertyOrientation) -> (fx: Double, fy: Double) {
-        let rawFx = Double(intrinsics.columns.0.x)
-        let rawFy = Double(intrinsics.columns.1.y)
-        if orientation.rotatesDimensions {
-            return (fx: rawFy, fy: rawFx)
-        }
-        return (fx: rawFx, fy: rawFy)
     }
 
     private static func stabilizedMean(_ values: [Double]) -> Double? {
@@ -313,6 +286,167 @@ final class TrueDepthCalibrationEstimator {
         guard !target.isEmpty else { return nil }
         let sum = target.reduce(0, +)
         return sum / Double(target.count)
+    }
+
+    // MARK: - Análise do Mapa de Profundidade
+    /// Converte os dados do mapa de profundidade em candidatos de mm/pixel analisando cada ponto válido.
+    private static func perPixelCandidates(from frame: ARFrame,
+                                           cgOrientation: CGImagePropertyOrientation) -> DepthCalibrationCandidates? {
+        guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else { return nil }
+
+        let depthBuffer = depthData.depthMap
+        CVPixelBufferLockBaseAddress(depthBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthBuffer, .readOnly) }
+
+        let depthWidth = CVPixelBufferGetWidth(depthBuffer)
+        let depthHeight = CVPixelBufferGetHeight(depthBuffer)
+        guard depthWidth > 1, depthHeight > 1 else { return nil }
+
+        guard let depthBase = CVPixelBufferGetBaseAddress(depthBuffer)?.assumingMemoryBound(to: Float32.self) else {
+            return nil
+        }
+        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
+
+        let confidenceBuffer = depthData.confidenceMap
+        CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
+
+        let hasConfidence = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth &&
+            CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
+        let confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
+        let confidenceBase = hasConfidence ? CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) : nil
+        // Apenas considera pixels classificados com confiança alta pelo hardware.
+        let minimumConfidence: UInt8 = 2
+
+        let resolution = frame.camera.imageResolution
+        let scaleX = Double(resolution.width) / Double(depthWidth)
+        let scaleY = Double(resolution.height) / Double(depthHeight)
+        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                               imageResolution: resolution,
+                                               depthWidth: depthWidth,
+                                               depthHeight: depthHeight)
+
+        let samplingStepX = max(1, depthWidth / 48)
+        let samplingStepY = max(1, depthHeight / 48)
+        let maximumSamples = max(1, (depthWidth / samplingStepX) * (depthHeight / samplingStepY))
+
+        var rawHorizontal: [Double] = []
+        rawHorizontal.reserveCapacity(maximumSamples)
+        var rawVertical: [Double] = []
+        rawVertical.reserveCapacity(maximumSamples)
+
+        var depthSum: Double = 0
+        var depthCount: Int = 0
+
+        for y in stride(from: 0, to: depthHeight - 1, by: samplingStepY) {
+            let rowPointer = depthBase + y * depthStride
+            let nextRowPointer = depthBase + min(y + 1, depthHeight - 1) * depthStride
+            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            let nextConfidenceRow = confidenceBase.map { $0 + min(y + 1, depthHeight - 1) * confidenceStride }
+
+            for x in stride(from: 0, to: depthWidth - 1, by: samplingStepX) {
+                let depthValue = rowPointer[x]
+                guard depthValue.isFinite, depthValue > 0 else { continue }
+                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
+
+                depthSum += Double(depthValue)
+                depthCount += 1
+
+                if x + 1 < depthWidth {
+                    let neighborDepth = rowPointer[x + 1]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x + 1,
+                                                      y1: y,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleX
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawHorizontal.append(mmPerPixel)
+                    }
+                }
+
+                if y + 1 < depthHeight {
+                    let neighborDepth = nextRowPointer[x]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let confidence = nextConfidenceRow, confidence[x] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x,
+                                                      y1: y + 1,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleY
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawVertical.append(mmPerPixel)
+                    }
+                }
+            }
+        }
+
+        guard depthCount > 0 else { return nil }
+
+        let meanDepth = depthSum / Double(depthCount)
+        let horizontal = cgOrientation.rotatesDimensions ? rawVertical : rawHorizontal
+        let vertical = cgOrientation.rotatesDimensions ? rawHorizontal : rawVertical
+
+        guard !horizontal.isEmpty, !vertical.isEmpty else { return nil }
+
+        return DepthCalibrationCandidates(horizontal: horizontal,
+                                           vertical: vertical,
+                                           meanDepth: meanDepth)
+    }
+
+    /// Ajusta os intrínsecos originais da câmera para o tamanho do mapa de profundidade atual.
+    private static func scaledDepthIntrinsics(cameraIntrinsics: simd_float3x3,
+                                              imageResolution: CGSize,
+                                              depthWidth: Int,
+                                              depthHeight: Int) -> DepthIntrinsics {
+        let scaleX = Float(depthWidth) / Float(imageResolution.width)
+        let scaleY = Float(depthHeight) / Float(imageResolution.height)
+
+        return DepthIntrinsics(fx: cameraIntrinsics.columns.0.x * scaleX,
+                               fy: cameraIntrinsics.columns.1.y * scaleY,
+                               cx: cameraIntrinsics.columns.2.x * scaleX,
+                               cy: cameraIntrinsics.columns.2.y * scaleY)
+    }
+
+    /// Representa os intrínsecos utilizados para reprojetar os pixels do mapa de profundidade.
+    private struct DepthIntrinsics {
+        let fx: Float
+        let fy: Float
+        let cx: Float
+        let cy: Float
+    }
+
+    /// Calcula a distância milimétrica entre dois pixels adjacentes no espaço da câmera.
+    private static func millimetersBetween(x0: Int,
+                                           y0: Int,
+                                           depth0: Float32,
+                                           x1: Int,
+                                           y1: Int,
+                                           depth1: Float32,
+                                           intrinsics: DepthIntrinsics) -> Double {
+        let pointA = unproject(pixelX: x0, pixelY: y0, depth: depth0, intrinsics: intrinsics)
+        let pointB = unproject(pixelX: x1, pixelY: y1, depth: depth1, intrinsics: intrinsics)
+        return Double(simd_distance(pointA, pointB)) * 1000
+    }
+
+    /// Converte um pixel do mapa de profundidade em coordenadas no espaço da câmera.
+    private static func unproject(pixelX: Int,
+                                  pixelY: Int,
+                                  depth: Float32,
+                                  intrinsics: DepthIntrinsics) -> simd_float3 {
+        let z = max(depth, 0.0001)
+        let x = (Float(pixelX) - intrinsics.cx) * z / intrinsics.fx
+        let y = (Float(pixelY) - intrinsics.cy) * z / intrinsics.fy
+        return simd_float3(x, y, z)
     }
 }
 
