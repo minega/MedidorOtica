@@ -43,11 +43,18 @@ extension VerificationManager {
     private enum CenteringConstants {
         // Tolerância de 0,5 cm convertida para metros
         static let tolerance: Float = 0.005
-        
+
         // Índice do vértice correspondente à ponta do nariz
         struct FaceIndices {
             static let noseTip = 9
         }
+    }
+
+    /// Medidas calculadas para orientar o ajuste da câmera em relação ao PC
+    private struct FaceCenteringMetrics {
+        let horizontal: Float
+        let vertical: Float
+        let noseAlignment: Float
     }
     
     // MARK: - Verificação de Centralização
@@ -98,34 +105,19 @@ extension VerificationManager {
         let rightEyeCam = simd_mul(worldToCamera, rightEyeWorld)
         let noseCam = simd_mul(worldToCamera, noseWorld)
 
-        // Ponto médio das pupilas em relação à câmera
-        let midEyeY = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
-
-        // Desvio horizontal do nariz em relação ao centro da lente
-        // Para um ponto transformado (vetor 4D), o deslocamento em X é obtido
-        // diretamente da primeira coordenada
+        // Calcula o ponto central (PC) usando a altura média das pupilas e o eixo X do nariz
+        let averageEyeHeight = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
         let horizontalOffset = noseCam.x
-        // Desvio vertical levando em conta a altura das pupilas
-        let verticalOffset = midEyeY
-        let noseOffset = horizontalOffset
-        
-        // Verifica se os desvios estão dentro da tolerância permitida
-        let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
-        let isVerticallyAligned = abs(verticalOffset) < CenteringConstants.tolerance
-        let isNoseAligned = abs(noseOffset) < CenteringConstants.tolerance
-        
-        // O rosto está centralizado se todos os critérios forem atendidos
-        let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
-        
-        // Atualiza a interface do usuário com os resultados
-        updateCenteringUI(
-            horizontalOffset: horizontalOffset,
-            verticalOffset: verticalOffset,
-            noseOffset: noseOffset,
-            isCentered: isCentered
+        let verticalOffset = averageEyeHeight
+
+        // Consolida todas as medidas para avaliar e exibir na interface
+        let metrics = FaceCenteringMetrics(
+            horizontal: horizontalOffset,
+            vertical: verticalOffset,
+            noseAlignment: noseCam.x
         )
-        
-        return isCentered
+
+        return evaluateCentering(using: metrics)
     }
 
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
@@ -156,22 +148,54 @@ extension VerificationManager {
             let py = (1 - nosePointNorm.y) * CGFloat(height)
             guard let depth = depthValue(from: depthMap, at: CGPoint(x: px, y: py)) else { return false }
 
+            let leftEyeDepthPoint = CGPoint(x: (leftEyeCenter.x) * CGFloat(width),
+                                            y: (1 - leftEyeCenter.y) * CGFloat(height))
+            let rightEyeDepthPoint = CGPoint(x: (rightEyeCenter.x) * CGFloat(width),
+                                             y: (1 - rightEyeCenter.y) * CGFloat(height))
+            guard let leftEyeDepth = depthValue(from: depthMap, at: leftEyeDepthPoint),
+                  let rightEyeDepth = depthValue(from: depthMap, at: rightEyeDepthPoint) else {
+                return false
+            }
+
+            // Profundidade média dos olhos para estimar a altura do PC em metros
+            let averageEyeDepth = (leftEyeDepth + rightEyeDepth) / 2
             let horizontalOffset = Float(nosePointNorm.x - 0.5) * depth
-            let verticalOffset = Float(0.5 - eyeCenterY) * depth
-            let isHorizontallyAligned = abs(horizontalOffset) < CenteringConstants.tolerance
-            let isVerticallyAligned = abs(verticalOffset) < CenteringConstants.tolerance
-            let isCentered = isHorizontallyAligned && isVerticallyAligned
+            let verticalOffset = Float(0.5 - eyeCenterY) * averageEyeDepth
 
-            updateCenteringUI(horizontalOffset: horizontalOffset,
-                              verticalOffset: verticalOffset,
-                              noseOffset: horizontalOffset,
-                              isCentered: isCentered)
+            let metrics = FaceCenteringMetrics(
+                horizontal: horizontalOffset,
+                vertical: verticalOffset,
+                noseAlignment: horizontalOffset
+            )
 
-            return isCentered
+            return evaluateCentering(using: metrics)
         } catch {
             print("Erro ao verificar centralização com Vision: \(error)")
             return false
         }
+    }
+
+    // MARK: - Avaliação de métricas
+
+    /// Avalia se o rosto está centralizado com base nas métricas calculadas
+    private func evaluateCentering(using metrics: FaceCenteringMetrics) -> Bool {
+        // Verifica se os desvios estão dentro da tolerância permitida
+        let isHorizontallyAligned = abs(metrics.horizontal) < CenteringConstants.tolerance
+        let isVerticallyAligned = abs(metrics.vertical) < CenteringConstants.tolerance
+        let isNoseAligned = abs(metrics.noseAlignment) < CenteringConstants.tolerance
+
+        // Resultado global
+        let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
+
+        // Atualiza a interface com os valores reais, sem compensações fixas
+        updateCenteringUI(
+            horizontalOffset: metrics.horizontal,
+            verticalOffset: metrics.vertical,
+            noseOffset: metrics.noseAlignment,
+            isCentered: isCentered
+        )
+
+        return isCentered
     }
     
     // MARK: - Atualização da Interface

@@ -117,8 +117,8 @@ struct CameraInstructions: View {
             instruction = "🙂\(directionEmoji) Vire \(directionText) \(magnitude)°"
         } else if abs(pitch) > tolerance {
             let magnitude = String(format: "%.0f", abs(pitch))
-            let directionEmoji = pitch > 0 ? "⬇️" : "⬆️"
-            let directionText = pitch > 0 ? "para baixo" : "para cima"
+            let directionEmoji = pitch > 0 ? "⬆️" : "⬇️"
+            let directionText = pitch > 0 ? "para cima" : "para baixo"
             instruction = "🙂\(directionEmoji) Queixo \(directionText) \(magnitude)°"
         }
 

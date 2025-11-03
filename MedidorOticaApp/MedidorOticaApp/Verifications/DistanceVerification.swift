@@ -30,7 +30,7 @@ struct DistanceLimits {
     /// Distância mínima permitida
     static let minCm: Float = 25.0
     /// Distância máxima permitida
-    static let maxCm: Float = 50.0
+    static let maxCm: Float = 60.0
 }
 
 // MARK: - Extensão para verificação de distância

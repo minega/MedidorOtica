@@ -299,8 +299,28 @@ struct CameraView: View {
             }
         }
         .onChange(of: allVerificationsChecked) { checked in
-            if checked && isAutoCaptureEnabled && countdownTimer == nil {
+            if checked && isAutoCaptureEnabled {
                 startCountdown()
+            } else {
+                cancelCountdown()
+            }
+        }
+        .onChange(of: isAutoCaptureEnabled) { isEnabled in
+            if isEnabled {
+                if allVerificationsChecked { startCountdown() }
+            } else {
+                cancelCountdown()
+            }
+        }
+        .onChange(of: showingResultView) { isShowing in
+            if isShowing {
+                cancelCountdown()
+                cameraManager.stop()
+                cameraInitialized = false
+            } else if !cameraManager.isSessionRunning {
+                DispatchQueue.main.async {
+                    setupCamera()
+                }
             }
         }
     }
@@ -450,10 +470,8 @@ struct CameraView: View {
             return
         }
 
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        countdownValue = 0
-        
+        cancelCountdown()
+
         // Verifica se todas as condições para captura foram atendidas
         guard allVerificationsChecked else {
             print("Nem todas as verificações foram completadas, ignorando...")
@@ -514,8 +532,9 @@ struct CameraView: View {
     }
 
     private func startCountdown() {
-        countdownTimer?.invalidate()
-        countdownValue = 5
+        guard isAutoCaptureEnabled else { return }
+        cancelCountdown()
+        countdownValue = 3
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
             if countdownValue > 1 {
                 countdownValue -= 1
@@ -526,6 +545,12 @@ struct CameraView: View {
                 capturePhoto()
             }
         }
+    }
+
+    private func cancelCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownValue = 0
     }
 }
 
