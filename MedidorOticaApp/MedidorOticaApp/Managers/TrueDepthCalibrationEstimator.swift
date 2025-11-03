@@ -44,6 +44,12 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    /// Restrições que evitam distorções oriundas das bordas ou de ruído abrupto no mapa de profundidade.
+    private enum DepthProcessingConstraints {
+        static let maximumNeighborDepthDeltaRatio: Float = 0.08
+        static let colorEdgeMarginFactor: Double = 0.05
+    }
+
     // MARK: - Parâmetros de suavização
     private let maxSamples = 90
     private let sampleLifetime: TimeInterval = 1.5
@@ -304,70 +310,6 @@ final class TrueDepthCalibrationEstimator {
                 CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly)
             }
         }
-        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
-
-        let confidenceBuffer = depthData.confidenceMap
-        CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
-
-        let hasConfidence = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth &&
-            CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
-        let confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
-        let confidenceBase = hasConfidence ? CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) : nil
-        // Apenas considera pixels classificados com confiança alta pelo hardware.
-        let minimumConfidence: UInt8 = 2
-
-        let resolution = frame.camera.imageResolution
-        let scaleX = Double(resolution.width) / Double(depthWidth)
-        let scaleY = Double(resolution.height) / Double(depthHeight)
-        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
-                                               imageResolution: resolution,
-                                               depthWidth: depthWidth,
-                                               depthHeight: depthHeight)
-
-        let samplingStepX = max(1, depthWidth / 48)
-        let samplingStepY = max(1, depthHeight / 48)
-        let maximumSamples = max(1, (depthWidth / samplingStepX) * (depthHeight / samplingStepY))
-
-        var rawHorizontal: [Double] = []
-        rawHorizontal.reserveCapacity(maximumSamples)
-        var rawVertical: [Double] = []
-        rawVertical.reserveCapacity(maximumSamples)
-
-        var depthSum: Double = 0
-        var depthCount: Int = 0
-
-        for y in stride(from: 0, to: depthHeight - 1, by: samplingStepY) {
-            let rowPointer = depthBase + y * depthStride
-            let nextRowPointer = depthBase + min(y + 1, depthHeight - 1) * depthStride
-            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
-            let nextConfidenceRow = confidenceBase.map { $0 + min(y + 1, depthHeight - 1) * confidenceStride }
-
-            for x in stride(from: 0, to: depthWidth - 1, by: samplingStepX) {
-                let depthValue = rowPointer[x]
-                guard depthValue.isFinite, depthValue > 0 else { continue }
-                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
-
-                depthSum += Double(depthValue)
-                depthCount += 1
-
-                if x + 1 < depthWidth {
-                    let neighborDepth = rowPointer[x + 1]
-                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
-
-                    let distance = millimetersBetween(x0: x,
-                                                      y0: y,
-                                                      depth0: depthValue,
-                                                      x1: x + 1,
-                                                      y1: y,
-                                                      depth1: neighborDepth,
-                                                      intrinsics: intrinsics)
-                    let mmPerPixel = distance / scaleX
-                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
-                        rawHorizontal.append(mmPerPixel)
-                    }
-                }
 
         let hasConfidence: Bool
         let confidenceStride: Int
@@ -377,6 +319,7 @@ final class TrueDepthCalibrationEstimator {
             let widthMatches = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth
             let heightMatches = CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
             hasConfidence = widthMatches && heightMatches
+
             if hasConfidence,
                let pointer = CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) {
                 confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
@@ -390,6 +333,7 @@ final class TrueDepthCalibrationEstimator {
             confidenceStride = 0
             confidenceBase = nil
         }
+
         // Apenas considera pixels classificados com confiança alta pelo hardware.
         let minimumConfidence: UInt8 = 2
 
@@ -397,6 +341,17 @@ final class TrueDepthCalibrationEstimator {
         let scaleX = Double(resolution.width) / Double(depthWidth)
         let scaleY = Double(resolution.height) / Double(depthHeight)
         guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+
+        let colorWidth = Double(resolution.width)
+        let colorHeight = Double(resolution.height)
+        let marginX = colorWidth * DepthProcessingConstraints.colorEdgeMarginFactor
+        let marginY = colorHeight * DepthProcessingConstraints.colorEdgeMarginFactor
+
+        let isInsideSafeRegion: (Double, Double) -> Bool = { x, y in
+            x >= marginX && x <= colorWidth - marginX &&
+            y >= marginY && y <= colorHeight - marginY
+        }
+
         let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
                                                imageResolution: resolution,
                                                depthWidth: depthWidth,
@@ -415,10 +370,17 @@ final class TrueDepthCalibrationEstimator {
 
         for y in 0..<depthHeight {
             let rowPointer = depthBase + y * depthStride
-            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase + (y + 1) * depthStride : nil
-            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            let nextRowPointer: UnsafeMutablePointer<Float32>? = (y + 1) < depthHeight ? depthBase.advanced(by: (y + 1) * depthStride) : nil
+
+            // Linha atual do mapa de confiança (quando disponível).
+            let confidenceRow: UnsafePointer<UInt8>? = {
+                guard hasConfidence, let base = confidenceBase else { return nil }
+                return base + y * confidenceStride
+            }()
+
+            // Próxima linha do mapa de confiança necessária para vizinhos verticais.
             let nextConfidenceRow: UnsafePointer<UInt8>? = {
-                guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
+                guard hasConfidence, let base = confidenceBase, (y + 1) < depthHeight else { return nil }
                 return base + (y + 1) * confidenceStride
             }()
 
@@ -427,6 +389,10 @@ final class TrueDepthCalibrationEstimator {
                 guard depthValue.isFinite, depthValue > 0 else { continue }
                 if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
 
+                let colorX = (Double(x) + 0.5) * scaleX
+                let colorY = (Double(y) + 0.5) * scaleY
+                guard isInsideSafeRegion(colorX, colorY) else { continue }
+
                 depthSum += Double(depthValue)
                 depthCount += 1
 
@@ -434,6 +400,12 @@ final class TrueDepthCalibrationEstimator {
                     let neighborDepth = rowPointer[x + 1]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
                     if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+
+                    let neighborColorX = (Double(x + 1) + 0.5) * scaleX
+                    guard isInsideSafeRegion(neighborColorX, colorY) else { continue }
+
+                    let deltaRatio = abs(neighborDepth - depthValue) / max(neighborDepth, depthValue)
+                    if deltaRatio > DepthProcessingConstraints.maximumNeighborDepthDeltaRatio { continue }
 
                     let distance = millimetersBetween(x0: x,
                                                       y0: y,
@@ -452,6 +424,12 @@ final class TrueDepthCalibrationEstimator {
                     let neighborDepth = nextRowPointer[x]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
                     if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
+
+                    let neighborColorY = (Double(y + 1) + 0.5) * scaleY
+                    guard isInsideSafeRegion(colorX, neighborColorY) else { continue }
+
+                    let deltaRatio = abs(neighborDepth - depthValue) / max(neighborDepth, depthValue)
+                    if deltaRatio > DepthProcessingConstraints.maximumNeighborDepthDeltaRatio { continue }
 
                     let distance = millimetersBetween(x0: x,
                                                       y0: y,
