@@ -13,10 +13,22 @@ import UIKit
 /// Consolida múltiplas amostras do sensor TrueDepth para gerar uma calibração submilimétrica.
 final class TrueDepthCalibrationEstimator {
     // MARK: - Amostra interna
+    /// Representa uma amostra de calibração com metadados suficientes para validar seu reaproveitamento.
     private struct CalibrationSample {
         let mmPerPixelX: Double
         let mmPerPixelY: Double
         let timestamp: TimeInterval
+        let context: CalibrationContext
+    }
+
+    /// Contexto utilizado para invalidar amostras após alterações de sensor ou orientação da sessão.
+    private struct CalibrationContext: Equatable {
+        let orientedWidth: Int
+        let orientedHeight: Int
+        let cgOrientationRaw: UInt32
+        let uiOrientationRaw: Int
+        let focalXSignature: Int
+        let focalYSignature: Int
     }
 
     /// Faixas utilizadas para validar as amostras provenientes do TrueDepth.
@@ -43,6 +55,8 @@ final class TrueDepthCalibrationEstimator {
     private let accessQueue = DispatchQueue(label: "com.oticaManzolli.trueDepthEstimator", qos: .userInitiated, attributes: .concurrent)
 
     private var samples: [CalibrationSample] = []
+    /// Mantém o contexto mais recente persistido para facilitar a remoção de dados obsoletos.
+    private var latestContext: CalibrationContext?
 
     // MARK: - Entrada de dados
     /// Armazena uma nova amostra obtida a partir do frame informado.
@@ -74,6 +88,10 @@ final class TrueDepthCalibrationEstimator {
                             uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
 
+        let context = Self.makeContext(for: frame,
+                                       cgOrientation: cgOrientation,
+                                       uiOrientation: uiOrientation)
+
         var aggregatedSamples: [CalibrationSample] = []
         // Garante que a amostra do frame atual também seja considerada imediatamente.
         if let currentSample = Self.makeSample(from: frame,
@@ -85,12 +103,16 @@ final class TrueDepthCalibrationEstimator {
 
         let referenceTime = frame.timestamp
         let filteredSamples = accessQueue.sync {
-            samples.filter { referenceTime - $0.timestamp <= sampleLifetime }
+            samples.filter {
+                $0.context == context &&
+                referenceTime - $0.timestamp <= sampleLifetime
+            }
         }
 
         aggregatedSamples.append(contentsOf: filteredSamples)
         if aggregatedSamples.isEmpty,
-           let fallback = mostRecentSample(referenceTime: referenceTime) {
+           let fallback = mostRecentSample(referenceTime: referenceTime,
+                                           context: context) {
             aggregatedSamples.append(fallback)
         }
         guard !aggregatedSamples.isEmpty else { return nil }
@@ -114,6 +136,10 @@ final class TrueDepthCalibrationEstimator {
     private func store(_ sample: CalibrationSample) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
+            if self.latestContext != sample.context {
+                self.samples.removeAll()
+                self.latestContext = sample.context
+            }
             self.samples.append(sample)
             self.pruneSamples(referenceTime: sample.timestamp)
         }
@@ -124,14 +150,21 @@ final class TrueDepthCalibrationEstimator {
         if samples.count > maxSamples {
             samples.removeFirst(samples.count - maxSamples)
         }
+        if samples.isEmpty {
+            latestContext = nil
+        }
     }
 
     /// Retorna a amostra confiável mais recente dentro da janela aceitável.
-    private func mostRecentSample(referenceTime: TimeInterval) -> CalibrationSample? {
+    private func mostRecentSample(referenceTime: TimeInterval,
+                                  context: CalibrationContext) -> CalibrationSample? {
         accessQueue.sync {
-            samples.reversed().first { CalibrationBounds.isRecent($0,
-                                                                  referenceTime: referenceTime,
-                                                                  lifetime: sampleLifetime) }
+            samples.reversed().first {
+                $0.context == context &&
+                CalibrationBounds.isRecent($0,
+                                           referenceTime: referenceTime,
+                                           lifetime: sampleLifetime)
+            }
         }
     }
 
@@ -139,6 +172,9 @@ final class TrueDepthCalibrationEstimator {
     private static func makeSample(from frame: ARFrame,
                                    cgOrientation: CGImagePropertyOrientation,
                                    uiOrientation: UIInterfaceOrientation) -> CalibrationSample? {
+        let context = makeContext(for: frame,
+                                  cgOrientation: cgOrientation,
+                                  uiOrientation: uiOrientation)
         guard case .normal = frame.camera.trackingState else { return nil }
         guard let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first,
               faceAnchor.isTracked else { return nil }
@@ -181,7 +217,8 @@ final class TrueDepthCalibrationEstimator {
 
         return CalibrationSample(mmPerPixelX: mmPerPixelX,
                                  mmPerPixelY: mmPerPixelY,
-                                 timestamp: frame.timestamp)
+                                 timestamp: frame.timestamp,
+                                 context: context)
     }
 
     /// Gera uma calibração imediata utilizando apenas o frame atual.
@@ -197,6 +234,10 @@ final class TrueDepthCalibrationEstimator {
                             uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
 
+        let context = Self.makeContext(for: frame,
+                                       cgOrientation: cgOrientation,
+                                       uiOrientation: uiOrientation)
+
         var referenceSample: CalibrationSample?
 
         if let current = Self.makeSample(from: frame,
@@ -205,7 +246,8 @@ final class TrueDepthCalibrationEstimator {
             referenceSample = current
             store(current)
         } else {
-            referenceSample = mostRecentSample(referenceTime: frame.timestamp)
+            referenceSample = mostRecentSample(referenceTime: frame.timestamp,
+                                               context: context)
         }
 
         guard let sample = referenceSample else { return nil }
@@ -223,6 +265,23 @@ final class TrueDepthCalibrationEstimator {
 
         return PostCaptureCalibration(horizontalReferenceMM: horizontalReference,
                                       verticalReferenceMM: verticalReference)
+    }
+
+    /// Gera uma assinatura que descreve o contexto da calibração para evitar reuso indevido de dados antigos.
+    private static func makeContext(for frame: ARFrame,
+                                    cgOrientation: CGImagePropertyOrientation,
+                                    uiOrientation: UIInterfaceOrientation) -> CalibrationContext {
+        let orientedSize = orientedViewportSize(resolution: frame.camera.imageResolution,
+                                                orientation: cgOrientation)
+        let focalLengths = orientedFocalLengths(from: frame.camera.intrinsics,
+                                                orientation: cgOrientation)
+
+        return CalibrationContext(orientedWidth: Int(orientedSize.width.rounded()),
+                                  orientedHeight: Int(orientedSize.height.rounded()),
+                                  cgOrientationRaw: cgOrientation.rawValue,
+                                  uiOrientationRaw: uiOrientation.rawValue,
+                                  focalXSignature: quantize(focalLengths.fx),
+                                  focalYSignature: quantize(focalLengths.fy))
     }
 
     private static func orientedViewportSize(resolution: CGSize,
@@ -301,6 +360,11 @@ final class TrueDepthCalibrationEstimator {
             return (fx: rawFy, fy: rawFx)
         }
         return (fx: rawFx, fy: rawFy)
+    }
+
+    /// Normaliza valores contínuos para comparação estável entre diferentes amostras.
+    private static func quantize(_ value: Double) -> Int {
+        Int((value * 1_000).rounded())
     }
 
     private static func stabilizedMean(_ values: [Double]) -> Double? {
