@@ -74,7 +74,7 @@ final class TrueDepthCalibrationEstimator {
 
         let referenceTime = frame.timestamp
         let filteredSamples = accessQueue.sync {
-            samples.filter { referenceTime - $0.timestamp <= sampleLifetime }
+            samples.filter { referenceTime >= $0.timestamp && referenceTime - $0.timestamp <= sampleLifetime }
         }
 
         aggregatedSamples.append(contentsOf: filteredSamples)
@@ -99,13 +99,20 @@ final class TrueDepthCalibrationEstimator {
     private func store(_ sample: CalibrationSample) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
+            if let lastTimestamp = self.samples.last?.timestamp,
+               sample.timestamp < lastTimestamp {
+                // Reinicia o buffer quando a sessão AR é reiniciada e o timestamp volta a zero.
+                self.samples.removeAll()
+            }
             self.samples.append(sample)
             self.pruneSamples(referenceTime: sample.timestamp)
         }
     }
 
     private func pruneSamples(referenceTime: TimeInterval) {
-        samples.removeAll { referenceTime - $0.timestamp > sampleLifetime }
+        samples.removeAll {
+            referenceTime < $0.timestamp || referenceTime - $0.timestamp > sampleLifetime
+        }
         if samples.count > maxSamples {
             samples.removeFirst(samples.count - maxSamples)
         }
