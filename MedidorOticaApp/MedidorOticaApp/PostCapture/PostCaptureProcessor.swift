@@ -11,7 +11,14 @@ import UIKit
 
 // MARK: - Resultado da Análise
 struct PostCaptureAnalysisResult {
+    /// Indica se o Vision localizou cada pupila individualmente.
+    struct DetectedPupils {
+        let right: Bool
+        let left: Bool
+    }
+
     let configuration: PostCaptureConfiguration
+    let detectedPupils: DetectedPupils
 }
 
 // MARK: - Processor
@@ -45,18 +52,20 @@ final class PostCaptureProcessor {
 
         let dimensions = VisionGeometryHelper.orientedDimensions(for: cgImage, orientation: orientation)
         let imageSize = CGSize(width: dimensions.width, height: dimensions.height)
-        let configuration = buildConfiguration(from: observation,
-                                               imageSize: imageSize,
-                                               orientation: orientation,
-                                               scale: scale)
-        return PostCaptureAnalysisResult(configuration: configuration)
+        let analysis = buildConfiguration(from: observation,
+                                          imageSize: imageSize,
+                                          orientation: orientation,
+                                          scale: scale)
+        return PostCaptureAnalysisResult(configuration: analysis.configuration,
+                                         detectedPupils: analysis.detectedPupils)
     }
 
     // MARK: - Montagem da Configuração
     private func buildConfiguration(from observation: VNFaceObservation,
                                     imageSize: CGSize,
                                     orientation: CGImagePropertyOrientation,
-                                    scale: PostCaptureScale) -> PostCaptureConfiguration {
+                                    scale: PostCaptureScale) -> (configuration: PostCaptureConfiguration,
+                                                                  detectedPupils: PostCaptureAnalysisResult.DetectedPupils) {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -107,10 +116,15 @@ final class PostCaptureProcessor {
                                       scale: scale,
                                       mirroredFrom: rightEyeData)
 
-        return PostCaptureConfiguration(centralPoint: centralPoint,
-                                        rightEye: rightEyeData.normalized(centralX: centralPoint.x),
-                                        leftEye: leftEyeData.normalized(centralX: centralPoint.x),
-                                        faceBounds: normalizedBounds)
+        let configuration = PostCaptureConfiguration(centralPoint: centralPoint,
+                                                     rightEye: rightEyeData.normalized(centralX: centralPoint.x),
+                                                     leftEye: leftEyeData.normalized(centralX: centralPoint.x),
+                                                     faceBounds: normalizedBounds)
+
+        let detected = PostCaptureAnalysisResult.DetectedPupils(right: rightPupilPoint != nil,
+                                                                left: leftPupilPoint != nil)
+
+        return (configuration, detected)
     }
 
     /// Utiliza os landmarks do Vision para recortar toda a cabeça (orelhas, queixo e topo do cabelo).

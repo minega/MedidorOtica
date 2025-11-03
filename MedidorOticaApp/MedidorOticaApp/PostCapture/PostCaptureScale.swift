@@ -47,10 +47,10 @@ struct PostCaptureScale {
 
     /// Diâmetro padrão da pupila utilizado para desenhar o marcador.
     static let pupilDiameterMM: CGFloat = 2
-    /// Altura padrão das barras horizontais exibidas durante o ajuste vertical.
-    static let verticalBarHeightMM: CGFloat = 50
-    /// Comprimento padrão das barras verticais exibidas durante o ajuste horizontal.
-    static let horizontalBarLengthMM: CGFloat = 65
+    /// Altura ampliada das barras horizontais exibidas durante o ajuste vertical para facilitar o encaixe.
+    static let verticalBarHeightMM: CGFloat = 75
+    /// Comprimento ampliado das barras verticais exibidas durante o ajuste horizontal para maior precisão.
+    static let horizontalBarLengthMM: CGFloat = 90
     /// Deslocamento nasal inicial solicitado pelo time de ótica.
     static let nasalOffsetMM: CGFloat = 9
     /// Deslocamento temporal inicial solicitado pelo time de ótica.

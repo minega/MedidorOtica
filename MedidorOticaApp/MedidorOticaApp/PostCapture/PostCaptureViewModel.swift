@@ -58,6 +58,7 @@ final class PostCaptureViewModel: ObservableObject {
 
     // MARK: - Estados Internos
     private var didMirrorLeftEye = false
+    private var detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: false, left: false)
 
     // MARK: - Inicialização
     init(photo: CapturedPhoto, existingMeasurement: Measurement? = nil) {
@@ -136,6 +137,7 @@ final class PostCaptureViewModel: ObservableObject {
                                                                        scale: scale)
             await MainActor.run {
                 self.configuration = result.configuration
+                self.detectedPupils = result.detectedPupils
                 self.faceBounds = result.configuration.faceBounds
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
@@ -215,6 +217,7 @@ final class PostCaptureViewModel: ObservableObject {
 
     private func mirrorLeftEyeIfNeeded() {
         guard !didMirrorLeftEye else { return }
+        guard !detectedPupils.left else { return }
         let mirrored = configuration.rightEye.mirrored(around: configuration.centralPoint.x)
         configuration.leftEye = mirrored.normalized(centralX: configuration.centralPoint.x)
         didMirrorLeftEye = true
