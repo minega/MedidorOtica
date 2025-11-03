@@ -160,19 +160,6 @@ final class TrueDepthCalibrationEstimator {
         var horizontalCandidates = depthCandidates.horizontal
         var verticalCandidates = depthCandidates.vertical
 
-        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
-                                         orientation: cgOrientation)
-        let depthHorizontal = (depth * 1000) / focal.fx
-        let depthVertical = (depth * 1000) / focal.fy
-
-        if CalibrationBounds.isValid(mmPerPixel: depthHorizontal) {
-            horizontalCandidates.append(depthHorizontal)
-        }
-
-        if CalibrationBounds.isValid(mmPerPixel: depthVertical) {
-            verticalCandidates.append(depthVertical)
-        }
-
         if let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
                                                       camera: frame.camera,
                                                       uiOrientation: uiOrientation,
@@ -321,30 +308,33 @@ final class TrueDepthCalibrationEstimator {
         let resolution = frame.camera.imageResolution
         let scaleX = Double(resolution.width) / Double(depthWidth)
         let scaleY = Double(resolution.height) / Double(depthHeight)
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
         let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
                                                imageResolution: resolution,
                                                depthWidth: depthWidth,
                                                depthHeight: depthHeight)
 
-        let samplingStepX = max(1, depthWidth / 48)
-        let samplingStepY = max(1, depthHeight / 48)
-        let maximumSamples = max(1, (depthWidth / samplingStepX) * (depthHeight / samplingStepY))
+        // Analisa o mapa completo sem amostragem para aproveitar cada pixel válido fornecido pelo TrueDepth.
+        let fullCapacity = max(depthWidth * depthHeight, 1)
 
         var rawHorizontal: [Double] = []
-        rawHorizontal.reserveCapacity(maximumSamples)
+        rawHorizontal.reserveCapacity(fullCapacity)
         var rawVertical: [Double] = []
-        rawVertical.reserveCapacity(maximumSamples)
+        rawVertical.reserveCapacity(fullCapacity)
 
         var depthSum: Double = 0
         var depthCount: Int = 0
 
-        for y in stride(from: 0, to: depthHeight - 1, by: samplingStepY) {
+        for y in 0..<depthHeight {
             let rowPointer = depthBase + y * depthStride
-            let nextRowPointer = depthBase + min(y + 1, depthHeight - 1) * depthStride
+            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase + (y + 1) * depthStride : nil
             let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
-            let nextConfidenceRow = confidenceBase.map { $0 + min(y + 1, depthHeight - 1) * confidenceStride }
+            let nextConfidenceRow: UnsafePointer<UInt8>? = {
+                guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
+                return base + (y + 1) * confidenceStride
+            }()
 
-            for x in stride(from: 0, to: depthWidth - 1, by: samplingStepX) {
+            for x in 0..<depthWidth {
                 let depthValue = rowPointer[x]
                 guard depthValue.isFinite, depthValue > 0 else { continue }
                 if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
@@ -370,10 +360,10 @@ final class TrueDepthCalibrationEstimator {
                     }
                 }
 
-                if y + 1 < depthHeight {
+                if let nextRowPointer {
                     let neighborDepth = nextRowPointer[x]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let confidence = nextConfidenceRow, confidence[x] < minimumConfidence { continue }
+                    if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
 
                     let distance = millimetersBetween(x0: x,
                                                       y0: y,
