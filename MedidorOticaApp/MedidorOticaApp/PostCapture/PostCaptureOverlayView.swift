@@ -374,22 +374,71 @@ struct PostCaptureOverlayView: View {
             .allowsHitTesting(isActive)
     }
 
+    // MARK: - Regras das Barras Horizontais
+    /// Limita o comprimento das barras horizontais sem ultrapassar o ponto central (PC).
+    private func clampedHorizontalRange(centerX: CGFloat,
+                                        desiredWidth: CGFloat,
+                                        centralDividerX: CGFloat,
+                                        canvasWidth: CGFloat) -> (start: CGFloat, end: CGFloat) {
+        guard canvasWidth > 0 else { return (centerX, centerX) }
+
+        let halfWidth = desiredWidth / 2
+        var start = centerX - halfWidth
+        var end = centerX + halfWidth
+
+        if centerX <= centralDividerX {
+            if end > centralDividerX {
+                let overflow = end - centralDividerX
+                end = centralDividerX
+                start -= overflow
+            }
+        } else {
+            if start < centralDividerX {
+                let overflow = centralDividerX - start
+                start = centralDividerX
+                end += overflow
+            }
+        }
+
+        if start < 0 {
+            end = min(end - start, canvasWidth)
+            start = 0
+        }
+
+        if end > canvasWidth {
+            start = max(start - (end - canvasWidth), 0)
+            end = canvasWidth
+        }
+
+        if end < start {
+            let mid = (start + end) / 2
+            return (mid, mid)
+        }
+
+        return (start, end)
+    }
+
     private func horizontalBars(for eye: PostCaptureEye,
                                  data: EyeMeasurementData,
                                  size: CGSize,
                                  isActiveEye: Bool) -> some View {
-        let barWidth = min(viewModel.scale.normalizedHorizontal(PostCaptureScale.horizontalBarLengthMM) * size.width,
-                           size.width)
+        let desiredWidth = viewModel.scale.normalizedHorizontal(PostCaptureScale.horizontalBarLengthMM) * size.width
         let centerX = data.pupil.x * size.width
+        let dividerX = viewModel.displayCentralPoint.x * size.width
         let inferiorY = data.inferiorBarY * size.height
         let superiorY = data.superiorBarY * size.height
         let isActive = isActiveEye && viewModel.currentStage == .vertical
 
+        let horizontalRange = clampedHorizontalRange(centerX: centerX,
+                                                     desiredWidth: desiredWidth,
+                                                     centralDividerX: dividerX,
+                                                     canvasWidth: size.width)
+
         // Aplica o mesmo padrão visual das barras verticais para facilitar a leitura.
         return ZStack {
             draggableHorizontalBar(positionY: inferiorY,
-                                    centerX: centerX,
-                                    width: barWidth,
+                                    startX: horizontalRange.start,
+                                    endX: horizontalRange.end,
                                     color: .orange,
                                     isActive: isActive,
                                     size: size,
@@ -397,8 +446,8 @@ struct PostCaptureOverlayView: View {
                                         viewModel.updateHorizontalBar(isInferior: true, value: value / size.height)
                                     })
             draggableHorizontalBar(positionY: superiorY,
-                                    centerX: centerX,
-                                    width: barWidth,
+                                    startX: horizontalRange.start,
+                                    endX: horizontalRange.end,
                                     color: .yellow,
                                     isActive: isActive,
                                     size: size,
@@ -409,14 +458,18 @@ struct PostCaptureOverlayView: View {
     }
 
     private func draggableHorizontalBar(positionY: CGFloat,
-                                         centerX: CGFloat,
-                                         width: CGFloat,
+                                         startX: CGFloat,
+                                         endX: CGFloat,
                                          color: Color,
                                          isActive: Bool,
                                          size: CGSize,
                                          update: @escaping (CGFloat) -> Void) -> some View {
         let lineHeight = BarAppearance.lineThickness(isActive: isActive)
         let handleSize = BarAppearance.handleSize(isActive: isActive)
+        let clampedStart = max(min(startX, size.width), 0)
+        let clampedEnd = max(min(endX, size.width), 0)
+        let width = max(clampedEnd - clampedStart, lineHeight)
+        let centerX = (clampedStart + clampedEnd) / 2
 
         return Capsule()
             .fill(color.opacity(isActive ? 0.9 : 0.45))

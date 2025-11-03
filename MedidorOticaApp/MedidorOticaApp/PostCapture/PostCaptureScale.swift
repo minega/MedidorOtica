@@ -50,7 +50,7 @@ struct PostCaptureScale {
     /// Altura padrão das barras horizontais exibidas durante o ajuste vertical.
     static let verticalBarHeightMM: CGFloat = 50
     /// Comprimento padrão das barras verticais exibidas durante o ajuste horizontal.
-    static let horizontalBarLengthMM: CGFloat = 60
+    static let horizontalBarLengthMM: CGFloat = 65
     /// Deslocamento nasal inicial solicitado pelo time de ótica.
     static let nasalOffsetMM: CGFloat = 9
     /// Deslocamento temporal inicial solicitado pelo time de ótica.
@@ -73,12 +73,14 @@ struct PostCaptureScale {
     /// Converte um valor em milímetros para escala horizontal normalizada (0...1).
     func normalizedHorizontal(_ millimeters: CGFloat) -> CGFloat {
         guard horizontalReferenceMM > 0 else { return 0 }
-        return millimeters / horizontalReferenceMM
+        let normalized = millimeters / horizontalReferenceMM
+        return min(max(normalized, 0), 1)
     }
 
     /// Converte um valor em milímetros para escala vertical normalizada (0...1).
     func normalizedVertical(_ millimeters: CGFloat) -> CGFloat {
         guard verticalReferenceMM > 0 else { return 0 }
-        return millimeters / verticalReferenceMM
+        let normalized = millimeters / verticalReferenceMM
+        return min(max(normalized, 0), 1)
     }
 }
