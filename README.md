@@ -26,6 +26,8 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 O aplicativo detecta automaticamente qual sensor está disponível e ajusta as verificações.
 
+> **Regra obrigatória:** Nunca desenvolva métricas ou fluxos que permitam capturar fotos com a câmera frontal sem o sensor **TrueDepth** ativo; a precisão absoluta depende exclusivamente dele.
+
 ## Comportamentos Verificados
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
