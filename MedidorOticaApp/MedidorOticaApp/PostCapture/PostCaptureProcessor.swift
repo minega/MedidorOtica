@@ -246,8 +246,11 @@ final class PostCaptureProcessor {
             isRightSide = isRightEye
         }
 
-        let nasal = centralPoint.x + (isRightSide ? -nasalOffset : nasalOffset)
-        let temporal = centralPoint.x + (isRightSide ? temporalOffset : -temporalOffset)
+        // Garante que a barra nasal permaneça sempre voltada ao ponto central enquanto a temporal segue para a lateral.
+        let nasalDirection: CGFloat = isRightSide ? -1 : 1
+        let temporalDirection: CGFloat = isRightSide ? 1 : -1
+        let nasal = centralPoint.x + (nasalDirection * nasalOffset)
+        let temporal = centralPoint.x + (temporalDirection * temporalOffset)
         let clampedNasal = min(max(nasal, 0), 1)
         let clampedTemporal = min(max(temporal, 0), 1)
 

@@ -160,19 +160,6 @@ final class TrueDepthCalibrationEstimator {
         var horizontalCandidates = depthCandidates.horizontal
         var verticalCandidates = depthCandidates.vertical
 
-        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
-                                         orientation: cgOrientation)
-        let depthHorizontal = (depth * 1000) / focal.fx
-        let depthVertical = (depth * 1000) / focal.fy
-
-        if CalibrationBounds.isValid(mmPerPixel: depthHorizontal) {
-            horizontalCandidates.append(depthHorizontal)
-        }
-
-        if CalibrationBounds.isValid(mmPerPixel: depthVertical) {
-            verticalCandidates.append(depthVertical)
-        }
-
         if let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
                                                       camera: frame.camera,
                                                       uiOrientation: uiOrientation,
@@ -307,6 +294,18 @@ final class TrueDepthCalibrationEstimator {
         }
         let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
 
+        // Garante leitura segura do mapa de confiança, que pode não ser enviado pelo sensor.
+        let confidenceBuffer = depthData.confidenceMap
+        if let confidenceBuffer {
+            CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
+        }
+        defer {
+            if let confidenceBuffer {
+                CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly)
+            }
+        }
+        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
+
         let confidenceBuffer = depthData.confidenceMap
         CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
@@ -370,10 +369,89 @@ final class TrueDepthCalibrationEstimator {
                     }
                 }
 
-                if y + 1 < depthHeight {
+        let hasConfidence: Bool
+        let confidenceStride: Int
+        let confidenceBase: UnsafePointer<UInt8>?
+
+        if let confidenceBuffer {
+            let widthMatches = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth
+            let heightMatches = CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
+            hasConfidence = widthMatches && heightMatches
+            if hasConfidence,
+               let pointer = CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) {
+                confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
+                confidenceBase = pointer
+            } else {
+                confidenceStride = 0
+                confidenceBase = nil
+            }
+        } else {
+            hasConfidence = false
+            confidenceStride = 0
+            confidenceBase = nil
+        }
+        // Apenas considera pixels classificados com confiança alta pelo hardware.
+        let minimumConfidence: UInt8 = 2
+
+        let resolution = frame.camera.imageResolution
+        let scaleX = Double(resolution.width) / Double(depthWidth)
+        let scaleY = Double(resolution.height) / Double(depthHeight)
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                               imageResolution: resolution,
+                                               depthWidth: depthWidth,
+                                               depthHeight: depthHeight)
+
+        // Analisa o mapa completo sem amostragem para aproveitar cada pixel válido fornecido pelo TrueDepth.
+        let fullCapacity = max(depthWidth * depthHeight, 1)
+
+        var rawHorizontal: [Double] = []
+        rawHorizontal.reserveCapacity(fullCapacity)
+        var rawVertical: [Double] = []
+        rawVertical.reserveCapacity(fullCapacity)
+
+        var depthSum: Double = 0
+        var depthCount: Int = 0
+
+        for y in 0..<depthHeight {
+            let rowPointer = depthBase + y * depthStride
+            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase + (y + 1) * depthStride : nil
+            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            let nextConfidenceRow: UnsafePointer<UInt8>? = {
+                guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
+                return base + (y + 1) * confidenceStride
+            }()
+
+            for x in 0..<depthWidth {
+                let depthValue = rowPointer[x]
+                guard depthValue.isFinite, depthValue > 0 else { continue }
+                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
+
+                depthSum += Double(depthValue)
+                depthCount += 1
+
+                if x + 1 < depthWidth {
+                    let neighborDepth = rowPointer[x + 1]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x + 1,
+                                                      y1: y,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleX
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawHorizontal.append(mmPerPixel)
+                    }
+                }
+
+                if let nextRowPointer {
                     let neighborDepth = nextRowPointer[x]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let confidence = nextConfidenceRow, confidence[x] < minimumConfidence { continue }
+                    if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
 
                     let distance = millimetersBetween(x0: x,
                                                       y0: y,

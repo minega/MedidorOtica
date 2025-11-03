@@ -50,7 +50,7 @@ struct PostCaptureScale {
     /// Altura padrão das barras horizontais exibidas durante o ajuste vertical.
     static let verticalBarHeightMM: CGFloat = 50
     /// Comprimento padrão das barras verticais exibidas durante o ajuste horizontal.
-    static let horizontalBarLengthMM: CGFloat = 60
+    static let horizontalBarLengthMM: CGFloat = 65
     /// Deslocamento nasal inicial solicitado pelo time de ótica.
     static let nasalOffsetMM: CGFloat = 9
     /// Deslocamento temporal inicial solicitado pelo time de ótica.
