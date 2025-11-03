@@ -289,107 +289,33 @@ final class TrueDepthCalibrationEstimator {
         let depthHeight = CVPixelBufferGetHeight(depthBuffer)
         guard depthWidth > 1, depthHeight > 1 else { return nil }
 
-        guard let depthBase = CVPixelBufferGetBaseAddress(depthBuffer)?.assumingMemoryBound(to: Float32.self) else {
+        guard let depthBaseMutable = CVPixelBufferGetBaseAddress(depthBuffer)?.assumingMemoryBound(to: Float32.self) else {
             return nil
         }
+        let depthBase = UnsafePointer<Float32>(depthBaseMutable)
         let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
 
         // Garante leitura segura do mapa de confiança, que pode não ser enviado pelo sensor.
+        var lockedConfidenceBuffer: CVPixelBuffer?
         let confidenceBuffer = depthData.confidenceMap
-        if let confidenceBuffer {
-            CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
+        var confidenceStride = 0
+        var confidenceBase: UnsafePointer<UInt8>?
+        if let buffer = confidenceBuffer,
+           CVPixelBufferGetWidth(buffer) == depthWidth,
+           CVPixelBufferGetHeight(buffer) == depthHeight {
+            CVPixelBufferLockBaseAddress(buffer, .readOnly)
+            lockedConfidenceBuffer = buffer
+            confidenceStride = CVPixelBufferGetBytesPerRow(buffer) / MemoryLayout<UInt8>.size
+            if let mutableConfidence = CVPixelBufferGetBaseAddress(buffer)?.assumingMemoryBound(to: UInt8.self) {
+                confidenceBase = UnsafePointer<UInt8>(mutableConfidence)
+            }
         }
         defer {
-            if let confidenceBuffer {
-                CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly)
+            if let buffer = lockedConfidenceBuffer {
+                CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
             }
         }
-        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
 
-        let confidenceBuffer = depthData.confidenceMap
-        CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
-
-        let hasConfidence = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth &&
-            CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
-        let confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
-        let confidenceBase = hasConfidence ? CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) : nil
-        // Apenas considera pixels classificados com confiança alta pelo hardware.
-        let minimumConfidence: UInt8 = 2
-
-        let resolution = frame.camera.imageResolution
-        let scaleX = Double(resolution.width) / Double(depthWidth)
-        let scaleY = Double(resolution.height) / Double(depthHeight)
-        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
-                                               imageResolution: resolution,
-                                               depthWidth: depthWidth,
-                                               depthHeight: depthHeight)
-
-        let samplingStepX = max(1, depthWidth / 48)
-        let samplingStepY = max(1, depthHeight / 48)
-        let maximumSamples = max(1, (depthWidth / samplingStepX) * (depthHeight / samplingStepY))
-
-        var rawHorizontal: [Double] = []
-        rawHorizontal.reserveCapacity(maximumSamples)
-        var rawVertical: [Double] = []
-        rawVertical.reserveCapacity(maximumSamples)
-
-        var depthSum: Double = 0
-        var depthCount: Int = 0
-
-        for y in stride(from: 0, to: depthHeight - 1, by: samplingStepY) {
-            let rowPointer = depthBase + y * depthStride
-            let nextRowPointer = depthBase + min(y + 1, depthHeight - 1) * depthStride
-            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
-            let nextConfidenceRow = confidenceBase.map { $0 + min(y + 1, depthHeight - 1) * confidenceStride }
-
-            for x in stride(from: 0, to: depthWidth - 1, by: samplingStepX) {
-                let depthValue = rowPointer[x]
-                guard depthValue.isFinite, depthValue > 0 else { continue }
-                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
-
-                depthSum += Double(depthValue)
-                depthCount += 1
-
-                if x + 1 < depthWidth {
-                    let neighborDepth = rowPointer[x + 1]
-                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
-
-                    let distance = millimetersBetween(x0: x,
-                                                      y0: y,
-                                                      depth0: depthValue,
-                                                      x1: x + 1,
-                                                      y1: y,
-                                                      depth1: neighborDepth,
-                                                      intrinsics: intrinsics)
-                    let mmPerPixel = distance / scaleX
-                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
-                        rawHorizontal.append(mmPerPixel)
-                    }
-                }
-
-        let hasConfidence: Bool
-        let confidenceStride: Int
-        let confidenceBase: UnsafePointer<UInt8>?
-
-        if let confidenceBuffer {
-            let widthMatches = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth
-            let heightMatches = CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
-            hasConfidence = widthMatches && heightMatches
-            if hasConfidence,
-               let pointer = CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) {
-                confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
-                confidenceBase = pointer
-            } else {
-                confidenceStride = 0
-                confidenceBase = nil
-            }
-        } else {
-            hasConfidence = false
-            confidenceStride = 0
-            confidenceBase = nil
-        }
         // Apenas considera pixels classificados com confiança alta pelo hardware.
         let minimumConfidence: UInt8 = 2
 
@@ -397,6 +323,7 @@ final class TrueDepthCalibrationEstimator {
         let scaleX = Double(resolution.width) / Double(depthWidth)
         let scaleY = Double(resolution.height) / Double(depthHeight)
         guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+
         let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
                                                imageResolution: resolution,
                                                depthWidth: depthWidth,
@@ -414,12 +341,16 @@ final class TrueDepthCalibrationEstimator {
         var depthCount: Int = 0
 
         for y in 0..<depthHeight {
-            let rowPointer = depthBase + y * depthStride
-            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase + (y + 1) * depthStride : nil
-            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            // Linha atual do mapa de profundidade em formato contíguo.
+            let rowPointer = depthBase.advanced(by: y * depthStride)
+            // Linha subsequente, utilizada para medir vizinhos verticais.
+            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase.advanced(by: (y + 1) * depthStride) : nil
+
+            // Confiança para a linha corrente e subsequente, quando disponível.
+            let confidenceRow = confidenceBase.map { $0.advanced(by: y * confidenceStride) }
             let nextConfidenceRow: UnsafePointer<UInt8>? = {
                 guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
-                return base + (y + 1) * confidenceStride
+                return base.advanced(by: (y + 1) * confidenceStride)
             }()
 
             for x in 0..<depthWidth {
