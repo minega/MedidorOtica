@@ -27,6 +27,7 @@
 import ARKit
 import Vision
 import simd
+import UIKit
 
 // MARK: - Extensões
 
@@ -86,16 +87,22 @@ extension VerificationManager {
     }
 
     private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
-        // Obtém a geometria 3D do rosto
-        let vertices = faceAnchor.geometry.vertices
-
-        // Valida se temos vértices suficientes para análise
-        guard vertices.count > CenteringConstants.FaceIndices.noseTip else {
-            print("❌ Geometria facial incompleta para análise de centralização")
+        guard let metrics = makeAlignedTrueDepthMetrics(faceAnchor: faceAnchor, frame: frame) else {
+            print("❌ Não foi possível calcular métricas de centralização válidas")
             return false
         }
 
-        // Converte pontos faciais para o sistema de coordenadas da câmera
+        return evaluateCentering(using: metrics)
+    }
+
+    /// Calcula métricas de centralização em metros compensando o deslocamento da lente TrueDepth na tela.
+    private func makeAlignedTrueDepthMetrics(faceAnchor: ARFaceAnchor, frame: ARFrame) -> FaceCenteringMetrics? {
+        let vertices = faceAnchor.geometry.vertices
+
+        guard vertices.count > CenteringConstants.FaceIndices.noseTip else {
+            return nil
+        }
+
         let worldToCamera = simd_inverse(frame.camera.transform)
         let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
         let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
@@ -105,19 +112,113 @@ extension VerificationManager {
         let rightEyeCam = simd_mul(worldToCamera, rightEyeWorld)
         let noseCam = simd_mul(worldToCamera, noseWorld)
 
-        // Calcula o ponto central (PC) usando a altura média das pupilas e o eixo X do nariz
+        let noseDepth = abs(noseCam.z)
+        let leftEyeDepth = abs(leftEyeCam.columns.3.z)
+        let rightEyeDepth = abs(rightEyeCam.columns.3.z)
         let averageEyeHeight = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
-        let horizontalOffset = noseCam.x
-        let verticalOffset = averageEyeHeight
+        let averageEyeDepth = max(0.01, (leftEyeDepth + rightEyeDepth) / 2)
 
-        // Consolida todas as medidas para avaliar e exibir na interface
-        let metrics = FaceCenteringMetrics(
-            horizontal: horizontalOffset,
-            vertical: verticalOffset,
-            noseAlignment: noseCam.x
-        )
+        guard noseDepth > 0.01 else { return nil }
 
-        return evaluateCentering(using: metrics)
+        let viewportSize = currentViewportSize()
+        let lensPoint = cameraLensPoint(in: viewportSize)
+        let orientation = currentUIOrientation()
+
+        guard let coefficients = alignmentCoefficients(for: frame,
+                                                       targetPoint: lensPoint,
+                                                       viewportSize: viewportSize,
+                                                       orientation: orientation) else {
+            print("⚠️ Falha ao alinhar com a posição real da câmera, usando valores brutos")
+            return FaceCenteringMetrics(horizontal: noseCam.x,
+                                        vertical: averageEyeHeight,
+                                        noseAlignment: noseCam.x)
+        }
+
+        let horizontalOffset = noseCam.x - Float(coefficients.horizontal) * noseDepth
+        let verticalOffset = averageEyeHeight - Float(coefficients.vertical) * averageEyeDepth
+
+        return FaceCenteringMetrics(horizontal: horizontalOffset,
+                                    vertical: verticalOffset,
+                                    noseAlignment: horizontalOffset)
+    }
+
+    /// Obtém os coeficientes que convertem deslocamentos da tela para o espaço da câmera.
+    private func alignmentCoefficients(for frame: ARFrame,
+                                       targetPoint: CGPoint,
+                                       viewportSize: CGSize,
+                                       orientation: UIInterfaceOrientation) -> (horizontal: Double, vertical: Double)? {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+
+        let displayTransform = frame.displayTransform(for: orientation, viewportSize: viewportSize)
+        let viewToImage = displayTransform.inverted()
+        let normalizedViewport = CGPoint(x: targetPoint.x / viewportSize.width,
+                                         y: targetPoint.y / viewportSize.height)
+        let normalizedImage = normalizedViewport.applying(viewToImage)
+
+        guard normalizedImage.x.isFinite, normalizedImage.y.isFinite else { return nil }
+
+        let resolution = frame.camera.imageResolution
+        let pixelX = Double(normalizedImage.x) * Double(resolution.width)
+        let pixelY = Double(normalizedImage.y) * Double(resolution.height)
+
+        let intrinsics = frame.camera.intrinsics
+        let fx = Double(intrinsics.columns.0.x)
+        let fy = Double(intrinsics.columns.1.y)
+        let cx = Double(intrinsics.columns.2.x)
+        let cy = Double(intrinsics.columns.2.y)
+
+        guard fx > 0, fy > 0 else { return nil }
+
+        let horizontal = (pixelX - cx) / fx
+        let vertical = (pixelY - cy) / fy
+
+        guard horizontal.isFinite, vertical.isFinite else { return nil }
+
+        return (horizontal: horizontal, vertical: vertical)
+    }
+
+    /// Retorna o tamanho atual do viewport utilizado para renderizar a câmera.
+    private func currentViewportSize() -> CGSize {
+        if Thread.isMainThread {
+            return UIScreen.main.bounds.size
+        }
+
+        var size = CGSize.zero
+        DispatchQueue.main.sync {
+            size = UIScreen.main.bounds.size
+        }
+        return size
+    }
+
+    /// Calcula a posição aproximada da lente TrueDepth na tela para alinhar o PC.
+    private func cameraLensPoint(in viewportSize: CGSize) -> CGPoint {
+        let insets = keyWindowSafeAreaInsets()
+        let topInset = max(insets.top, 44)
+        let isDynamicIsland = topInset > 47
+        let xOffset: CGFloat = isDynamicIsland ? 40 : 0
+        let x = viewportSize.width / 2 + xOffset
+        let y = max(0, topInset - 14)
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Obtém os `safeAreaInsets` da janela principal de forma thread-safe.
+    private func keyWindowSafeAreaInsets() -> UIEdgeInsets {
+        let fetchInsets: () -> UIEdgeInsets = {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow }?.safeAreaInsets ?? .zero
+        }
+
+        if Thread.isMainThread {
+            return fetchInsets()
+        }
+
+        var insets = UIEdgeInsets.zero
+        DispatchQueue.main.sync {
+            insets = fetchInsets()
+        }
+        return insets
     }
 
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {

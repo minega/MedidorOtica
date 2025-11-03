@@ -26,6 +26,15 @@ final class TrueDepthCalibrationEstimator {
         let meanDepth: Double
     }
 
+    /// Representa uma fonte de profundidade válida para o sensor TrueDepth.
+    private struct DepthSource {
+        let depthMap: CVPixelBuffer
+        let confidenceMap: CVPixelBuffer?
+        let intrinsics: DepthIntrinsics
+        let scaleX: Double
+        let scaleY: Double
+    }
+
     /// Faixas utilizadas para validar as amostras provenientes do TrueDepth.
     private enum CalibrationBounds {
         static let interpupillaryRange = 40.0...80.0
@@ -279,9 +288,9 @@ final class TrueDepthCalibrationEstimator {
     /// Converte os dados do mapa de profundidade em candidatos de mm/pixel analisando cada ponto válido.
     private static func perPixelCandidates(from frame: ARFrame,
                                            cgOrientation: CGImagePropertyOrientation) -> DepthCalibrationCandidates? {
-        guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else { return nil }
+        guard let depthSource = makeDepthSource(from: frame) else { return nil }
 
-        let depthBuffer = depthData.depthMap
+        let depthBuffer = depthSource.depthMap
         CVPixelBufferLockBaseAddress(depthBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depthBuffer, .readOnly) }
 
@@ -297,7 +306,7 @@ final class TrueDepthCalibrationEstimator {
 
         // Garante leitura segura do mapa de confiança, que pode não ser enviado pelo sensor.
         var lockedConfidenceBuffer: CVPixelBuffer?
-        let confidenceBuffer = depthData.confidenceMap
+        let confidenceBuffer = depthSource.confidenceMap
         var confidenceStride = 0
         var confidenceBase: UnsafePointer<UInt8>?
         if let buffer = confidenceBuffer,
@@ -319,15 +328,11 @@ final class TrueDepthCalibrationEstimator {
         // Apenas considera pixels classificados com confiança alta pelo hardware.
         let minimumConfidence: UInt8 = 2
 
-        let resolution = frame.camera.imageResolution
-        let scaleX = Double(resolution.width) / Double(depthWidth)
-        let scaleY = Double(resolution.height) / Double(depthHeight)
+        let scaleX = depthSource.scaleX
+        let scaleY = depthSource.scaleY
         guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
 
-        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
-                                               imageResolution: resolution,
-                                               depthWidth: depthWidth,
-                                               depthHeight: depthHeight)
+        let intrinsics = depthSource.intrinsics
 
         // Analisa o mapa completo sem amostragem para aproveitar cada pixel válido fornecido pelo TrueDepth.
         let fullCapacity = max(depthWidth * depthHeight, 1)
@@ -410,6 +415,62 @@ final class TrueDepthCalibrationEstimator {
         return DepthCalibrationCandidates(horizontal: horizontal,
                                            vertical: vertical,
                                            meanDepth: meanDepth)
+    }
+
+    /// Seleciona a fonte de profundidade mais confiável disponível no frame atual.
+    private static func makeDepthSource(from frame: ARFrame) -> DepthSource? {
+        if let sceneDepth = frame.sceneDepth ?? frame.smoothedSceneDepth {
+            let depthBuffer = sceneDepth.depthMap
+            let resolution = frame.camera.imageResolution
+            let width = CVPixelBufferGetWidth(depthBuffer)
+            let height = CVPixelBufferGetHeight(depthBuffer)
+            let scaleX = Double(resolution.width) / Double(width)
+            let scaleY = Double(resolution.height) / Double(height)
+            guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+
+            let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                                   imageResolution: resolution,
+                                                   depthWidth: width,
+                                                   depthHeight: height)
+
+            return DepthSource(depthMap: depthBuffer,
+                               confidenceMap: sceneDepth.confidenceMap,
+                               intrinsics: intrinsics,
+                               scaleX: scaleX,
+                               scaleY: scaleY)
+        }
+
+        guard let capturedDepth = frame.capturedDepthData else { return nil }
+        let depthData = capturedDepth.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+        let depthBuffer = depthData.depthDataMap
+        let width = CVPixelBufferGetWidth(depthBuffer)
+        let height = CVPixelBufferGetHeight(depthBuffer)
+        guard width > 1, height > 1 else { return nil }
+
+        let intrinsics: DepthIntrinsics
+        if let calibration = depthData.cameraCalibrationData?.intrinsicMatrix {
+            intrinsics = DepthIntrinsics(fx: calibration.columns.0.x,
+                                         fy: calibration.columns.1.y,
+                                         cx: calibration.columns.2.x,
+                                         cy: calibration.columns.2.y)
+        } else {
+            let resolution = frame.camera.imageResolution
+            intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                               imageResolution: resolution,
+                                               depthWidth: width,
+                                               depthHeight: height)
+        }
+
+        let resolution = frame.camera.imageResolution
+        let scaleX = Double(resolution.width) / Double(width)
+        let scaleY = Double(resolution.height) / Double(height)
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+
+        return DepthSource(depthMap: depthBuffer,
+                           confidenceMap: depthData.confidenceMap,
+                           intrinsics: intrinsics,
+                           scaleX: scaleX,
+                           scaleY: scaleY)
     }
 
     /// Ajusta os intrínsecos originais da câmera para o tamanho do mapa de profundidade atual.

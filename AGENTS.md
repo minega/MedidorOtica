@@ -19,6 +19,7 @@
 - Verifique se ao abrir a câmera pela tela inicial todas as verificações começam automaticamente.
 - Se o rosto já estiver no quadro ao iniciar, o app não deve apresentar erros e deve seguir a sequência normalmente.
 - Garanta que todas as verificações funcionem tanto com a câmera frontal (TrueDepth) quanto com a traseira (LiDAR).
+- Nunca adicione métricas que permitam capturar fotos com a câmera frontal sem o sensor TrueDepth ativo.
 - Bloqueie o uso da câmera em dispositivos que não possuam o sensor necessário.
 - Otimize o código ao máximo, identificando claramente cada trecho e removendo qualquer duplicação ou funcionalidade sem uso.
 - Utilize sempre as APIs mais recentes, priorizando recursos de iOS 17 ou superior.
