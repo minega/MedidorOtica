@@ -246,7 +246,7 @@ final class PostCaptureProcessor {
             isRightSide = isRightEye
         }
 
-        let nasal = centralPoint.x + (isRightSide ? -nasalOffset : nasalOffset)
+        let nasal = centralPoint.x + (isRightSide ? nasalOffset : -nasalOffset)
         let temporal = centralPoint.x + (isRightSide ? temporalOffset : -temporalOffset)
         let clampedNasal = min(max(nasal, 0), 1)
         let clampedTemporal = min(max(temporal, 0), 1)
