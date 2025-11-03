@@ -160,6 +160,19 @@ final class TrueDepthCalibrationEstimator {
         var horizontalCandidates = depthCandidates.horizontal
         var verticalCandidates = depthCandidates.vertical
 
+        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
+                                         orientation: cgOrientation)
+        let depthHorizontal = (depth * 1000) / focal.fx
+        let depthVertical = (depth * 1000) / focal.fy
+
+        if CalibrationBounds.isValid(mmPerPixel: depthHorizontal) {
+            horizontalCandidates.append(depthHorizontal)
+        }
+
+        if CalibrationBounds.isValid(mmPerPixel: depthVertical) {
+            verticalCandidates.append(depthVertical)
+        }
+
         if let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
                                                       camera: frame.camera,
                                                       uiOrientation: uiOrientation,
