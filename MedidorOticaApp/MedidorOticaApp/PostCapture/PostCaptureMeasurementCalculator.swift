@@ -113,10 +113,10 @@ struct PostCaptureMeasurementCalculator {
         sanitizedMillimeters(from: Double(abs(first - second)) * reference)
     }
 
-    /// Garante que valores inválidos não contaminem o resumo final.
+    /// Garante que valores inválidos não contaminem o resumo final respeitando precisão de 0,01 mm.
     private func sanitizedMillimeters(from value: Double) -> Double {
         guard value.isFinite, value >= 0 else { return 0 }
-        let precision = 0.1
+        let precision = 0.01
         return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
     }
 }
