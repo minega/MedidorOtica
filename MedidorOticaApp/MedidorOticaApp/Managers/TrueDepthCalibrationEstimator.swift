@@ -19,11 +19,29 @@ final class TrueDepthCalibrationEstimator {
         let timestamp: TimeInterval
     }
 
-    /// Estrutura auxiliar que consolida medições de pares da malha facial.
-    private struct PairMeasurement {
-        let mmDistance: Double
-        let pixelDX: Double
-        let pixelDY: Double
+    /// Valores coletados diretamente do mapa de profundidade ponto a ponto.
+    private struct DepthCalibrationCandidates {
+        let horizontal: [Double]
+        let vertical: [Double]
+        let meanDepth: Double
+    }
+
+    /// Faixas utilizadas para validar as amostras provenientes do TrueDepth.
+    private enum CalibrationBounds {
+        static let interpupillaryRange = 40.0...80.0
+        static let depthRange = 0.08...1.2
+        static let mmPerPixelRange = 0.015...0.8
+        static let minimumPupilPixels: Double = 2
+
+        static func isValid(mmPerPixel value: Double) -> Bool {
+            mmPerPixelRange.contains(value) && value.isFinite
+        }
+
+        static func isRecent(_ sample: CalibrationSample,
+                             referenceTime: TimeInterval,
+                             lifetime: TimeInterval) -> Bool {
+            referenceTime - sample.timestamp <= lifetime * 1.5
+        }
     }
 
     // MARK: - Parâmetros de suavização
@@ -78,12 +96,16 @@ final class TrueDepthCalibrationEstimator {
         }
 
         aggregatedSamples.append(contentsOf: filteredSamples)
+        if aggregatedSamples.isEmpty,
+           let fallback = mostRecentSample(referenceTime: referenceTime) {
+            aggregatedSamples.append(fallback)
+        }
         guard !aggregatedSamples.isEmpty else { return nil }
 
-        let mmPerPixelX = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelX })
-        let mmPerPixelY = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelY })
-
-        guard mmPerPixelX.isFinite, mmPerPixelY.isFinite, mmPerPixelX > 0, mmPerPixelY > 0 else { return nil }
+        guard let mmPerPixelX = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelX }),
+              let mmPerPixelY = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelY }),
+              CalibrationBounds.isValid(mmPerPixel: mmPerPixelX),
+              CalibrationBounds.isValid(mmPerPixel: mmPerPixelY) else { return nil }
 
         let horizontalReference = mmPerPixelX * Double(cropRect.width)
         let verticalReference = mmPerPixelY * Double(cropRect.height)
@@ -111,6 +133,15 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    /// Retorna a amostra confiável mais recente dentro da janela aceitável.
+    private func mostRecentSample(referenceTime: TimeInterval) -> CalibrationSample? {
+        accessQueue.sync {
+            samples.reversed().first { CalibrationBounds.isRecent($0,
+                                                                  referenceTime: referenceTime,
+                                                                  lifetime: sampleLifetime) }
+        }
+    }
+
     // MARK: - Utilidades estáticas
     private static func makeSample(from frame: ARFrame,
                                    cgOrientation: CGImagePropertyOrientation,
@@ -122,8 +153,12 @@ final class TrueDepthCalibrationEstimator {
         let viewportSize = orientedViewportSize(resolution: frame.camera.imageResolution,
                                                 orientation: cgOrientation)
 
-        var horizontalCandidates: [Double] = []
-        var verticalCandidates: [Double] = []
+        guard let depthCandidates = perPixelCandidates(from: frame,
+                                                       cgOrientation: cgOrientation) else { return nil }
+        guard CalibrationBounds.depthRange.contains(depthCandidates.meanDepth) else { return nil }
+
+        var horizontalCandidates = depthCandidates.horizontal
+        var verticalCandidates = depthCandidates.vertical
 
         if let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
                                                       camera: frame.camera,
@@ -132,25 +167,10 @@ final class TrueDepthCalibrationEstimator {
             horizontalCandidates.append(ipdCandidate)
         }
 
-        let meshCandidates = meshBasedCandidates(faceAnchor: faceAnchor,
-                                                 camera: frame.camera,
-                                                 uiOrientation: uiOrientation,
-                                                 viewportSize: viewportSize)
-        horizontalCandidates.append(contentsOf: meshCandidates.horizontal)
-        verticalCandidates.append(contentsOf: meshCandidates.vertical)
-
-        guard !horizontalCandidates.isEmpty else { return nil }
-
-        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
-                                         orientation: cgOrientation)
-        let ratio = focal.fy > 0 ? focal.fx / focal.fy : 1
-
-        let mmPerPixelX = stabilizedMean(horizontalCandidates)
-        verticalCandidates.append(mmPerPixelX * ratio)
-
-        let mmPerPixelY = stabilizedMean(verticalCandidates)
-
-        guard mmPerPixelX.isFinite, mmPerPixelY.isFinite, mmPerPixelX > 0, mmPerPixelY > 0 else { return nil }
+        guard let mmPerPixelX = stabilizedMean(horizontalCandidates),
+              let mmPerPixelY = stabilizedMean(verticalCandidates),
+              CalibrationBounds.isValid(mmPerPixel: mmPerPixelX),
+              CalibrationBounds.isValid(mmPerPixel: mmPerPixelY) else { return nil }
 
         return CalibrationSample(mmPerPixelX: mmPerPixelX,
                                  mmPerPixelY: mmPerPixelY,
@@ -170,9 +190,23 @@ final class TrueDepthCalibrationEstimator {
                             uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
 
-        guard let sample = Self.makeSample(from: frame,
-                                           cgOrientation: cgOrientation,
-                                           uiOrientation: uiOrientation) else { return nil }
+        var referenceSample: CalibrationSample?
+
+        if let current = Self.makeSample(from: frame,
+                                         cgOrientation: cgOrientation,
+                                         uiOrientation: uiOrientation) {
+            referenceSample = current
+            store(current)
+        } else {
+            referenceSample = mostRecentSample(referenceTime: frame.timestamp)
+        }
+
+        guard let sample = referenceSample else { return nil }
+
+        let mmPerPixelX = sample.mmPerPixelX
+        let mmPerPixelY = sample.mmPerPixelY
+
+        guard mmPerPixelX.isFinite, mmPerPixelY.isFinite, mmPerPixelX > 0, mmPerPixelY > 0 else { return nil }
 
         let horizontalReference = sample.mmPerPixelX * Double(cropRect.width)
         let verticalReference = sample.mmPerPixelY * Double(cropRect.height)
@@ -204,7 +238,7 @@ final class TrueDepthCalibrationEstimator {
         let rightPosition = worldPosition(from: rightTransform)
 
         let distanceMM = Double(simd_distance(leftPosition, rightPosition)) * 1000
-        guard distanceMM.isFinite, distanceMM > 40, distanceMM < 80 else { return nil }
+        guard CalibrationBounds.interpupillaryRange.contains(distanceMM) else { return nil }
 
         let projectedLeft = camera.projectPoint(leftPosition,
                                                 orientation: uiOrientation,
@@ -214,130 +248,12 @@ final class TrueDepthCalibrationEstimator {
                                                  viewportSize: viewportSize)
 
         let pixelDiffX = Double(abs(projectedRight.x - projectedLeft.x))
-        guard pixelDiffX.isFinite, pixelDiffX > 2 else { return nil }
+        guard pixelDiffX.isFinite, pixelDiffX > CalibrationBounds.minimumPupilPixels else { return nil }
 
         let mmPerPixelX = distanceMM / pixelDiffX
-        guard mmPerPixelX.isFinite, mmPerPixelX > 0.01, mmPerPixelX < 0.2 else { return nil }
+        guard CalibrationBounds.isValid(mmPerPixel: mmPerPixelX) else { return nil }
 
         return mmPerPixelX
-    }
-
-    /// Calcula múltiplos candidatos de mm/pixel combinando pares opostos da malha facial.
-    private static func meshBasedCandidates(faceAnchor: ARFaceAnchor,
-                                            camera: ARCamera,
-                                            uiOrientation: UIInterfaceOrientation,
-                                            viewportSize: CGSize) -> (horizontal: [Double], vertical: [Double]) {
-        let vertices = faceAnchor.geometry.vertices
-        guard vertices.count >= 2 else { return ([], []) }
-
-        typealias IndexedVertex = (index: Int, vertex: simd_float3)
-        let enumerated: [IndexedVertex] = vertices.enumerated().map { ($0.offset, $0.element) }
-
-        let sortedByX = enumerated.sorted { $0.vertex.x < $1.vertex.x }
-        let sortedByY = enumerated.sorted { $0.vertex.y < $1.vertex.y }
-
-        let horizontalPairs = candidatePairs(from: sortedByX)
-        let verticalPairs = candidatePairs(from: sortedByY)
-
-        var horizontal: [Double] = []
-        var vertical: [Double] = []
-
-        for pair in horizontalPairs {
-            guard let measurement = measurePair(first: pair.0,
-                                                second: pair.1,
-                                                faceAnchor: faceAnchor,
-                                                camera: camera,
-                                                uiOrientation: uiOrientation,
-                                                viewportSize: viewportSize) else { continue }
-
-            guard measurement.mmDistance > 60, measurement.mmDistance < 240 else { continue }
-
-            if measurement.pixelDX > 4 {
-                let value = measurement.mmDistance / measurement.pixelDX
-                if value.isFinite, value > 0.01, value < 0.3 {
-                    horizontal.append(value)
-                }
-            }
-        }
-
-        for pair in verticalPairs {
-            guard let measurement = measurePair(first: pair.0,
-                                                second: pair.1,
-                                                faceAnchor: faceAnchor,
-                                                camera: camera,
-                                                uiOrientation: uiOrientation,
-                                                viewportSize: viewportSize) else { continue }
-
-            guard measurement.mmDistance > 60, measurement.mmDistance < 240 else { continue }
-
-            if measurement.pixelDY > 4 {
-                let value = measurement.mmDistance / measurement.pixelDY
-                if value.isFinite, value > 0.01, value < 0.3 {
-                    vertical.append(value)
-                }
-            }
-        }
-
-        return (horizontal, vertical)
-    }
-
-    /// Gera pares de vértices opostos após descartar extremos potencialmente ruidosos.
-    private static func candidatePairs(from sortedVertices: [(index: Int, vertex: simd_float3)]) -> [(simd_float3, simd_float3)] {
-        guard sortedVertices.count >= 2 else { return [] }
-
-        let trimCount = max(1, sortedVertices.count / 20)
-        let trimmed = Array(sortedVertices.dropFirst(trimCount).dropLast(trimCount))
-        let workingVertices = trimmed.count >= 2 ? trimmed : sortedVertices
-
-        let pairCount = min(6, workingVertices.count / 2)
-        guard pairCount > 0 else { return [] }
-
-        var result: [(simd_float3, simd_float3)] = []
-        for index in 0..<pairCount {
-            let first = workingVertices[index].vertex
-            let second = workingVertices[workingVertices.count - 1 - index].vertex
-            result.append((first, second))
-        }
-
-        return result
-    }
-
-    /// Mede a distância em milímetros e pixels entre dois vértices projetados.
-    private static func measurePair(first: simd_float3,
-                                    second: simd_float3,
-                                    faceAnchor: ARFaceAnchor,
-                                    camera: ARCamera,
-                                    uiOrientation: UIInterfaceOrientation,
-                                    viewportSize: CGSize) -> PairMeasurement? {
-        // Converte os vértices para coordenadas reais considerando a escala do rosto detectado.
-        let worldFirst: simd_float3 = worldPosition(of: first, transform: faceAnchor.transform)
-        let worldSecond: simd_float3 = worldPosition(of: second, transform: faceAnchor.transform)
-
-        let distanceMeters = Double(simd_distance(worldFirst, worldSecond))
-        guard distanceMeters.isFinite, distanceMeters > 0 else { return nil }
-
-        let projectedFirst = camera.projectPoint(worldFirst,
-                                                 orientation: uiOrientation,
-                                                 viewportSize: viewportSize)
-        let projectedSecond = camera.projectPoint(worldSecond,
-                                                  orientation: uiOrientation,
-                                                  viewportSize: viewportSize)
-
-        let pixelDX = Double(abs(projectedSecond.x - projectedFirst.x))
-        let pixelDY = Double(abs(projectedSecond.y - projectedFirst.y))
-
-        guard pixelDX.isFinite, pixelDY.isFinite else { return nil }
-
-        return PairMeasurement(mmDistance: distanceMeters * 1000,
-                               pixelDX: pixelDX,
-                               pixelDY: pixelDY)
-    }
-
-    /// Converte um vértice da malha facial para coordenadas de mundo.
-    private static func worldPosition(of vertex: simd_float3,
-                                      transform: simd_float4x4) -> simd_float3 {
-        let position = simd_mul(transform, SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1))
-        return simd_float3(position.x, position.y, position.z)
     }
 
     /// Extrai a posição no espaço tridimensional a partir de uma matriz de transformação.
@@ -347,24 +263,180 @@ final class TrueDepthCalibrationEstimator {
                     transform.columns.3.z)
     }
 
-    private static func orientedFocalLengths(from intrinsics: simd_float3x3,
-                                             orientation: CGImagePropertyOrientation) -> (fx: Double, fy: Double) {
-        let rawFx = Double(intrinsics.columns.0.x)
-        let rawFy = Double(intrinsics.columns.1.y)
-        if orientation.rotatesDimensions {
-            return (fx: rawFy, fy: rawFx)
-        }
-        return (fx: rawFx, fy: rawFy)
-    }
-
-    private static func stabilizedMean(_ values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
+    private static func stabilizedMean(_ values: [Double]) -> Double? {
+        let valid = values.filter { $0.isFinite }
+        guard !valid.isEmpty else { return nil }
+        let sorted = valid.sorted()
         let trimCount = Int(Double(sorted.count) * 0.1)
         let trimmed = sorted.dropFirst(trimCount).dropLast(trimCount)
         let target = trimmed.isEmpty ? sorted : Array(trimmed)
+        guard !target.isEmpty else { return nil }
         let sum = target.reduce(0, +)
         return sum / Double(target.count)
+    }
+
+    // MARK: - Análise do Mapa de Profundidade
+    /// Converte os dados do mapa de profundidade em candidatos de mm/pixel analisando cada ponto válido.
+    private static func perPixelCandidates(from frame: ARFrame,
+                                           cgOrientation: CGImagePropertyOrientation) -> DepthCalibrationCandidates? {
+        guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else { return nil }
+
+        let depthBuffer = depthData.depthMap
+        CVPixelBufferLockBaseAddress(depthBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthBuffer, .readOnly) }
+
+        let depthWidth = CVPixelBufferGetWidth(depthBuffer)
+        let depthHeight = CVPixelBufferGetHeight(depthBuffer)
+        guard depthWidth > 1, depthHeight > 1 else { return nil }
+
+        guard let depthBase = CVPixelBufferGetBaseAddress(depthBuffer)?.assumingMemoryBound(to: Float32.self) else {
+            return nil
+        }
+        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
+
+        let confidenceBuffer = depthData.confidenceMap
+        CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
+
+        let hasConfidence = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth &&
+            CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
+        let confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
+        let confidenceBase = hasConfidence ? CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) : nil
+        // Apenas considera pixels classificados com confiança alta pelo hardware.
+        let minimumConfidence: UInt8 = 2
+
+        let resolution = frame.camera.imageResolution
+        let scaleX = Double(resolution.width) / Double(depthWidth)
+        let scaleY = Double(resolution.height) / Double(depthHeight)
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                               imageResolution: resolution,
+                                               depthWidth: depthWidth,
+                                               depthHeight: depthHeight)
+
+        // Analisa o mapa completo sem amostragem para aproveitar cada pixel válido fornecido pelo TrueDepth.
+        let fullCapacity = max(depthWidth * depthHeight, 1)
+
+        var rawHorizontal: [Double] = []
+        rawHorizontal.reserveCapacity(fullCapacity)
+        var rawVertical: [Double] = []
+        rawVertical.reserveCapacity(fullCapacity)
+
+        var depthSum: Double = 0
+        var depthCount: Int = 0
+
+        for y in 0..<depthHeight {
+            let rowPointer = depthBase + y * depthStride
+            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase + (y + 1) * depthStride : nil
+            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            let nextConfidenceRow: UnsafePointer<UInt8>? = {
+                guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
+                return base + (y + 1) * confidenceStride
+            }()
+
+            for x in 0..<depthWidth {
+                let depthValue = rowPointer[x]
+                guard depthValue.isFinite, depthValue > 0 else { continue }
+                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
+
+                depthSum += Double(depthValue)
+                depthCount += 1
+
+                if x + 1 < depthWidth {
+                    let neighborDepth = rowPointer[x + 1]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x + 1,
+                                                      y1: y,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleX
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawHorizontal.append(mmPerPixel)
+                    }
+                }
+
+                if let nextRowPointer {
+                    let neighborDepth = nextRowPointer[x]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x,
+                                                      y1: y + 1,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleY
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawVertical.append(mmPerPixel)
+                    }
+                }
+            }
+        }
+
+        guard depthCount > 0 else { return nil }
+
+        let meanDepth = depthSum / Double(depthCount)
+        let horizontal = cgOrientation.rotatesDimensions ? rawVertical : rawHorizontal
+        let vertical = cgOrientation.rotatesDimensions ? rawHorizontal : rawVertical
+
+        guard !horizontal.isEmpty, !vertical.isEmpty else { return nil }
+
+        return DepthCalibrationCandidates(horizontal: horizontal,
+                                           vertical: vertical,
+                                           meanDepth: meanDepth)
+    }
+
+    /// Ajusta os intrínsecos originais da câmera para o tamanho do mapa de profundidade atual.
+    private static func scaledDepthIntrinsics(cameraIntrinsics: simd_float3x3,
+                                              imageResolution: CGSize,
+                                              depthWidth: Int,
+                                              depthHeight: Int) -> DepthIntrinsics {
+        let scaleX = Float(depthWidth) / Float(imageResolution.width)
+        let scaleY = Float(depthHeight) / Float(imageResolution.height)
+
+        return DepthIntrinsics(fx: cameraIntrinsics.columns.0.x * scaleX,
+                               fy: cameraIntrinsics.columns.1.y * scaleY,
+                               cx: cameraIntrinsics.columns.2.x * scaleX,
+                               cy: cameraIntrinsics.columns.2.y * scaleY)
+    }
+
+    /// Representa os intrínsecos utilizados para reprojetar os pixels do mapa de profundidade.
+    private struct DepthIntrinsics {
+        let fx: Float
+        let fy: Float
+        let cx: Float
+        let cy: Float
+    }
+
+    /// Calcula a distância milimétrica entre dois pixels adjacentes no espaço da câmera.
+    private static func millimetersBetween(x0: Int,
+                                           y0: Int,
+                                           depth0: Float32,
+                                           x1: Int,
+                                           y1: Int,
+                                           depth1: Float32,
+                                           intrinsics: DepthIntrinsics) -> Double {
+        let pointA = unproject(pixelX: x0, pixelY: y0, depth: depth0, intrinsics: intrinsics)
+        let pointB = unproject(pixelX: x1, pixelY: y1, depth: depth1, intrinsics: intrinsics)
+        return Double(simd_distance(pointA, pointB)) * 1000
+    }
+
+    /// Converte um pixel do mapa de profundidade em coordenadas no espaço da câmera.
+    private static func unproject(pixelX: Int,
+                                  pixelY: Int,
+                                  depth: Float32,
+                                  intrinsics: DepthIntrinsics) -> simd_float3 {
+        let z = max(depth, 0.0001)
+        let x = (Float(pixelX) - intrinsics.cx) * z / intrinsics.fx
+        let y = (Float(pixelY) - intrinsics.cy) * z / intrinsics.fy
+        return simd_float3(x, y, z)
     }
 }
 

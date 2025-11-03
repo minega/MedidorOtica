@@ -239,23 +239,28 @@ final class PostCaptureProcessor {
         let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM)
         let superiorOffset = scale.normalizedVertical(PostCaptureScale.superiorOffsetMM)
 
-        let direction: CGFloat
+        let isRightSide: Bool
         if let point {
-            direction = point.x >= centralPoint.x ? 1 : -1
+            isRightSide = point.x >= centralPoint.x
         } else {
-            direction = isRightEye ? -1 : 1
+            isRightSide = isRightEye
         }
 
-        let nasal = centralPoint.x + (direction * nasalOffset)
-        let temporal = centralPoint.x + (direction * temporalOffset)
+        // Garante que a barra nasal permaneça sempre voltada ao ponto central enquanto a temporal segue para a lateral.
+        let nasalDirection: CGFloat = isRightSide ? -1 : 1
+        let temporalDirection: CGFloat = isRightSide ? 1 : -1
+        let nasal = centralPoint.x + (nasalDirection * nasalOffset)
+        let temporal = centralPoint.x + (temporalDirection * temporalOffset)
+        let clampedNasal = min(max(nasal, 0), 1)
+        let clampedTemporal = min(max(temporal, 0), 1)
 
         // Ajusta as barras verticais utilizando os deslocamentos fixos solicitados.
         let inferior = min(max(pupilPoint.y + inferiorOffset, 0), 1)
         let superior = min(max(pupilPoint.y - superiorOffset, 0), 1)
 
         return EyeMeasurementData(pupil: pupilPoint,
-                                  nasalBarX: nasal,
-                                  temporalBarX: temporal,
+                                  nasalBarX: clampedNasal,
+                                  temporalBarX: clampedTemporal,
                                   inferiorBarY: inferior,
                                   superiorBarY: superior)
     }
