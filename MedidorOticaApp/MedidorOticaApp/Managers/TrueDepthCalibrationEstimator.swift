@@ -304,6 +304,70 @@ final class TrueDepthCalibrationEstimator {
                 CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly)
             }
         }
+        let depthStride = CVPixelBufferGetBytesPerRow(depthBuffer) / MemoryLayout<Float32>.size
+
+        let confidenceBuffer = depthData.confidenceMap
+        CVPixelBufferLockBaseAddress(confidenceBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(confidenceBuffer, .readOnly) }
+
+        let hasConfidence = CVPixelBufferGetWidth(confidenceBuffer) == depthWidth &&
+            CVPixelBufferGetHeight(confidenceBuffer) == depthHeight
+        let confidenceStride = CVPixelBufferGetBytesPerRow(confidenceBuffer) / MemoryLayout<UInt8>.size
+        let confidenceBase = hasConfidence ? CVPixelBufferGetBaseAddress(confidenceBuffer)?.assumingMemoryBound(to: UInt8.self) : nil
+        // Apenas considera pixels classificados com confiança alta pelo hardware.
+        let minimumConfidence: UInt8 = 2
+
+        let resolution = frame.camera.imageResolution
+        let scaleX = Double(resolution.width) / Double(depthWidth)
+        let scaleY = Double(resolution.height) / Double(depthHeight)
+        let intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
+                                               imageResolution: resolution,
+                                               depthWidth: depthWidth,
+                                               depthHeight: depthHeight)
+
+        let samplingStepX = max(1, depthWidth / 48)
+        let samplingStepY = max(1, depthHeight / 48)
+        let maximumSamples = max(1, (depthWidth / samplingStepX) * (depthHeight / samplingStepY))
+
+        var rawHorizontal: [Double] = []
+        rawHorizontal.reserveCapacity(maximumSamples)
+        var rawVertical: [Double] = []
+        rawVertical.reserveCapacity(maximumSamples)
+
+        var depthSum: Double = 0
+        var depthCount: Int = 0
+
+        for y in stride(from: 0, to: depthHeight - 1, by: samplingStepY) {
+            let rowPointer = depthBase + y * depthStride
+            let nextRowPointer = depthBase + min(y + 1, depthHeight - 1) * depthStride
+            let confidenceRow = confidenceBase.map { $0 + y * confidenceStride }
+            let nextConfidenceRow = confidenceBase.map { $0 + min(y + 1, depthHeight - 1) * confidenceStride }
+
+            for x in stride(from: 0, to: depthWidth - 1, by: samplingStepX) {
+                let depthValue = rowPointer[x]
+                guard depthValue.isFinite, depthValue > 0 else { continue }
+                if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
+
+                depthSum += Double(depthValue)
+                depthCount += 1
+
+                if x + 1 < depthWidth {
+                    let neighborDepth = rowPointer[x + 1]
+                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
+                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+
+                    let distance = millimetersBetween(x0: x,
+                                                      y0: y,
+                                                      depth0: depthValue,
+                                                      x1: x + 1,
+                                                      y1: y,
+                                                      depth1: neighborDepth,
+                                                      intrinsics: intrinsics)
+                    let mmPerPixel = distance / scaleX
+                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
+                        rawHorizontal.append(mmPerPixel)
+                    }
+                }
 
         let hasConfidence: Bool
         let confidenceStride: Int
