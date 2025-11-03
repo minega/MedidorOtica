@@ -19,6 +19,7 @@ extension CameraManager {
             if #available(iOS 13.0, *) {
                 config.isLightEstimationEnabled = true
             }
+            applyMaximumResolution(to: config)
             print("Usando ARFaceTrackingConfiguration")
             return config
         } else if ARWorldTrackingConfiguration.isSupported {
@@ -31,6 +32,7 @@ extension CameraManager {
                     config.frameSemantics.insert(.sceneDepth)
                 }
             }
+            applyMaximumResolution(to: config)
             print("Usando ARWorldTrackingConfiguration")
             return config
         }
@@ -69,6 +71,7 @@ extension CameraManager {
                 let faceConfig = ARFaceTrackingConfiguration()
                 faceConfig.maximumNumberOfTrackedFaces = 1
                 if #available(iOS 13.0, *) { faceConfig.isLightEstimationEnabled = true }
+                applyMaximumResolution(to: faceConfig)
                 configuration = faceConfig
                 print("Configurando sessão AR para rastreamento facial")
             case .back:
@@ -87,6 +90,7 @@ extension CameraManager {
                     }
                     print("Configurando sessão AR com LiDAR para profundidade")
                 }
+                applyMaximumResolution(to: worldConfig)
                 configuration = worldConfig
             }
 
@@ -176,6 +180,30 @@ extension CameraManager {
                     print("Sessão da câmera reiniciada")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Otimização de resolução
+private extension CameraManager {
+
+    /// Seleciona o maior formato suportado para maximizar a resolução do sensor ativo.
+    /// - Parameter configuration: Configuração AR que terá o `videoFormat` ajustado.
+    func applyMaximumResolution(to configuration: ARConfiguration) {
+        let formats = type(of: configuration).supportedVideoFormats
+        guard let bestFormat = formats.max(by: { lhs, rhs in
+            let lhsPixels = lhs.imageResolution.width * lhs.imageResolution.height
+            let rhsPixels = rhs.imageResolution.width * rhs.imageResolution.height
+            if lhsPixels == rhsPixels {
+                return lhs.framesPerSecond < rhs.framesPerSecond
+            }
+            return lhsPixels < rhsPixels
+        }) else { return }
+
+        if configuration.videoFormat != bestFormat {
+            configuration.videoFormat = bestFormat
+            let resolution = bestFormat.imageResolution
+            print("Aplicando resolução máxima: \(Int(resolution.width))x\(Int(resolution.height)) @ \(bestFormat.framesPerSecond)fps")
         }
     }
 }
