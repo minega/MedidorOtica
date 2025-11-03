@@ -73,12 +73,14 @@ struct PostCaptureScale {
     /// Converte um valor em milímetros para escala horizontal normalizada (0...1).
     func normalizedHorizontal(_ millimeters: CGFloat) -> CGFloat {
         guard horizontalReferenceMM > 0 else { return 0 }
-        return millimeters / horizontalReferenceMM
+        let normalized = millimeters / horizontalReferenceMM
+        return min(max(normalized, 0), 1)
     }
 
     /// Converte um valor em milímetros para escala vertical normalizada (0...1).
     func normalizedVertical(_ millimeters: CGFloat) -> CGFloat {
         guard verticalReferenceMM > 0 else { return 0 }
-        return millimeters / verticalReferenceMM
+        let normalized = millimeters / verticalReferenceMM
+        return min(max(normalized, 0), 1)
     }
 }
