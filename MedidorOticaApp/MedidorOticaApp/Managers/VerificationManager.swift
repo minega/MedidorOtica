@@ -47,6 +47,9 @@ final class VerificationManager: ObservableObject {
     private var lastPublishTime = Date.distantPast
     private let publishInterval: TimeInterval = 1.0 / 15.0
     
+    /// Filtro dedicado a estabilizar as leituras de centralização antes de liberar a próxima etapa.
+    var centeringFilter = CenteringFilter()
+    
     // Compatibilidade com código antigo
     @Published var alignmentData: [String: Float] = [:] // Para compatiblidade com código antigo
     @Published var facePosition: [String: Float] = [:] // Para compatiblidade com código antigo
@@ -169,6 +172,7 @@ final class VerificationManager: ObservableObject {
     
     /// Redefine todas as verificações para o estado inicial
     private func resetAllVerifications() {
+        centeringFilter.reset()
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -187,6 +191,7 @@ final class VerificationManager: ObservableObject {
 
     /// Reseta todas as verificações exceto a detecção de rosto
     private func resetNonFaceVerifications() {
+        centeringFilter.reset()
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -349,6 +354,7 @@ final class VerificationManager: ObservableObject {
                     distanceCorrect = false
                 case .centering:
                     faceAligned = false
+                    centeringFilter.reset()
                 case .headAlignment:
                     headAligned = false
                 default:

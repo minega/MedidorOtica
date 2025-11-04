@@ -46,6 +46,9 @@ extension VerificationManager {
         // Tolerância de 0,5 cm convertida para metros
         static let tolerance: Float = 0.005
 
+        // Margem extra para lidar com assimetrias naturais do nariz
+        static let noseTolerance: Float = tolerance * 1.35
+
         // Índice do vértice correspondente à ponta do nariz
         struct FaceIndices {
             static let noseTip = 9
@@ -57,8 +60,31 @@ extension VerificationManager {
         let horizontal: Float
         let vertical: Float
         let noseAlignment: Float
+
+        init(horizontal: Float, vertical: Float, noseAlignment: Float) {
+            self.horizontal = horizontal
+            self.vertical = vertical
+            self.noseAlignment = noseAlignment
+        }
+
+        init(vector: SIMD3<Float>) {
+            self.init(horizontal: vector.x, vertical: vector.y, noseAlignment: vector.z)
+        }
+
+        var vector: SIMD3<Float> {
+            SIMD3(horizontal, vertical, noseAlignment)
+        }
+
+        func isWithin(tolerance: Float, noseTolerance: Float) -> Bool {
+            abs(horizontal) < tolerance &&
+            abs(vertical) < tolerance &&
+            abs(noseAlignment) < noseTolerance
+        }
+
+        func centimeters() -> (horizontal: Float, vertical: Float, nose: Float) {
+            (horizontal * 100, vertical * 100, noseAlignment * 100)
+        }
     }
-    
     // MARK: - Verificação de Centralização
     
     /// Verifica se o rosto está corretamente centralizado na câmera
@@ -70,7 +96,10 @@ extension VerificationManager {
     func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
         let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
-        guard !sensors.isEmpty else { return false }
+        guard !sensors.isEmpty else {
+            resetCenteringTracking()
+            return false
+        }
 
         for sensor in sensors {
             switch sensor {
@@ -90,6 +119,7 @@ extension VerificationManager {
     private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
         guard let metrics = makeAlignedTrueDepthMetrics(faceAnchor: faceAnchor, frame: frame) else {
             print("❌ Não foi possível calcular métricas de centralização válidas")
+            resetCenteringTracking()
             return false
         }
 
@@ -134,9 +164,21 @@ extension VerificationManager {
                                     noseAlignment: noseAlignmentOffset)
     }
 
+    /// Reinicia o filtro e o estado exibido quando não há métricas confiáveis.
+    private func resetCenteringTracking() {
+        centeringFilter.reset()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.facePosition.removeAll()
+            self.notifyCenteringUpdate(isCentered: false)
+        }
+    }
+
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
         guard let depthMap = frame.sceneDepth?.depthMap ?? frame.smoothedSceneDepth?.depthMap else {
             print("❌ Dados de profundidade LiDAR não disponíveis")
+            resetCenteringTracking()
             return false
         }
 
@@ -149,7 +191,10 @@ extension VerificationManager {
         do {
             try handler.perform([request])
             guard let face = request.results?.first as? VNFaceObservation,
-                  let landmarks = face.landmarks else { return false }
+                  let landmarks = face.landmarks else {
+                resetCenteringTracking()
+                return false
+            }
 
             let orientation = currentCGOrientation()
             let (depthWidth, depthHeight) = orientedDimensions(for: depthMap, orientation: orientation)
@@ -179,7 +224,10 @@ extension VerificationManager {
                                                         imageHeight: Int(resolution.height),
                                                         orientation: orientation)
 
-            guard let leftEyePoints, let rightEyePoints else { return false }
+            guard let leftEyePoints, let rightEyePoints else {
+                resetCenteringTracking()
+                return false
+            }
 
             // Amostragem de profundidade usando a grade do depth map já orientada.
             guard let noseDepth = depthValue(from: depthMap,
@@ -194,6 +242,7 @@ extension VerificationManager {
                                                  at: depthPixel(from: rightEyePoints.depth,
                                                                 width: depthWidth,
                                                                 height: depthHeight)) else {
+                resetCenteringTracking()
                 return false
             }
 
@@ -213,6 +262,7 @@ extension VerificationManager {
             guard let noseCamera,
                   let leftEyeCamera,
                   let rightEyeCamera else {
+                resetCenteringTracking()
                 return false
             }
 
@@ -228,6 +278,7 @@ extension VerificationManager {
             return evaluateCentering(using: metrics)
         } catch {
             print("Erro ao verificar centralização com Vision: \(error)")
+            resetCenteringTracking()
             return false
         }
     }
@@ -277,67 +328,60 @@ extension VerificationManager {
 
     /// Avalia se o rosto está centralizado com base nas métricas calculadas
     private func evaluateCentering(using metrics: FaceCenteringMetrics) -> Bool {
-        // Verifica se os desvios estão dentro da tolerância permitida
-        let isHorizontallyAligned = abs(metrics.horizontal) < CenteringConstants.tolerance
-        let isVerticallyAligned = abs(metrics.vertical) < CenteringConstants.tolerance
-        let isNoseAligned = abs(metrics.noseAlignment) < CenteringConstants.tolerance
+        let (filteredMetrics, isStable) = centeringFilter.process(metrics,
+                                                                  tolerance: CenteringConstants.tolerance,
+                                                                  noseTolerance: CenteringConstants.noseTolerance)
 
-        // Resultado global
-        let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
+        updateCenteringUI(rawMetrics: metrics,
+                          filteredMetrics: filteredMetrics,
+                          isCentered: isStable)
 
-        // Atualiza a interface com os valores reais, sem compensações fixas
-        updateCenteringUI(
-            horizontalOffset: metrics.horizontal,
-            verticalOffset: metrics.vertical,
-            noseOffset: metrics.noseAlignment,
-            isCentered: isCentered
-        )
-
-        return isCentered
+        return isStable
     }
 
     // MARK: - Atualização da Interface
     
     /// Atualiza a interface do usuário com os resultados da verificação de centralização
-    private func updateCenteringUI(horizontalOffset: Float, verticalOffset: Float, 
-                                 noseOffset: Float, isCentered: Bool) {
-        // Converte as medidas para centímetros para exibição
-        let horizontalCm = horizontalOffset * 100
-        let verticalCm = verticalOffset * 100
-        let noseCm = noseOffset * 100
-        
-        // Log detalhado para debug
+    private func updateCenteringUI(rawMetrics: FaceCenteringMetrics,
+                                   filteredMetrics: FaceCenteringMetrics,
+                                   isCentered: Bool) {
+        let raw = rawMetrics.centimeters()
+        let filtered = filteredMetrics.centimeters()
+
+        // Log detalhado com valores brutos e suavizados para facilitar o ajuste do usuário
         print("""
-        📏 Centralização (cm):
-           - Horizontal: \(String(format: "%+.2f", horizontalCm)) cm
-           - Vertical:   \(String(format: "%+.2f", verticalCm)) cm
-           - Nariz:      \(String(format: "%+.2f", noseCm)) cm
+        📏 Centralização filtrada (cm):
+           - Horizontal: \(String(format: "%+.2f", filtered.horizontal)) cm
+           - Vertical:   \(String(format: "%+.2f", filtered.vertical)) cm
+           - Nariz:      \(String(format: "%+.2f", filtered.nose)) cm
            - Alinhado:   \(isCentered ? "✅" : "❌")
+        🧮 Medidas brutas (cm):
+           - Horizontal: \(String(format: "%+.2f", raw.horizontal)) cm
+           - Vertical:   \(String(format: "%+.2f", raw.vertical)) cm
+           - Nariz:      \(String(format: "%+.2f", raw.nose)) cm
         """)
-        
+
         // Atualiza a interface na thread principal
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Armazena os desvios para feedback visual
             self.facePosition = [
-                "x": horizontalCm,
-                "y": verticalCm,
-                "z": noseCm
+                "x": filtered.horizontal,
+                "y": filtered.vertical,
+                "z": filtered.nose
             ]
-            
-            // Notifica a interface sobre a atualização
-            self.notifyCenteringUpdate()
+
+            self.notifyCenteringUpdate(isCentered: isCentered)
         }
     }
-    
+
     /// Notifica a interface sobre a atualização do status de centralização
-    private func notifyCenteringUpdate() {
+    private func notifyCenteringUpdate(isCentered: Bool) {
         NotificationCenter.default.post(
             name: .faceCenteringUpdated,
             object: nil,
             userInfo: [
-                "isCentered": faceAligned,
+                "isCentered": isCentered,
                 "offsets": facePosition,
                 "timestamp": Date().timeIntervalSince1970
             ]
@@ -389,5 +433,67 @@ private extension VerificationManager {
     func depthPixel(from normalizedPoint: CGPoint, width: Int, height: Int) -> CGPoint {
         CGPoint(x: normalizedPoint.x * CGFloat(width),
                 y: normalizedPoint.y * CGFloat(height))
+    }
+}
+
+// MARK: - Filtro de suavização da centralização
+
+struct CenteringFilter {
+    /// Fator de suavização exponencial aplicado a cada amostra.
+    private static let smoothingFactor: Float = 0.35
+    /// Multiplicador usado para reduzir quedas abruptas quando o rosto está quase alinhado.
+    private static let relaxationMultiplier: Float = 1.6
+    /// Número de frames consecutivos necessários para considerar o centro estável.
+    private static let requiredStableFrames = 4
+
+    private var state = SIMD3<Float>.zero
+    private var initialized = false
+    private var stableFrameCount = 0
+
+    mutating func process(_ metrics: VerificationManager.FaceCenteringMetrics,
+                          tolerance: Float,
+                          noseTolerance: Float) -> (VerificationManager.FaceCenteringMetrics, Bool) {
+        let sample = metrics.vector
+
+        guard sample.isFinite else {
+            reset()
+            return (metrics, false)
+        }
+
+        if !initialized {
+            state = sample
+            initialized = true
+        } else {
+            let alpha = CenteringFilter.smoothingFactor
+            state = state * (1 - alpha) + sample * alpha
+        }
+
+        let filtered = VerificationManager.FaceCenteringMetrics(vector: state)
+        let within = filtered.isWithin(tolerance: tolerance, noseTolerance: noseTolerance)
+
+        if within {
+            stableFrameCount = min(stableFrameCount + 1, CenteringFilter.requiredStableFrames)
+        } else if filtered.isWithin(tolerance: tolerance * CenteringFilter.relaxationMultiplier,
+                                    noseTolerance: noseTolerance * CenteringFilter.relaxationMultiplier) {
+            stableFrameCount = max(stableFrameCount - 1, 0)
+        } else {
+            stableFrameCount = 0
+        }
+
+        let isStable = within && stableFrameCount >= CenteringFilter.requiredStableFrames
+        return (filtered, isStable)
+    }
+
+    mutating func reset() {
+        state = .zero
+        initialized = false
+        stableFrameCount = 0
+    }
+}
+
+private extension SIMD3 where Scalar == Float {
+    /// Indica se todos os componentes do vetor são finitos.
+    var isFinite: Bool {
+        x.isFinite && y.isFinite && z.isFinite
     }
 }
