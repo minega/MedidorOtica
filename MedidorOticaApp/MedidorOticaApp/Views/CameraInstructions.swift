@@ -10,13 +10,32 @@ import SwiftUI
 struct CameraInstructions: View {
     /// Observa alterações do `VerificationManager` para atualizar as instruções em tempo real
     @ObservedObject var verificationManager: VerificationManager
-    
+
+    /// Emojis possíveis para indicar o ator responsável pela ação na instrução.
+    private enum InstructionActor: String {
+        case device = "📱"
+        case user = "🙂"
+    }
+
+    /// Emojis possíveis para indicar a direção da ação sugerida ao usuário.
+    private enum InstructionDirection: String {
+        case steady = "↔️"
+        case moveLeft = "⬅️"
+        case moveRight = "➡️"
+        case moveUp = "⬆️"
+        case moveDown = "⬇️"
+        case rotateRight = "↻"
+        case rotateLeft = "↺"
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             // Verifica quais instruções exibir com base nas verificações pendentes
             // Mostra instruções específicas para a primeira verificação que falhar
             if !verificationManager.faceDetected {
-                instructionView(text: "📱↔️ Centralize o rosto no oval")
+                instructionView(actor: .device,
+                                 direction: .steady,
+                                 message: "Centralize o rosto no oval")
             } else if !verificationManager.distanceCorrect {
                 distanceInstructionView()
             } else if !verificationManager.faceAligned {
@@ -24,14 +43,20 @@ struct CameraInstructions: View {
             } else if !verificationManager.headAligned {
                 headAlignmentInstructionView()
             } else {
-                instructionView(text: "🙂✅ Pronto para capturar")
+                instructionView(actor: .user,
+                                 direction: .steady,
+                                 message: "Pronto para capturar")
             }
         }
     }
-    
+
     // View padrão para instruções simples
-    private func instructionView(text: String) -> some View {
-        Text(text)
+    private func instructionView(actor: InstructionActor,
+                                 direction: InstructionDirection,
+                                 message: String) -> some View {
+        Text(formattedInstruction(actor: actor,
+                                  direction: direction,
+                                  message: message))
             .font(.headline)
             .foregroundColor(.white)
             .padding(.horizontal, 20)
@@ -39,26 +64,39 @@ struct CameraInstructions: View {
             .background(Color.black.opacity(0.6))
             .cornerRadius(10)
     }
-    
+
+    /// Monta a string com o par de emojis obrigatório antes da mensagem.
+    private func formattedInstruction(actor: InstructionActor,
+                                      direction: InstructionDirection,
+                                      message: String) -> String {
+        "\(actor.rawValue)\(direction.rawValue) \(message)"
+    }
+
     // View específica para instruções de distância
     private func distanceInstructionView() -> some View {
         let minDistance = verificationManager.minDistance
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
 
-        let instruction: String
+        let direction: InstructionDirection
+        let message: String
 
         if currentDistance <= 0 {
-            instruction = "🙂↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
+            direction = .steady
+            message = "Ajuste para \(Int(minDistance))-\(Int(maxDistance)) cm"
         } else if currentDistance < minDistance {
             let diff = max(1, Int(round(minDistance - currentDistance)))
-            instruction = "🙂⬅️ Afaste \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
+            direction = .moveLeft
+            message = "Afaste \(diff) cm (meta \(Int(minDistance))-\(Int(maxDistance)))"
         } else {
             let diff = max(1, Int(round(currentDistance - maxDistance)))
-            instruction = "🙂➡️ Aproxime \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
+            direction = .moveRight
+            message = "Aproxime \(diff) cm (meta \(Int(minDistance))-\(Int(maxDistance)))"
         }
 
-        return instructionView(text: instruction)
+        return instructionView(actor: .user,
+                                direction: direction,
+                                message: message)
     }
 
     // View específica para instruções de centralização
@@ -68,30 +106,37 @@ struct CameraInstructions: View {
         let rawY = verificationManager.facePosition["y"] ?? 0
         let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
 
-        var instruction = "📱✅ Celular alinhado, mantenha assim"
+        var direction: InstructionDirection = .steady
+        var message = "Celular alinhado, mantenha"
 
         // Determina a direção com base na posição atual
         if abs(xPos) >= abs(yPos) {
             // xPos representa o deslocamento vertical
             if xPos > 0.5 {
                 let magnitude = String(format: "%.1f", abs(xPos))
-                instruction = "📱⬇️ Baixe \(magnitude) cm"
+                direction = .moveDown
+                message = "Baixe \(magnitude) cm"
             } else if xPos < -0.5 {
                 let magnitude = String(format: "%.1f", abs(xPos))
-                instruction = "📱⬆️ Levante \(magnitude) cm"
+                direction = .moveUp
+                message = "Levante \(magnitude) cm"
             }
         } else {
             // yPos representa o deslocamento horizontal
             if yPos > 0.5 {
                 let magnitude = String(format: "%.1f", abs(yPos))
-                instruction = "📱➡️ Mova \(magnitude) cm →"
+                direction = .moveRight
+                message = "Mova \(magnitude) cm para a direita"
             } else if yPos < -0.5 {
                 let magnitude = String(format: "%.1f", abs(yPos))
-                instruction = "📱⬅️ Mova \(magnitude) cm ←"
+                direction = .moveLeft
+                message = "Mova \(magnitude) cm para a esquerda"
             }
         }
 
-        return instructionView(text: instruction)
+        return instructionView(actor: .device,
+                                direction: direction,
+                                message: message)
     }
 
     // View específica para instruções de alinhamento da cabeça
@@ -102,29 +147,32 @@ struct CameraInstructions: View {
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
 
         let tolerance: Float = 3
-        var instruction = "🙂✅ Cabeça alinhada, mantenha"
+        var direction: InstructionDirection = .steady
+        var message = "Cabeça alinhada, mantenha"
 
         // Determina qual rotação precisa de maior correção
         if abs(roll) > max(abs(yaw), abs(pitch)) && abs(roll) > tolerance {
             let magnitude = String(format: "%.0f", abs(roll))
-            let directionEmoji = roll > 0 ? "↻" : "↺"
+            direction = roll > 0 ? .rotateRight : .rotateLeft
             let directionText = roll > 0 ? "para a direita" : "para a esquerda"
-            instruction = "🙂\(directionEmoji) Incline \(directionText) \(magnitude)°"
+            message = "Incline \(directionText) \(magnitude)°"
         } else if abs(yaw) > abs(pitch) && abs(yaw) > tolerance {
             let magnitude = String(format: "%.0f", abs(yaw))
-            let directionEmoji = yaw > 0 ? "➡️" : "⬅️"
+            direction = yaw > 0 ? .moveRight : .moveLeft
             let directionText = yaw > 0 ? "para a direita" : "para a esquerda"
-            instruction = "🙂\(directionEmoji) Vire \(directionText) \(magnitude)°"
+            message = "Vire \(directionText) \(magnitude)°"
         } else if abs(pitch) > tolerance {
             let magnitude = String(format: "%.0f", abs(pitch))
-            let directionEmoji = pitch > 0 ? "⬆️" : "⬇️"
+            direction = pitch > 0 ? .moveUp : .moveDown
             let directionText = pitch > 0 ? "para cima" : "para baixo"
-            instruction = "🙂\(directionEmoji) Queixo \(directionText) \(magnitude)°"
+            message = "Queixo \(directionText) \(magnitude)°"
         }
 
-        return instructionView(text: instruction)
+        return instructionView(actor: .user,
+                                direction: direction,
+                                message: message)
     }
-    
+
 }
 
 // View para o menu de verificações laterais
