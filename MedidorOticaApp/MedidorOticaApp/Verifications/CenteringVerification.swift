@@ -24,10 +24,11 @@
 //  - Uso eficiente de memória com reutilização de estruturas
 //  - Cálculos otimizados para evitar sobrecarga na CPU/GPU
 
+import Foundation
 import ARKit
 import Vision
 import simd
-import UIKit
+import CoreGraphics
 
 // MARK: - Extensões
 
@@ -103,122 +104,34 @@ extension VerificationManager {
             return nil
         }
 
+        // Obtém a transformação do rosto diretamente no espaço da câmera para eliminar
+        // discrepâncias de tela/lente e usar a posição física real do sensor.
         let worldToCamera = simd_inverse(frame.camera.transform)
-        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
-        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
-        let noseWorld = simd_mul(faceAnchor.transform,
-                                 simd_float4(vertices[CenteringConstants.FaceIndices.noseTip], 1))
-        let leftEyeCam = simd_mul(worldToCamera, leftEyeWorld)
-        let rightEyeCam = simd_mul(worldToCamera, rightEyeWorld)
-        let noseCam = simd_mul(worldToCamera, noseWorld)
+        let faceInCamera = simd_mul(worldToCamera, faceAnchor.transform)
 
-        let noseDepth = abs(noseCam.z)
-        let leftEyeDepth = abs(leftEyeCam.columns.3.z)
-        let rightEyeDepth = abs(rightEyeCam.columns.3.z)
-        let averageEyeHeight = (leftEyeCam.columns.3.y + rightEyeCam.columns.3.y) / 2
-        let averageEyeDepth = max(0.01, (leftEyeDepth + rightEyeDepth) / 2)
-
-        guard noseDepth > 0.01 else { return nil }
-
-        let viewportSize = currentViewportSize()
-        let lensPoint = cameraLensPoint(in: viewportSize)
-        let orientation = currentUIOrientation()
-
-        guard let coefficients = alignmentCoefficients(for: frame,
-                                                       targetPoint: lensPoint,
-                                                       viewportSize: viewportSize,
-                                                       orientation: orientation) else {
-            print("⚠️ Falha ao alinhar com a posição real da câmera, usando valores brutos")
-            return FaceCenteringMetrics(horizontal: noseCam.x,
-                                        vertical: averageEyeHeight,
-                                        noseAlignment: noseCam.x)
+        // Converte os principais pontos faciais para coordenadas da câmera (em metros).
+        guard let nosePosition = positionFromHomogeneous(
+            simd_mul(faceInCamera, simd_float4(vertices[CenteringConstants.FaceIndices.noseTip], 1))
+        ) else {
+            return nil
         }
 
-        let horizontalOffset = noseCam.x - Float(coefficients.horizontal) * noseDepth
-        let verticalOffset = averageEyeHeight - Float(coefficients.vertical) * averageEyeDepth
+        let leftEyeTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
+        let rightEyeTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
 
-        return FaceCenteringMetrics(horizontal: horizontalOffset,
-                                    vertical: verticalOffset,
-                                    noseAlignment: horizontalOffset)
-    }
+        let leftEyePosition = translation(from: leftEyeTransform)
+        let rightEyePosition = translation(from: rightEyeTransform)
 
-    /// Obtém os coeficientes que convertem deslocamentos da tela para o espaço da câmera.
-    private func alignmentCoefficients(for frame: ARFrame,
-                                       targetPoint: CGPoint,
-                                       viewportSize: CGSize,
-                                       orientation: UIInterfaceOrientation) -> (horizontal: Double, vertical: Double)? {
-        guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+        // Altura da pupila calculada pela média das posições das duas pupilas no espaço da câmera.
+        let eyeCenter = (leftEyePosition + rightEyePosition) / 2
 
-        let displayTransform = frame.displayTransform(for: orientation, viewportSize: viewportSize)
-        let viewToImage = displayTransform.inverted()
-        let normalizedViewport = CGPoint(x: targetPoint.x / viewportSize.width,
-                                         y: targetPoint.y / viewportSize.height)
-        let normalizedImage = normalizedViewport.applying(viewToImage)
+        // Calcula o centro do nariz em relação ao centro médio das pupilas para evitar viés lateral.
+        let eyesCenterX = (leftEyePosition.x + rightEyePosition.x) / 2
+        let noseAlignmentOffset = nosePosition.x - eyesCenterX
 
-        guard normalizedImage.x.isFinite, normalizedImage.y.isFinite else { return nil }
-
-        let resolution = frame.camera.imageResolution
-        let pixelX = Double(normalizedImage.x) * Double(resolution.width)
-        let pixelY = Double(normalizedImage.y) * Double(resolution.height)
-
-        let intrinsics = frame.camera.intrinsics
-        let fx = Double(intrinsics.columns.0.x)
-        let fy = Double(intrinsics.columns.1.y)
-        let cx = Double(intrinsics.columns.2.x)
-        let cy = Double(intrinsics.columns.2.y)
-
-        guard fx > 0, fy > 0 else { return nil }
-
-        let horizontal = (pixelX - cx) / fx
-        let vertical = (pixelY - cy) / fy
-
-        guard horizontal.isFinite, vertical.isFinite else { return nil }
-
-        return (horizontal: horizontal, vertical: vertical)
-    }
-
-    /// Retorna o tamanho atual do viewport utilizado para renderizar a câmera.
-    private func currentViewportSize() -> CGSize {
-        if Thread.isMainThread {
-            return UIScreen.main.bounds.size
-        }
-
-        var size = CGSize.zero
-        DispatchQueue.main.sync {
-            size = UIScreen.main.bounds.size
-        }
-        return size
-    }
-
-    /// Calcula a posição aproximada da lente TrueDepth na tela para alinhar o PC.
-    private func cameraLensPoint(in viewportSize: CGSize) -> CGPoint {
-        let insets = keyWindowSafeAreaInsets()
-        let topInset = max(insets.top, 44)
-        let isDynamicIsland = topInset > 47
-        let xOffset: CGFloat = isDynamicIsland ? 40 : 0
-        let x = viewportSize.width / 2 + xOffset
-        let y = max(0, topInset - 14)
-        return CGPoint(x: x, y: y)
-    }
-
-    /// Obtém os `safeAreaInsets` da janela principal de forma thread-safe.
-    private func keyWindowSafeAreaInsets() -> UIEdgeInsets {
-        let fetchInsets: () -> UIEdgeInsets = {
-            UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first { $0.isKeyWindow }?.safeAreaInsets ?? .zero
-        }
-
-        if Thread.isMainThread {
-            return fetchInsets()
-        }
-
-        var insets = UIEdgeInsets.zero
-        DispatchQueue.main.sync {
-            insets = fetchInsets()
-        }
-        return insets
+        return FaceCenteringMetrics(horizontal: nosePosition.x,
+                                    vertical: eyeCenter.y,
+                                    noseAlignment: noseAlignmentOffset)
     }
 
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
@@ -238,35 +151,78 @@ extension VerificationManager {
             guard let face = request.results?.first as? VNFaceObservation,
                   let landmarks = face.landmarks else { return false }
 
-            let width = CVPixelBufferGetWidth(depthMap)
-            let height = CVPixelBufferGetHeight(depthMap)
-            let nosePointNorm = landmarks.nose?.normalizedPoints.first ?? CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY)
-            let leftEyeCenter = averagePoint(from: landmarks.leftEye?.normalizedPoints ?? [])
-            let rightEyeCenter = averagePoint(from: landmarks.rightEye?.normalizedPoints ?? [])
-            let eyeCenterY = (leftEyeCenter.y + rightEyeCenter.y) / 2
+            let orientation = currentCGOrientation()
+            let (depthWidth, depthHeight) = orientedDimensions(for: depthMap, orientation: orientation)
+            let resolution = frame.camera.imageResolution
+            let intrinsics = frame.camera.intrinsics
 
-            let px = nosePointNorm.x * CGFloat(width)
-            let py = (1 - nosePointNorm.y) * CGFloat(height)
-            guard let depth = depthValue(from: depthMap, at: CGPoint(x: px, y: py)) else { return false }
+            // Calcula pontos médios para nariz e pupilas nas orientações da câmera e do depth map.
+            let nosePoints = resolvedLandmarkPoints(from: landmarks.nose?.normalizedPoints,
+                                                    boundingBox: face.boundingBox,
+                                                    imageWidth: Int(resolution.width),
+                                                    imageHeight: Int(resolution.height),
+                                                    orientation: orientation)
+                ?? fallbackResolvedPoint(at: CGPoint(x: face.boundingBox.midX, y: face.boundingBox.midY),
+                                         imageWidth: Int(resolution.width),
+                                         imageHeight: Int(resolution.height),
+                                         orientation: orientation)
 
-            let leftEyeDepthPoint = CGPoint(x: (leftEyeCenter.x) * CGFloat(width),
-                                            y: (1 - leftEyeCenter.y) * CGFloat(height))
-            let rightEyeDepthPoint = CGPoint(x: (rightEyeCenter.x) * CGFloat(width),
-                                             y: (1 - rightEyeCenter.y) * CGFloat(height))
-            guard let leftEyeDepth = depthValue(from: depthMap, at: leftEyeDepthPoint),
-                  let rightEyeDepth = depthValue(from: depthMap, at: rightEyeDepthPoint) else {
+            let leftEyePoints = resolvedLandmarkPoints(from: landmarks.leftEye?.normalizedPoints,
+                                                       boundingBox: face.boundingBox,
+                                                       imageWidth: Int(resolution.width),
+                                                       imageHeight: Int(resolution.height),
+                                                       orientation: orientation)
+
+            let rightEyePoints = resolvedLandmarkPoints(from: landmarks.rightEye?.normalizedPoints,
+                                                        boundingBox: face.boundingBox,
+                                                        imageWidth: Int(resolution.width),
+                                                        imageHeight: Int(resolution.height),
+                                                        orientation: orientation)
+
+            guard let leftEyePoints, let rightEyePoints else { return false }
+
+            // Amostragem de profundidade usando a grade do depth map já orientada.
+            guard let noseDepth = depthValue(from: depthMap,
+                                             at: depthPixel(from: nosePoints.depth,
+                                                            width: depthWidth,
+                                                            height: depthHeight)),
+                  let leftEyeDepth = depthValue(from: depthMap,
+                                                at: depthPixel(from: leftEyePoints.depth,
+                                                               width: depthWidth,
+                                                               height: depthHeight)),
+                  let rightEyeDepth = depthValue(from: depthMap,
+                                                 at: depthPixel(from: rightEyePoints.depth,
+                                                                width: depthWidth,
+                                                                height: depthHeight)) else {
                 return false
             }
 
-            // Profundidade média dos olhos para estimar a altura do PC em metros
-            let averageEyeDepth = (leftEyeDepth + rightEyeDepth) / 2
-            let horizontalOffset = Float(nosePointNorm.x - 0.5) * depth
-            let verticalOffset = Float(0.5 - eyeCenterY) * averageEyeDepth
+            let noseCamera = cameraCoordinates(from: nosePoints.camera,
+                                               depth: noseDepth,
+                                               resolution: resolution,
+                                               intrinsics: intrinsics)
+            let leftEyeCamera = cameraCoordinates(from: leftEyePoints.camera,
+                                                  depth: leftEyeDepth,
+                                                  resolution: resolution,
+                                                  intrinsics: intrinsics)
+            let rightEyeCamera = cameraCoordinates(from: rightEyePoints.camera,
+                                                   depth: rightEyeDepth,
+                                                   resolution: resolution,
+                                                   intrinsics: intrinsics)
+
+            guard let noseCamera,
+                  let leftEyeCamera,
+                  let rightEyeCamera else {
+                return false
+            }
+
+            let eyesCenter = (leftEyeCamera + rightEyeCamera) / 2
+            let noseAlignmentOffset = noseCamera.x - (leftEyeCamera.x + rightEyeCamera.x) / 2
 
             let metrics = FaceCenteringMetrics(
-                horizontal: horizontalOffset,
-                vertical: verticalOffset,
-                noseAlignment: horizontalOffset
+                horizontal: noseCamera.x,
+                vertical: eyesCenter.y,
+                noseAlignment: noseAlignmentOffset
             )
 
             return evaluateCentering(using: metrics)
@@ -274,6 +230,47 @@ extension VerificationManager {
             print("Erro ao verificar centralização com Vision: \(error)")
             return false
         }
+    }
+
+    /// Calcula pontos médios convertidos para o espaço da câmera e para o depth map.
+    private func resolvedLandmarkPoints(from points: [CGPoint]?,
+                                        boundingBox: CGRect,
+                                        imageWidth: Int,
+                                        imageHeight: Int,
+                                        orientation: CGImagePropertyOrientation) -> (camera: CGPoint, depth: CGPoint)? {
+        guard let points, !points.isEmpty else { return nil }
+
+        var accumulator = CGPoint.zero
+        for point in points {
+            accumulator.x += point.x
+            accumulator.y += point.y
+        }
+
+        let average = CGPoint(x: accumulator.x / CGFloat(points.count),
+                               y: accumulator.y / CGFloat(points.count))
+        return fallbackResolvedPoint(at: CGPoint(x: boundingBox.origin.x + average.x * boundingBox.width,
+                                                 y: boundingBox.origin.y + average.y * boundingBox.height),
+                                     imageWidth: imageWidth,
+                                     imageHeight: imageHeight,
+                                     orientation: orientation)
+    }
+
+    /// Converte um ponto normalizado genérico para coordenadas utilizadas pelo depth map e pela câmera.
+    private func fallbackResolvedPoint(at normalizedPoint: CGPoint,
+                                       imageWidth: Int,
+                                       imageHeight: Int,
+                                       orientation: CGImagePropertyOrientation) -> (camera: CGPoint, depth: CGPoint) {
+        let pixelPoint = VNImagePointForNormalizedPoint(normalizedPoint,
+                                                        imageWidth,
+                                                        imageHeight)
+        let rawCameraNormalized = CGPoint(x: pixelPoint.x / CGFloat(imageWidth),
+                                          y: pixelPoint.y / CGFloat(imageHeight))
+        let cameraNormalized = clampedNormalizedPoint(rawCameraNormalized)
+        let depthNormalized = self.normalizedPoint(pixelPoint,
+                                                  width: imageWidth,
+                                                  height: imageHeight,
+                                                  orientation: orientation)
+        return (camera: cameraNormalized, depth: depthNormalized)
     }
 
     // MARK: - Avaliação de métricas
@@ -298,7 +295,7 @@ extension VerificationManager {
 
         return isCentered
     }
-    
+
     // MARK: - Atualização da Interface
     
     /// Atualiza a interface do usuário com os resultados da verificação de centralização
@@ -345,5 +342,52 @@ extension VerificationManager {
                 "timestamp": Date().timeIntervalSince1970
             ]
         )
+    }
+}
+
+// MARK: - Conversores auxiliares
+
+private extension VerificationManager {
+    /// Converte um vetor homogêneo em coordenadas 3D usuais.
+    func positionFromHomogeneous(_ vector: simd_float4) -> SIMD3<Float>? {
+        guard vector.w.isFinite, abs(vector.w) > Float.ulpOfOne else { return nil }
+        return SIMD3<Float>(vector.x / vector.w,
+                            vector.y / vector.w,
+                            vector.z / vector.w)
+    }
+
+    /// Extrai o componente de translação de uma matriz 4x4.
+    func translation(from transform: simd_float4x4) -> SIMD3<Float> {
+        let translation = transform.columns.3
+        return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+
+    /// Converte um ponto normalizado (0...1) e sua profundidade em coordenadas da câmera.
+    func cameraCoordinates(from normalizedPoint: CGPoint,
+                           depth: Float,
+                           resolution: CGSize,
+                           intrinsics: simd_float3x3) -> SIMD3<Float>? {
+        guard depth.isFinite, depth > 0 else { return nil }
+
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+
+        guard fx > 0, fy > 0 else { return nil }
+
+        let pixelX = Float(normalizedPoint.x) * Float(resolution.width)
+        let pixelY = Float(normalizedPoint.y) * Float(resolution.height)
+
+        let x = (pixelX - cx) / fx * depth
+        let y = (pixelY - cy) / fy * depth
+
+        return SIMD3<Float>(x, y, depth)
+    }
+
+    /// Converte um ponto normalizado em coordenadas de pixel considerando orientação da depth map.
+    func depthPixel(from normalizedPoint: CGPoint, width: Int, height: Int) -> CGPoint {
+        CGPoint(x: normalizedPoint.x * CGFloat(width),
+                y: normalizedPoint.y * CGFloat(height))
     }
 }
