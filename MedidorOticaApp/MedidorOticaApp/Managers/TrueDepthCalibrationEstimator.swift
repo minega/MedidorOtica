@@ -16,6 +16,8 @@ final class TrueDepthCalibrationEstimator {
     private struct CalibrationSample {
         let mmPerPixelX: Double
         let mmPerPixelY: Double
+        let horizontalWeight: Double
+        let verticalWeight: Double
         let timestamp: TimeInterval
     }
 
@@ -24,6 +26,18 @@ final class TrueDepthCalibrationEstimator {
         let horizontal: [Double]
         let vertical: [Double]
         let meanDepth: Double
+    }
+
+    /// Resultado estatístico robusto para um eixo da calibração.
+    private struct AxisEstimate {
+        let mean: Double
+        let weight: Double
+    }
+
+    /// Valor ponderado utilizado para médias robustas.
+    private struct WeightedValue {
+        let value: Double
+        let weight: Double
     }
 
     /// Representa uma fonte de profundidade válida para o sensor TrueDepth.
@@ -41,9 +55,24 @@ final class TrueDepthCalibrationEstimator {
         static let depthRange = 0.08...1.2
         static let mmPerPixelRange = 0.015...0.8
         static let minimumPupilPixels: Double = 2
+        static let minimumAxisSamples = 24
+        static let analysisMarginFraction = 0.08
+        static let minimumAxisWeight: Double = 25
+        static let maximumAxisWeight: Double = 6000
+        static let agreementToleranceFactor = 0.12
+        static let minimumAgreementTolerance = 0.002
 
         static func isValid(mmPerPixel value: Double) -> Bool {
             mmPerPixelRange.contains(value) && value.isFinite
+        }
+
+        static func clampedWeight(_ weight: Double) -> Double {
+            guard weight.isFinite else { return minimumAxisWeight }
+            return min(max(weight, minimumAxisWeight), maximumAxisWeight)
+        }
+
+        static func hasSufficientWeight(_ weight: Double) -> Bool {
+            weight.isFinite && weight >= minimumAxisWeight
         }
 
         static func isRecent(_ sample: CalibrationSample,
@@ -111,8 +140,12 @@ final class TrueDepthCalibrationEstimator {
         }
         guard !aggregatedSamples.isEmpty else { return nil }
 
-        guard let mmPerPixelX = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelX }),
-              let mmPerPixelY = Self.stabilizedMean(aggregatedSamples.map { $0.mmPerPixelY }),
+        guard let mmPerPixelX = Self.stabilizedMean(for: aggregatedSamples,
+                                                    valueKeyPath: \.mmPerPixelX,
+                                                    weightKeyPath: \.horizontalWeight),
+              let mmPerPixelY = Self.stabilizedMean(for: aggregatedSamples,
+                                                    valueKeyPath: \.mmPerPixelY,
+                                                    weightKeyPath: \.verticalWeight),
               CalibrationBounds.isValid(mmPerPixel: mmPerPixelX),
               CalibrationBounds.isValid(mmPerPixel: mmPerPixelY) else { return nil }
 
@@ -130,6 +163,8 @@ final class TrueDepthCalibrationEstimator {
     private func store(_ sample: CalibrationSample) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
+            guard CalibrationBounds.hasSufficientWeight(sample.horizontalWeight),
+                  CalibrationBounds.hasSufficientWeight(sample.verticalWeight) else { return }
             self.samples.append(sample)
             self.pruneSamples(referenceTime: sample.timestamp)
         }
@@ -147,7 +182,9 @@ final class TrueDepthCalibrationEstimator {
         accessQueue.sync {
             samples.reversed().first { CalibrationBounds.isRecent($0,
                                                                   referenceTime: referenceTime,
-                                                                  lifetime: sampleLifetime) }
+                                                                  lifetime: sampleLifetime) &&
+                                       CalibrationBounds.hasSufficientWeight($0.horizontalWeight) &&
+                                       CalibrationBounds.hasSufficientWeight($0.verticalWeight) }
         }
     }
 
@@ -166,23 +203,28 @@ final class TrueDepthCalibrationEstimator {
                                                        cgOrientation: cgOrientation) else { return nil }
         guard CalibrationBounds.depthRange.contains(depthCandidates.meanDepth) else { return nil }
 
-        var horizontalCandidates = depthCandidates.horizontal
-        var verticalCandidates = depthCandidates.vertical
+        guard let horizontalEstimate = robustAxisEstimate(from: depthCandidates.horizontal),
+              let verticalEstimate = robustAxisEstimate(from: depthCandidates.vertical) else { return nil }
 
-        if let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
-                                                      camera: frame.camera,
-                                                      uiOrientation: uiOrientation,
-                                                      viewportSize: viewportSize) {
-            horizontalCandidates.append(ipdCandidate)
-        }
+        let ipdCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
+                                                   camera: frame.camera,
+                                                   uiOrientation: uiOrientation,
+                                                   viewportSize: viewportSize)
+        let refinedHorizontal = mergeHorizontalEstimate(base: horizontalEstimate,
+                                                        ipdCandidate: ipdCandidate)
 
-        guard let mmPerPixelX = stabilizedMean(horizontalCandidates),
-              let mmPerPixelY = stabilizedMean(verticalCandidates),
-              CalibrationBounds.isValid(mmPerPixel: mmPerPixelX),
-              CalibrationBounds.isValid(mmPerPixel: mmPerPixelY) else { return nil }
+        let mmPerPixelX = refinedHorizontal.mean
+        let mmPerPixelY = verticalEstimate.mean
+
+        guard CalibrationBounds.isValid(mmPerPixel: mmPerPixelX),
+              CalibrationBounds.isValid(mmPerPixel: mmPerPixelY),
+              CalibrationBounds.hasSufficientWeight(refinedHorizontal.weight),
+              CalibrationBounds.hasSufficientWeight(verticalEstimate.weight) else { return nil }
 
         return CalibrationSample(mmPerPixelX: mmPerPixelX,
                                  mmPerPixelY: mmPerPixelY,
+                                 horizontalWeight: refinedHorizontal.weight,
+                                 verticalWeight: verticalEstimate.weight,
                                  timestamp: frame.timestamp)
     }
 
@@ -272,16 +314,102 @@ final class TrueDepthCalibrationEstimator {
                     transform.columns.3.z)
     }
 
-    private static func stabilizedMean(_ values: [Double]) -> Double? {
-        let valid = values.filter { $0.isFinite }
+    // MARK: - Estatística robusta
+    /// Calcula uma média ponderada robusta a partir da lista de amostras informada.
+    private static func stabilizedMean(for samples: [CalibrationSample],
+                                       valueKeyPath: KeyPath<CalibrationSample, Double>,
+                                       weightKeyPath: KeyPath<CalibrationSample, Double>) -> Double? {
+        let entries: [WeightedValue] = samples.compactMap { sample in
+            let value = sample[keyPath: valueKeyPath]
+            let weight = sample[keyPath: weightKeyPath]
+            guard CalibrationBounds.isValid(mmPerPixel: value),
+                  CalibrationBounds.hasSufficientWeight(weight) else { return nil }
+            return WeightedValue(value: value, weight: weight)
+        }
+        return stabilizedWeightedMean(entries)
+    }
+
+    /// Calcula média ponderada descartando outliers com base no desvio absoluto mediano.
+    private static func stabilizedWeightedMean(_ entries: [WeightedValue]) -> Double? {
+        let valid = entries.filter { $0.weight > 0 && $0.value.isFinite }
         guard !valid.isEmpty else { return nil }
+
+        let sortedValues = valid.map { $0.value }.sorted()
+        guard let medianValue = median(of: sortedValues) else { return nil }
+
+        let deviations = sortedValues.map { abs($0 - medianValue) }
+        let mad = median(of: deviations) ?? 0
+        let threshold = max(mad * 3, 0.0002)
+
+        let filtered = valid.filter { abs($0.value - medianValue) <= threshold }
+        let candidates = filtered.isEmpty ? valid : filtered
+        return weightedMean(candidates)
+    }
+
+    /// Média ponderada simples.
+    private static func weightedMean(_ values: [WeightedValue]) -> Double? {
+        let totalWeight = values.reduce(0) { $0 + $1.weight }
+        guard totalWeight > 0 else { return nil }
+        let weightedSum = values.reduce(0) { $0 + ($1.value * $1.weight) }
+        return weightedSum / totalWeight
+    }
+
+    /// Calcula a mediana de um conjunto de valores.
+    private static func median(of values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let midIndex = sorted.count / 2
+        if sorted.count % 2 == 0 {
+            return (sorted[midIndex - 1] + sorted[midIndex]) / 2
+        } else {
+            return sorted[midIndex]
+        }
+    }
+
+    /// Gera uma estimativa robusta para um eixo considerando as leituras do mapa de profundidade.
+    private static func robustAxisEstimate(from values: [Double]) -> AxisEstimate? {
+        let valid = values.filter { CalibrationBounds.isValid(mmPerPixel: $0) }
+        guard valid.count >= CalibrationBounds.minimumAxisSamples else { return nil }
+
         let sorted = valid.sorted()
-        let trimCount = Int(Double(sorted.count) * 0.1)
-        let trimmed = sorted.dropFirst(trimCount).dropLast(trimCount)
-        let target = trimmed.isEmpty ? sorted : Array(trimmed)
-        guard !target.isEmpty else { return nil }
-        let sum = target.reduce(0, +)
-        return sum / Double(target.count)
+        guard let medianValue = median(of: sorted) else { return nil }
+
+        let deviations = sorted.map { abs($0 - medianValue) }
+        let mad = median(of: deviations) ?? 0
+        let sigma = mad * 1.4826
+        let rejectionThreshold = max(sigma * 3, 0.0002)
+        let filtered = sorted.filter { abs($0 - medianValue) <= rejectionThreshold }
+        let candidates = filtered.isEmpty ? sorted : filtered
+        guard !candidates.isEmpty else { return nil }
+
+        let mean = candidates.reduce(0, +) / Double(candidates.count)
+        let varianceDenominator = max(candidates.count - 1, 1)
+        let variance = candidates.reduce(0) { $0 + pow($1 - mean, 2) } / Double(varianceDenominator)
+        let standardDeviation = sqrt(max(variance, 0))
+
+        let densityFactor = sqrt(Double(candidates.count))
+        let stabilityFactor = 1.0 / max(standardDeviation, 0.0003)
+        let weight = CalibrationBounds.clampedWeight(densityFactor * stabilityFactor)
+
+        return AxisEstimate(mean: mean, weight: weight)
+    }
+
+    /// Ajusta a estimativa horizontal utilizando a distância interpupilar quando ela estiver alinhada.
+    private static func mergeHorizontalEstimate(base: AxisEstimate,
+                                                ipdCandidate: Double?) -> AxisEstimate {
+        guard let ipdCandidate else { return base }
+        guard CalibrationBounds.isValid(mmPerPixel: ipdCandidate) else { return base }
+
+        let tolerance = max(base.mean * CalibrationBounds.agreementToleranceFactor,
+                            CalibrationBounds.minimumAgreementTolerance)
+        guard abs(ipdCandidate - base.mean) <= tolerance else { return base }
+
+        let ipdWeight = CalibrationBounds.clampedWeight(base.weight * 0.45)
+        let combinedWeight = CalibrationBounds.clampedWeight(base.weight + ipdWeight)
+        let combinedMean = ((base.mean * base.weight) + (ipdCandidate * ipdWeight)) / combinedWeight
+
+        return AxisEstimate(mean: combinedMean,
+                            weight: combinedWeight)
     }
 
     // MARK: - Análise do Mapa de Profundidade
@@ -297,6 +425,11 @@ final class TrueDepthCalibrationEstimator {
         let depthWidth = CVPixelBufferGetWidth(depthBuffer)
         let depthHeight = CVPixelBufferGetHeight(depthBuffer)
         guard depthWidth > 1, depthHeight > 1 else { return nil }
+
+        let rawMarginX = Int(Double(depthWidth) * CalibrationBounds.analysisMarginFraction)
+        let rawMarginY = Int(Double(depthHeight) * CalibrationBounds.analysisMarginFraction)
+        let marginX = rawMarginX * 2 < depthWidth ? rawMarginX : 0
+        let marginY = rawMarginY * 2 < depthHeight ? rawMarginY : 0
 
         guard let depthBaseMutable = CVPixelBufferGetBaseAddress(depthBuffer)?.assumingMemoryBound(to: Float32.self) else {
             return nil
@@ -346,6 +479,7 @@ final class TrueDepthCalibrationEstimator {
         var depthCount: Int = 0
 
         for y in 0..<depthHeight {
+            if y < marginY || y >= depthHeight - marginY { continue }
             // Linha atual do mapa de profundidade em formato contíguo.
             let rowPointer = depthBase.advanced(by: y * depthStride)
             // Linha subsequente, utilizada para medir vizinhos verticais.
@@ -359,6 +493,7 @@ final class TrueDepthCalibrationEstimator {
             }()
 
             for x in 0..<depthWidth {
+                if x < marginX || x >= depthWidth - marginX { continue }
                 let depthValue = rowPointer[x]
                 guard depthValue.isFinite, depthValue > 0 else { continue }
                 if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
@@ -366,7 +501,7 @@ final class TrueDepthCalibrationEstimator {
                 depthSum += Double(depthValue)
                 depthCount += 1
 
-                if x + 1 < depthWidth {
+                if x + 1 < depthWidth && (x + 1) < depthWidth - marginX {
                     let neighborDepth = rowPointer[x + 1]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
                     if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
@@ -384,7 +519,7 @@ final class TrueDepthCalibrationEstimator {
                     }
                 }
 
-                if let nextRowPointer {
+                if let nextRowPointer, (y + 1) < depthHeight - marginY {
                     let neighborDepth = nextRowPointer[x]
                     guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
                     if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
