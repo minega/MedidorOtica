@@ -116,6 +116,9 @@ extension VerificationManager {
             return nil
         }
 
+        // O centro da face no espaço da câmera representa a posição ideal que deve coincidir com a origem.
+        let faceCenter = translation(from: faceInCamera)
+
         let leftEyeTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
         let rightEyeTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
 
@@ -129,8 +132,8 @@ extension VerificationManager {
         let eyesCenterX = (leftEyePosition.x + rightEyePosition.x) / 2
         let noseAlignmentOffset = nosePosition.x - eyesCenterX
 
-        return FaceCenteringMetrics(horizontal: nosePosition.x,
-                                    vertical: eyeCenter.y,
+        return FaceCenteringMetrics(horizontal: faceCenter.x,
+                                    vertical: faceCenter.y,
                                     noseAlignment: noseAlignmentOffset)
     }
 
@@ -220,7 +223,7 @@ extension VerificationManager {
             let noseAlignmentOffset = noseCamera.x - (leftEyeCamera.x + rightEyeCamera.x) / 2
 
             let metrics = FaceCenteringMetrics(
-                horizontal: noseCamera.x,
+                horizontal: eyesCenter.x,
                 vertical: eyesCenter.y,
                 noseAlignment: noseAlignmentOffset
             )
@@ -299,7 +302,7 @@ extension VerificationManager {
     // MARK: - Atualização da Interface
     
     /// Atualiza a interface do usuário com os resultados da verificação de centralização
-    private func updateCenteringUI(horizontalOffset: Float, verticalOffset: Float, 
+    private func updateCenteringUI(horizontalOffset: Float, verticalOffset: Float,
                                  noseOffset: Float, isCentered: Bool) {
         // Converte as medidas para centímetros para exibição
         let horizontalCm = horizontalOffset * 100
@@ -319,25 +322,28 @@ extension VerificationManager {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
+            // Armazena o status atualizado para sincronizar com a notificação disparada
+            self.faceAligned = isCentered
+
             // Armazena os desvios para feedback visual
             self.facePosition = [
                 "x": horizontalCm,
                 "y": verticalCm,
                 "z": noseCm
             ]
-            
+
             // Notifica a interface sobre a atualização
-            self.notifyCenteringUpdate()
+            self.notifyCenteringUpdate(isCentered: isCentered)
         }
     }
-    
+
     /// Notifica a interface sobre a atualização do status de centralização
-    private func notifyCenteringUpdate() {
+    private func notifyCenteringUpdate(isCentered: Bool) {
         NotificationCenter.default.post(
             name: .faceCenteringUpdated,
             object: nil,
             userInfo: [
-                "isCentered": faceAligned,
+                "isCentered": isCentered,
                 "offsets": facePosition,
                 "timestamp": Date().timeIntervalSince1970
             ]
