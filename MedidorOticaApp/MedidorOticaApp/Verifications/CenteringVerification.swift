@@ -128,13 +128,11 @@ extension VerificationManager {
         // Altura da pupila calculada pela média das posições das duas pupilas no espaço da câmera.
         let eyeCenter = (leftEyePosition + rightEyePosition) / 2
 
-        // Calcula o centro do nariz em relação ao centro médio das pupilas para evitar viés lateral.
-        let eyesCenterX = (leftEyePosition.x + rightEyePosition.x) / 2
-        let noseAlignmentOffset = nosePosition.x - eyesCenterX
-
-        return FaceCenteringMetrics(horizontal: faceCenter.x,
-                                    vertical: faceCenter.y,
-                                    noseAlignment: noseAlignmentOffset)
+        // O nariz precisa coincidir com a origem da câmera tanto para o deslocamento horizontal
+        // quanto para a métrica de alinhamento principal.
+        return FaceCenteringMetrics(horizontal: nosePosition.x,
+                                    vertical: eyeCenter.y,
+                                    noseAlignment: nosePosition.x)
     }
 
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
@@ -219,13 +217,10 @@ extension VerificationManager {
                 return false
             }
 
-            let eyesCenter = (leftEyeCamera + rightEyeCamera) / 2
-            let noseAlignmentOffset = noseCamera.x - (leftEyeCamera.x + rightEyeCamera.x) / 2
-
             let metrics = FaceCenteringMetrics(
-                horizontal: eyesCenter.x,
-                vertical: eyesCenter.y,
-                noseAlignment: noseAlignmentOffset
+                horizontal: noseCamera.x,
+                vertical: ((leftEyeCamera + rightEyeCamera) / 2).y,
+                noseAlignment: noseCamera.x
             )
 
             return evaluateCentering(using: metrics)
@@ -322,6 +317,9 @@ extension VerificationManager {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
+            // Armazena o status anterior para atualizar o menu lateral apenas quando houver mudança real
+            let wasCentered = self.faceAligned
+
             // Armazena o status atualizado para sincronizar com a notificação disparada
             self.faceAligned = isCentered
 
@@ -331,6 +329,11 @@ extension VerificationManager {
                 "y": verticalCm,
                 "z": noseCm
             ]
+
+            // Atualiza imediatamente o painel de verificações ao entrar ou sair da tolerância
+            if wasCentered != isCentered {
+                self.updateVerificationStatus(throttled: true)
+            }
 
             // Notifica a interface sobre a atualização
             self.notifyCenteringUpdate(isCentered: isCentered)
