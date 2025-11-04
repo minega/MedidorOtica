@@ -466,8 +466,10 @@ final class TrueDepthCalibrationEstimator {
         let scaleY = Double(resolution.height) / Double(height)
         guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
 
+        // AVDepthData não oferece mapa de confiança dedicado, portanto mantemos `nil`
+        // e deixamos o filtro confiar apenas nos valores válidos do mapa de profundidade.
         return DepthSource(depthMap: depthBuffer,
-                           confidenceMap: depthData.confidenceMap,
+                           confidenceMap: nil,
                            intrinsics: intrinsics,
                            scaleX: scaleX,
                            scaleY: scaleY)
