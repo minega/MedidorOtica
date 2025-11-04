@@ -361,8 +361,8 @@ final class VerificationManager: ObservableObject {
     }
     
     // Atualiza o status das verificações conforme os estados atuais
-    // Este método deve sempre executar no `DispatchQueue.main`
-    private func updateVerificationStatus(throttled: Bool = false) {
+    // Responsável por sincronizar a máquina de estados e o menu lateral na thread principal
+    func updateVerificationStatus(throttled: Bool = false) {
         let publishWork = { [self] in
             if throttled {
                 let now = Date()
