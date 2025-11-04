@@ -116,6 +116,9 @@ extension VerificationManager {
             return nil
         }
 
+        // O centro da face no espaço da câmera representa a posição ideal que deve coincidir com a origem.
+        let faceCenter = translation(from: faceInCamera)
+
         let leftEyeTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
         let rightEyeTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
 
