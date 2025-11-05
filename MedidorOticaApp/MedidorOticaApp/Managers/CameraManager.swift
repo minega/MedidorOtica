@@ -353,15 +353,18 @@ extension CameraManager: ARSessionDelegate {
 
         // Quando o rastreamento não está normal, reseta verificações
         VerificationManager.shared.reset()
+        calibrationEstimator.reset()
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
         publishARError("Sessão AR falhou: \(error.localizedDescription)")
+        calibrationEstimator.reset()
         restartSession()
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         publishARError("Sessão AR interrompida")
+        calibrationEstimator.reset()
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
