@@ -164,6 +164,7 @@ extension CameraManager {
     func restartSession() {
         if isUsingARSession {
             let configuration = createARConfiguration()
+            calibrationEstimator.reset()
             arSession?.run(configuration, options: [.resetTracking, .removeExistingAnchors])
             isSessionRunning = true
             print("Sessão AR reiniciada")

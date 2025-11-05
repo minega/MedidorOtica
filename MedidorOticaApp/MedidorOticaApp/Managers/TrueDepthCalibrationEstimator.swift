@@ -21,11 +21,57 @@ final class TrueDepthCalibrationEstimator {
         let timestamp: TimeInterval
     }
 
-    /// Valores coletados diretamente do mapa de profundidade ponto a ponto.
+    /// Valores consolidados do mapa de profundidade convertidos em mm/pixel.
     private struct DepthCalibrationCandidates {
         let horizontal: [Double]
         let vertical: [Double]
+        let meanDepth: Double // Profundidade média em metros.
+        let diagnostics: DepthFrameDiagnostics
+    }
+
+    // MARK: - Estruturas de Diagnóstico
+    /// Estatísticas extraídas do mapa de profundidade durante a geração das amostras.
+    private struct DepthFrameDiagnostics {
+        let evaluatedPixelCount: Int
+        let rawCandidateCount: Int
+        let filteredCandidateCount: Int
+        let highConfidencePixelCount: Int
+    }
+
+    /// Pacote com o resultado da amostra e os diagnósticos usados para auditoria.
+    private struct SampleComputation {
+        let sample: CalibrationSample
+        let diagnostics: FrameDiagnostics
+    }
+
+    /// Últimas métricas extraídas do frame processado para rastrear a saúde do sensor.
+    private struct FrameDiagnostics {
+        let timestamp: TimeInterval
+        let mmPerPixelX: Double
+        let mmPerPixelY: Double
         let meanDepth: Double
+        let horizontalWeight: Double
+        let verticalWeight: Double
+        let evaluatedPixelCount: Int
+        let rawCandidateCount: Int
+        let filteredCandidateCount: Int
+        let highConfidencePixelCount: Int
+    }
+
+    /// Diagnóstico público resumido que permite verificar a integridade da calibração.
+    struct EstimatorDiagnostics {
+        let storedSampleCount: Int
+        let recentSampleCount: Int
+        let lastTimestamp: TimeInterval?
+        let lastHorizontalMMPerPixel: Double?
+        let lastVerticalMMPerPixel: Double?
+        let lastMeanDepth: Double?
+        let lastHorizontalWeight: Double?
+        let lastVerticalWeight: Double?
+        let evaluatedPixelCount: Int
+        let rawCandidateCount: Int
+        let filteredCandidateCount: Int
+        let highConfidencePixelCount: Int
     }
 
     /// Resultado estatístico robusto para um eixo da calibração.
@@ -40,13 +86,14 @@ final class TrueDepthCalibrationEstimator {
         let weight: Double
     }
 
-    /// Representa uma fonte de profundidade válida para o sensor TrueDepth.
+    /// Representa uma fonte de profundidade válida já com fatores de escala prontos para conversão.
     private struct DepthSource {
         let depthMap: CVPixelBuffer
         let confidenceMap: CVPixelBuffer?
-        let intrinsics: DepthIntrinsics
         let scaleX: Double
         let scaleY: Double
+        let inverseFx: Double
+        let inverseFy: Double
     }
 
     /// Faixas utilizadas para validar as amostras provenientes do TrueDepth.
@@ -88,6 +135,7 @@ final class TrueDepthCalibrationEstimator {
     private let accessQueue = DispatchQueue(label: "com.oticaManzolli.trueDepthEstimator", qos: .userInitiated, attributes: .concurrent)
 
     private var samples: [CalibrationSample] = []
+    private var lastFrameDiagnostics: FrameDiagnostics?
 
     // MARK: - Entrada de dados
     /// Armazena uma nova amostra obtida a partir do frame informado.
@@ -98,10 +146,10 @@ final class TrueDepthCalibrationEstimator {
     func ingest(frame: ARFrame,
                 cgOrientation: CGImagePropertyOrientation,
                 uiOrientation: UIInterfaceOrientation) {
-        guard let sample = Self.makeSample(from: frame,
-                                           cgOrientation: cgOrientation,
-                                           uiOrientation: uiOrientation) else { return }
-        store(sample)
+        guard let computation = Self.computeSample(from: frame,
+                                                   cgOrientation: cgOrientation,
+                                                   uiOrientation: uiOrientation) else { return }
+        store(computation.sample, diagnostics: computation.diagnostics)
     }
 
     // MARK: - Calibração refinada
@@ -121,11 +169,11 @@ final class TrueDepthCalibrationEstimator {
 
         var aggregatedSamples: [CalibrationSample] = []
         // Garante que a amostra do frame atual também seja considerada imediatamente.
-        if let currentSample = Self.makeSample(from: frame,
-                                               cgOrientation: cgOrientation,
-                                               uiOrientation: uiOrientation) {
-            aggregatedSamples.append(currentSample)
-            store(currentSample)
+        if let computation = Self.computeSample(from: frame,
+                                                cgOrientation: cgOrientation,
+                                                uiOrientation: uiOrientation) {
+            aggregatedSamples.append(computation.sample)
+            store(computation.sample, diagnostics: computation.diagnostics)
         }
 
         let referenceTime = frame.timestamp
@@ -160,9 +208,10 @@ final class TrueDepthCalibrationEstimator {
     }
 
     // MARK: - Armazenamento interno
-    private func store(_ sample: CalibrationSample) {
+    private func store(_ sample: CalibrationSample, diagnostics: FrameDiagnostics) {
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
+            self.lastFrameDiagnostics = diagnostics
             guard CalibrationBounds.hasSufficientWeight(sample.horizontalWeight),
                   CalibrationBounds.hasSufficientWeight(sample.verticalWeight) else { return }
             self.samples.append(sample)
@@ -177,6 +226,15 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    /// Remove todas as amostras e diagnósticos acumulados, útil ao reiniciar a sessão.
+    func reset() {
+        accessQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            self.samples.removeAll(keepingCapacity: false)
+            self.lastFrameDiagnostics = nil
+        }
+    }
+
     /// Retorna a amostra confiável mais recente dentro da janela aceitável.
     private func mostRecentSample(referenceTime: TimeInterval) -> CalibrationSample? {
         accessQueue.sync {
@@ -188,10 +246,44 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    // MARK: - Diagnóstico Público
+    /// Retorna estatísticas atualizadas permitindo validar se o TrueDepth está entregando dados consistentes.
+    func diagnostics() -> EstimatorDiagnostics {
+        accessQueue.sync {
+            let storedCount = samples.count
+            let lastFrame = lastFrameDiagnostics
+            let referenceTime = lastFrame?.timestamp ?? samples.last?.timestamp
+
+            let recentCount: Int
+            if let referenceTime {
+                recentCount = samples.filter {
+                    CalibrationBounds.isRecent($0,
+                                               referenceTime: referenceTime,
+                                               lifetime: sampleLifetime)
+                }.count
+            } else {
+                recentCount = 0
+            }
+
+            return EstimatorDiagnostics(storedSampleCount: storedCount,
+                                         recentSampleCount: recentCount,
+                                         lastTimestamp: lastFrame?.timestamp,
+                                         lastHorizontalMMPerPixel: lastFrame?.mmPerPixelX,
+                                         lastVerticalMMPerPixel: lastFrame?.mmPerPixelY,
+                                         lastMeanDepth: lastFrame?.meanDepth,
+                                         lastHorizontalWeight: lastFrame?.horizontalWeight,
+                                         lastVerticalWeight: lastFrame?.verticalWeight,
+                                         evaluatedPixelCount: lastFrame?.evaluatedPixelCount ?? 0,
+                                         rawCandidateCount: lastFrame?.rawCandidateCount ?? 0,
+                                         filteredCandidateCount: lastFrame?.filteredCandidateCount ?? 0,
+                                         highConfidencePixelCount: lastFrame?.highConfidencePixelCount ?? 0)
+        }
+    }
+
     // MARK: - Utilidades estáticas
-    private static func makeSample(from frame: ARFrame,
-                                   cgOrientation: CGImagePropertyOrientation,
-                                   uiOrientation: UIInterfaceOrientation) -> CalibrationSample? {
+    private static func computeSample(from frame: ARFrame,
+                                      cgOrientation: CGImagePropertyOrientation,
+                                      uiOrientation: UIInterfaceOrientation) -> SampleComputation? {
         guard case .normal = frame.camera.trackingState else { return nil }
         guard let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first,
               faceAnchor.isTracked else { return nil }
@@ -221,11 +313,24 @@ final class TrueDepthCalibrationEstimator {
               CalibrationBounds.hasSufficientWeight(refinedHorizontal.weight),
               CalibrationBounds.hasSufficientWeight(verticalEstimate.weight) else { return nil }
 
-        return CalibrationSample(mmPerPixelX: mmPerPixelX,
-                                 mmPerPixelY: mmPerPixelY,
-                                 horizontalWeight: refinedHorizontal.weight,
-                                 verticalWeight: verticalEstimate.weight,
-                                 timestamp: frame.timestamp)
+        let sample = CalibrationSample(mmPerPixelX: mmPerPixelX,
+                                       mmPerPixelY: mmPerPixelY,
+                                       horizontalWeight: refinedHorizontal.weight,
+                                       verticalWeight: verticalEstimate.weight,
+                                       timestamp: frame.timestamp)
+
+        let frameDiagnostics = FrameDiagnostics(timestamp: frame.timestamp,
+                                                mmPerPixelX: mmPerPixelX,
+                                                mmPerPixelY: mmPerPixelY,
+                                                meanDepth: depthCandidates.meanDepth,
+                                                horizontalWeight: refinedHorizontal.weight,
+                                                verticalWeight: verticalEstimate.weight,
+                                                evaluatedPixelCount: depthCandidates.diagnostics.evaluatedPixelCount,
+                                                rawCandidateCount: depthCandidates.diagnostics.rawCandidateCount,
+                                                filteredCandidateCount: depthCandidates.diagnostics.filteredCandidateCount,
+                                                highConfidencePixelCount: depthCandidates.diagnostics.highConfidencePixelCount)
+
+        return SampleComputation(sample: sample, diagnostics: frameDiagnostics)
     }
 
     /// Gera uma calibração imediata utilizando apenas o frame atual.
@@ -243,11 +348,11 @@ final class TrueDepthCalibrationEstimator {
 
         var referenceSample: CalibrationSample?
 
-        if let current = Self.makeSample(from: frame,
-                                         cgOrientation: cgOrientation,
-                                         uiOrientation: uiOrientation) {
-            referenceSample = current
-            store(current)
+        if let computation = Self.computeSample(from: frame,
+                                                cgOrientation: cgOrientation,
+                                                uiOrientation: uiOrientation) {
+            referenceSample = computation.sample
+            store(computation.sample, diagnostics: computation.diagnostics)
         } else {
             referenceSample = mostRecentSample(referenceTime: frame.timestamp)
         }
@@ -465,91 +570,83 @@ final class TrueDepthCalibrationEstimator {
         let scaleY = depthSource.scaleY
         guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
 
-        let intrinsics = depthSource.intrinsics
+        // Armazena candidatos convertidos diretamente de profundidade para mm/pixel.
+        struct DepthPixelCandidate {
+            let mmHorizontal: Double
+            let mmVertical: Double
+            let depth: Double
+        }
 
-        // Analisa o mapa completo sem amostragem para aproveitar cada pixel válido fornecido pelo TrueDepth.
         let fullCapacity = max(depthWidth * depthHeight, 1)
+        var candidates = ContiguousArray<DepthPixelCandidate>()
+        candidates.reserveCapacity(fullCapacity)
 
-        var rawHorizontal: [Double] = []
-        rawHorizontal.reserveCapacity(fullCapacity)
-        var rawVertical: [Double] = []
-        rawVertical.reserveCapacity(fullCapacity)
-
-        var depthSum: Double = 0
-        var depthCount: Int = 0
+        var evaluatedPixels = 0
+        var highConfidencePixels = 0
 
         for y in 0..<depthHeight {
             if y < marginY || y >= depthHeight - marginY { continue }
-            // Linha atual do mapa de profundidade em formato contíguo.
             let rowPointer = depthBase.advanced(by: y * depthStride)
-            // Linha subsequente, utilizada para medir vizinhos verticais.
-            let nextRowPointer: UnsafePointer<Float32>? = (y + 1) < depthHeight ? depthBase.advanced(by: (y + 1) * depthStride) : nil
-
-            // Confiança para a linha corrente e subsequente, quando disponível.
             let confidenceRow = confidenceBase.map { $0.advanced(by: y * confidenceStride) }
-            let nextConfidenceRow: UnsafePointer<UInt8>? = {
-                guard let base = confidenceBase, (y + 1) < depthHeight else { return nil }
-                return base.advanced(by: (y + 1) * confidenceStride)
-            }()
 
             for x in 0..<depthWidth {
                 if x < marginX || x >= depthWidth - marginX { continue }
                 let depthValue = rowPointer[x]
                 guard depthValue.isFinite, depthValue > 0 else { continue }
+                evaluatedPixels += 1
+
                 if let confidence = confidenceRow, confidence[x] < minimumConfidence { continue }
+                highConfidencePixels += 1
 
-                depthSum += Double(depthValue)
-                depthCount += 1
+                let depthMeters = Double(depthValue)
+                let mmHorizontal = millimetersPerPixel(depth: depthMeters,
+                                                       inverseFocal: depthSource.inverseFx,
+                                                       scale: scaleX)
+                let mmVertical = millimetersPerPixel(depth: depthMeters,
+                                                     inverseFocal: depthSource.inverseFy,
+                                                     scale: scaleY)
 
-                if x + 1 < depthWidth && (x + 1) < depthWidth - marginX {
-                    let neighborDepth = rowPointer[x + 1]
-                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let confidence = confidenceRow, confidence[x + 1] < minimumConfidence { continue }
+                guard CalibrationBounds.isValid(mmPerPixel: mmHorizontal),
+                      CalibrationBounds.isValid(mmPerPixel: mmVertical) else { continue }
 
-                    let distance = millimetersBetween(x0: x,
-                                                      y0: y,
-                                                      depth0: depthValue,
-                                                      x1: x + 1,
-                                                      y1: y,
-                                                      depth1: neighborDepth,
-                                                      intrinsics: intrinsics)
-                    let mmPerPixel = distance / scaleX
-                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
-                        rawHorizontal.append(mmPerPixel)
-                    }
-                }
-
-                if let nextRowPointer, (y + 1) < depthHeight - marginY {
-                    let neighborDepth = nextRowPointer[x]
-                    guard neighborDepth.isFinite, neighborDepth > 0 else { continue }
-                    if let nextConfidence = nextConfidenceRow, nextConfidence[x] < minimumConfidence { continue }
-
-                    let distance = millimetersBetween(x0: x,
-                                                      y0: y,
-                                                      depth0: depthValue,
-                                                      x1: x,
-                                                      y1: y + 1,
-                                                      depth1: neighborDepth,
-                                                      intrinsics: intrinsics)
-                    let mmPerPixel = distance / scaleY
-                    if CalibrationBounds.isValid(mmPerPixel: mmPerPixel) {
-                        rawVertical.append(mmPerPixel)
-                    }
-                }
+                candidates.append(DepthPixelCandidate(mmHorizontal: mmHorizontal,
+                                                      mmVertical: mmVertical,
+                                                      depth: depthMeters))
             }
         }
 
-        guard depthCount > 0 else { return nil }
+        guard !candidates.isEmpty else { return nil }
 
-        let meanDepth = depthSum / Double(depthCount)
+        // Filtra ruídos extremos em torno da mediana para garantir profundidade estável.
+        let depthValues = candidates.map { $0.depth }
+        guard let medianDepth = median(of: depthValues) else { return nil }
+        let depthDeviations = depthValues.map { abs($0 - medianDepth) }
+        let depthMad = median(of: depthDeviations) ?? 0
+        let depthThreshold = max(depthMad * 2.5, 0.0005)
+
+        let stableCandidates = candidates.filter { abs($0.depth - medianDepth) <= depthThreshold }
+        let effectiveCandidates = stableCandidates.isEmpty ? candidates : stableCandidates
+
+        let meanDepth = effectiveCandidates.reduce(0) { $0 + $1.depth } / Double(effectiveCandidates.count)
+
+        // Separa os valores de mm/pixel por eixo após a filtragem robusta.
+        let rawHorizontal = effectiveCandidates.map { $0.mmHorizontal }
+        let rawVertical = effectiveCandidates.map { $0.mmVertical }
+
         let horizontal = cgOrientation.rotatesDimensions ? rawVertical : rawHorizontal
         let vertical = cgOrientation.rotatesDimensions ? rawHorizontal : rawVertical
 
         guard !horizontal.isEmpty, !vertical.isEmpty else { return nil }
 
+        let diagnostics = DepthFrameDiagnostics(evaluatedPixelCount: evaluatedPixels,
+                                                rawCandidateCount: candidates.count,
+                                                filteredCandidateCount: effectiveCandidates.count,
+                                                highConfidencePixelCount: highConfidencePixels)
+
         return DepthCalibrationCandidates(horizontal: horizontal,
                                            vertical: vertical,
-                                           meanDepth: meanDepth)
+                                           meanDepth: meanDepth,
+                                           diagnostics: diagnostics)
     }
 
     /// Seleciona a fonte de profundidade mais confiável disponível no frame atual.
@@ -568,11 +665,17 @@ final class TrueDepthCalibrationEstimator {
                                                    depthWidth: width,
                                                    depthHeight: height)
 
+            guard intrinsics.fx.isFinite, intrinsics.fy.isFinite,
+                  intrinsics.fx > 0, intrinsics.fy > 0 else { return nil }
+            let inverseFx = 1.0 / Double(intrinsics.fx)
+            let inverseFy = 1.0 / Double(intrinsics.fy)
+
             return DepthSource(depthMap: depthBuffer,
                                confidenceMap: sceneDepth.confidenceMap,
-                               intrinsics: intrinsics,
                                scaleX: scaleX,
-                               scaleY: scaleY)
+                               scaleY: scaleY,
+                               inverseFx: inverseFx,
+                               inverseFy: inverseFy)
         }
 
         guard let capturedDepth = frame.capturedDepthData else { return nil }
@@ -585,9 +688,7 @@ final class TrueDepthCalibrationEstimator {
         let intrinsics: DepthIntrinsics
         if let calibration = depthData.cameraCalibrationData?.intrinsicMatrix {
             intrinsics = DepthIntrinsics(fx: calibration.columns.0.x,
-                                         fy: calibration.columns.1.y,
-                                         cx: calibration.columns.2.x,
-                                         cy: calibration.columns.2.y)
+                                         fy: calibration.columns.1.y)
         } else {
             let resolution = frame.camera.imageResolution
             intrinsics = scaledDepthIntrinsics(cameraIntrinsics: frame.camera.intrinsics,
@@ -595,6 +696,11 @@ final class TrueDepthCalibrationEstimator {
                                                depthWidth: width,
                                                depthHeight: height)
         }
+
+        guard intrinsics.fx.isFinite, intrinsics.fy.isFinite,
+              intrinsics.fx > 0, intrinsics.fy > 0 else { return nil }
+        let inverseFx = 1.0 / Double(intrinsics.fx)
+        let inverseFy = 1.0 / Double(intrinsics.fy)
 
         let resolution = frame.camera.imageResolution
         let scaleX = Double(resolution.width) / Double(width)
@@ -605,9 +711,10 @@ final class TrueDepthCalibrationEstimator {
         // e deixamos o filtro confiar apenas nos valores válidos do mapa de profundidade.
         return DepthSource(depthMap: depthBuffer,
                            confidenceMap: nil,
-                           intrinsics: intrinsics,
                            scaleX: scaleX,
-                           scaleY: scaleY)
+                           scaleY: scaleY,
+                           inverseFx: inverseFx,
+                           inverseFy: inverseFy)
     }
 
     /// Ajusta os intrínsecos originais da câmera para o tamanho do mapa de profundidade atual.
@@ -619,41 +726,21 @@ final class TrueDepthCalibrationEstimator {
         let scaleY = Float(depthHeight) / Float(imageResolution.height)
 
         return DepthIntrinsics(fx: cameraIntrinsics.columns.0.x * scaleX,
-                               fy: cameraIntrinsics.columns.1.y * scaleY,
-                               cx: cameraIntrinsics.columns.2.x * scaleX,
-                               cy: cameraIntrinsics.columns.2.y * scaleY)
+                               fy: cameraIntrinsics.columns.1.y * scaleY)
     }
 
     /// Representa os intrínsecos utilizados para reprojetar os pixels do mapa de profundidade.
     private struct DepthIntrinsics {
         let fx: Float
         let fy: Float
-        let cx: Float
-        let cy: Float
     }
 
-    /// Calcula a distância milimétrica entre dois pixels adjacentes no espaço da câmera.
-    private static func millimetersBetween(x0: Int,
-                                           y0: Int,
-                                           depth0: Float32,
-                                           x1: Int,
-                                           y1: Int,
-                                           depth1: Float32,
-                                           intrinsics: DepthIntrinsics) -> Double {
-        let pointA = unproject(pixelX: x0, pixelY: y0, depth: depth0, intrinsics: intrinsics)
-        let pointB = unproject(pixelX: x1, pixelY: y1, depth: depth1, intrinsics: intrinsics)
-        return Double(simd_distance(pointA, pointB)) * 1000
-    }
-
-    /// Converte um pixel do mapa de profundidade em coordenadas no espaço da câmera.
-    private static func unproject(pixelX: Int,
-                                  pixelY: Int,
-                                  depth: Float32,
-                                  intrinsics: DepthIntrinsics) -> simd_float3 {
-        let z = max(depth, 0.0001)
-        let x = (Float(pixelX) - intrinsics.cx) * z / intrinsics.fx
-        let y = (Float(pixelY) - intrinsics.cy) * z / intrinsics.fy
-        return simd_float3(x, y, z)
+    /// Converte profundidade e intrínsecos em milímetros por pixel para o eixo informado.
+    private static func millimetersPerPixel(depth: Double,
+                                            inverseFocal: Double,
+                                            scale: Double) -> Double {
+        let mmPerDepthPixel = depth * inverseFocal * 1000.0
+        return mmPerDepthPixel / scale
     }
 }
 
