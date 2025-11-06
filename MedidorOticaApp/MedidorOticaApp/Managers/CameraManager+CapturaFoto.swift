@@ -14,7 +14,7 @@ extension CameraManager {
     /// Captura uma foto garantindo o uso do TrueDepth para preservar as medições milimétricas.
     func capturePhoto(completion: @escaping (CapturedPhoto?) -> Void) {
         guard isUsingARSession, cameraPosition == .front, hasTrueDepth else {
-            print("ERRO: Tentativa de captura sem sessão TrueDepth ativa")
+            print("ERRO 200: Tentativa de captura sem sessao TrueDepth ativa")
             publishError(.missingTrueDepthData)
             DispatchQueue.main.async { completion(nil) }
             return
@@ -26,7 +26,7 @@ extension CameraManager {
     /// Realiza a captura diretamente da ARSession validando a calibração recebida.
     private func captureARPhoto(completion: @escaping (CapturedPhoto?) -> Void) {
         guard let frame = arSession?.currentFrame else {
-            print("ERRO: Não foi possível obter o frame atual da sessão AR")
+            print("ERRO 201: Nao foi possivel obter o frame atual da sessao AR")
             DispatchQueue.main.async { completion(nil) }
             return
         }
@@ -41,7 +41,7 @@ extension CameraManager {
         let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
 
         guard let cgImageFull = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
-            print("ERRO: Falha ao criar CGImage a partir do buffer de pixel")
+            print("ERRO 202: Falha ao criar CGImage a partir do buffer de pixel")
             DispatchQueue.main.async { completion(nil) }
             return
         }
@@ -54,7 +54,7 @@ extension CameraManager {
         cropRect.origin.y = (height - cropRect.height) / 2
 
         guard let croppedCG = cgImageFull.cropping(to: cropRect) else {
-            print("ERRO: Falha ao recortar a imagem capturada")
+            print("ERRO 203: Falha ao recortar a imagem capturada")
             DispatchQueue.main.async { completion(nil) }
             return
         }
@@ -64,7 +64,7 @@ extension CameraManager {
                                                  cropRect: cropRect,
                                                  cgOrientation: cgOrientation),
               calibration.isReliable else {
-            print("ERRO: Calibração TrueDepth indisponível ou inválida")
+            logCalibrationFailure(code: 103, message: "Calibracao TrueDepth indisponivel ou invalida")
             publishError(.missingTrueDepthData)
             DispatchQueue.main.async { completion(nil) }
             return
@@ -83,19 +83,20 @@ extension CameraManager {
         if let refined = calibrationEstimator.refinedCalibration(for: frame,
                                                                  cropRect: cropRect,
                                                                  orientation: cgOrientation) {
-            logCalibration(refined, cropRect: cropRect, label: "✅ Calibração TrueDepth refinada")
+            logCalibration(refined, cropRect: cropRect, label: "OK Calibracao TrueDepth refinada")
             return refined
         }
+
+        logCalibrationFailure(code: 101, message: "Calibracao refinada indisponivel")
 
         guard let fallback = calibrationEstimator.instantCalibration(for: frame,
                                                                      cropRect: cropRect,
                                                                      orientation: cgOrientation) else {
-            print("ERRO: Nenhuma calibração TrueDepth pôde ser derivada do frame atual")
-            logDepthDiagnostics(reason: "sem calibração disponível")
+            logCalibrationFailure(code: 102, message: "Nenhuma calibracao TrueDepth pode ser derivada do frame atual")
             return nil
         }
 
-        logCalibration(fallback, cropRect: cropRect, label: "ℹ️ Calibração TrueDepth instantânea")
+        logCalibration(fallback, cropRect: cropRect, label: "WARN Calibracao TrueDepth instantanea")
         return fallback
     }
 
@@ -119,5 +120,12 @@ extension CameraManager {
         let baselineError = diagnostics.lastBaselineError.map { String(format: "%.3f", $0) } ?? "n/d"
 
         print("Diagnostico TrueDepth (\(reason)) -> amostras: \(diagnostics.recentSampleCount)/\(diagnostics.storedSampleCount) mm/pixel: \(horizontal) x \(vertical) profundidade: \(depth)mm erroIPD: \(baselineError)")
+    }
+
+    /// Registra mensagem de falha numerada para facilitar depuracao.
+    private func logCalibrationFailure(code: Int, message: String) {
+        let reason = "ERRO \(code): \(message)"
+        print(reason)
+        logDepthDiagnostics(reason: reason)
     }
 }

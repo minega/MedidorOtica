@@ -38,16 +38,23 @@ final class TrueDepthCalibrationEstimator {
         static let sampleLifetime: TimeInterval = 1.4
         static let minimumEyeDistanceMM: Double = 45
         static let maximumEyeDistanceMM: Double = 80
-        static let maximumBaselineError: Double = 0.2
-        static let minimumHorizontalPixels: Double = 10
-        static let minMMPerPixel: Double = 0.01
-        static let maxMMPerPixel: Double = 1.5
+        static let maximumBaselineError: Double = 0.6
+        static let maximumBaselineErrorDiscard: Double = 1.2
+        static let minimumHorizontalPixels: Double = 6
+        static let minMMPerPixel: Double = 0.005
+        static let maxMMPerPixel: Double = 1.8
     }
 
     // MARK: - Estado
     private let queue = DispatchQueue(label: "com.medidorotica.truedepth.calibration", qos: .userInitiated)
     private var samples: [CalibrationSample] = []
     private var lastSample: CalibrationSample?
+
+    // MARK: - Log
+    @inline(__always)
+    private static func debug(_ code: Int, _ message: String) {
+        print("TDCalib[\(code)]: \(message)")
+    }
 
     // MARK: - API Pública
     /// Remove todas as amostras acumuladas.
@@ -127,19 +134,33 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Armazenamento de Amostras
     private func store(_ sample: CalibrationSample) {
-        guard sample.baselineError <= Constants.maximumBaselineError else { return }
+        guard sample.baselineError.isFinite else {
+            Self.debug(120, "Descartando amostra com baseline indefinido")
+            return
+        }
+        guard sample.baselineError <= Constants.maximumBaselineErrorDiscard else {
+            Self.debug(121, "Descartando amostra com baseline muito alto (\(sample.baselineError))")
+            return
+        }
 
-        if let last = samples.last, abs(last.timestamp - sample.timestamp) < 0.0005 {
-            samples[samples.count - 1] = sample
+        let clippedBaseline = min(sample.baselineError, Constants.maximumBaselineError)
+        let adjustedSample = CalibrationSample(timestamp: sample.timestamp,
+                                               mmPerPixelX: sample.mmPerPixelX,
+                                               mmPerPixelY: sample.mmPerPixelY,
+                                               depthMeters: sample.depthMeters,
+                                               baselineError: clippedBaseline)
+
+        if let last = samples.last, abs(last.timestamp - adjustedSample.timestamp) < 0.0005 {
+            samples[samples.count - 1] = adjustedSample
         } else {
-            samples.append(sample)
+            samples.append(adjustedSample)
         }
 
         if samples.count > Constants.maxSamples {
             samples.removeFirst(samples.count - Constants.maxSamples)
         }
 
-        lastSample = sample
+        lastSample = adjustedSample
     }
 
     private func purgeSamples(referenceTime: TimeInterval) {
@@ -178,15 +199,24 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Geração de Amostras
     private static func makeSample(from frame: ARFrame) -> CalibrationSample? {
-        guard case .normal = frame.camera.trackingState else { return nil }
+        guard case .normal = frame.camera.trackingState else {
+            debug(201, "Tracking state nao normal")
+            return nil
+        }
         guard let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first,
-              faceAnchor.isTracked else { return nil }
+              faceAnchor.isTracked else {
+            debug(202, "FaceAnchor indisponivel ou nao rastreado")
+            return nil
+        }
 
         let intrinsics = frame.camera.intrinsics
         let fx = Double(intrinsics.columns.0.x)
         let fy = Double(intrinsics.columns.1.y)
 
-        guard fx > 0, fy > 0 else { return nil }
+        guard fx > 0, fy > 0 else {
+            debug(203, "Intrinsecos invalidos fx=\(fx) fy=\(fy)")
+            return nil
+        }
 
         let worldToCamera = simd_inverse(frame.camera.transform)
 
@@ -201,23 +231,33 @@ final class TrueDepthCalibrationEstimator {
 
         let leftDepth = Double(-leftPositionCamera.z)
         let rightDepth = Double(-rightPositionCamera.z)
-        guard leftDepth.isFinite, rightDepth.isFinite else { return nil }
+        guard leftDepth.isFinite, rightDepth.isFinite else {
+            debug(204, "Profundidade invalida left=\(leftDepth) right=\(rightDepth)")
+            return nil
+        }
 
-        let averageDepth = max(0.12, min(1.5, (leftDepth + rightDepth) * 0.5))
+        let averageDepth = max(0.12, (leftDepth + rightDepth) * 0.5)
 
         let leftWorldPosition = position(from: leftEyeWorld)
         let rightWorldPosition = position(from: rightEyeWorld)
         let distanceMM = Double(simd_distance(leftWorldPosition, rightWorldPosition)) * 1000.0
         guard distanceMM >= Constants.minimumEyeDistanceMM,
-              distanceMM <= Constants.maximumEyeDistanceMM else { return nil }
+              distanceMM <= Constants.maximumEyeDistanceMM else {
+            debug(205, "IPD fora da faixa (\(distanceMM)mm)")
+            return nil
+        }
 
         guard let leftPixelX = projectToPixelX(position: leftPositionCamera, intrinsics: intrinsics),
               let rightPixelX = projectToPixelX(position: rightPositionCamera, intrinsics: intrinsics) else {
+            debug(206, "Falha ao projetar olhos para pixels")
             return nil
         }
 
         let pixelDelta = abs(rightPixelX - leftPixelX)
-        guard pixelDelta >= Constants.minimumHorizontalPixels, pixelDelta.isFinite else { return nil }
+        guard pixelDelta >= Constants.minimumHorizontalPixels, pixelDelta.isFinite else {
+            debug(207, "Delta de pixels insuficiente \(pixelDelta)")
+            return nil
+        }
 
         let baselineHorizontal = distanceMM / pixelDelta
         let depthHorizontal = (averageDepth * 1000.0) / fx
@@ -227,11 +267,20 @@ final class TrueDepthCalibrationEstimator {
         let verticalMMPerPixel = (averageDepth * 1000.0) / fy
 
         guard blendedHorizontal.isFinite,
-              verticalMMPerPixel.isFinite,
-              blendedHorizontal >= Constants.minMMPerPixel,
-              blendedHorizontal <= Constants.maxMMPerPixel,
-              verticalMMPerPixel >= Constants.minMMPerPixel,
+              verticalMMPerPixel.isFinite else {
+            debug(208, "Valor mm/pixel nao finito")
+            return nil
+        }
+
+        guard blendedHorizontal >= Constants.minMMPerPixel,
+              blendedHorizontal <= Constants.maxMMPerPixel else {
+            debug(209, "mmPerPixelX fora de faixa \(blendedHorizontal)")
+            return nil
+        }
+
+        guard verticalMMPerPixel >= Constants.minMMPerPixel,
               verticalMMPerPixel <= Constants.maxMMPerPixel else {
+            debug(210, "mmPerPixelY fora de faixa \(verticalMMPerPixel)")
             return nil
         }
 
