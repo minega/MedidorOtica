@@ -100,8 +100,13 @@ final class PostCaptureProcessor {
                                                  orientation: orientation)
         }
 
-        let pupilsY = [rightPupilPoint?.y ?? 0.5, leftPupilPoint?.y ?? 0.5]
-        let averagePupilY = pupilsY.reduce(0, +) / CGFloat(pupilsY.count)
+        let detectedPupilYs = [rightPupilPoint?.y, leftPupilPoint?.y].compactMap { $0 }
+        let averagePupilY: CGFloat
+        if detectedPupilYs.isEmpty {
+            averagePupilY = 0.5
+        } else {
+            averagePupilY = detectedPupilYs.reduce(0, +) / CGFloat(detectedPupilYs.count)
+        }
         let centralX = nosePoint?.x ?? 0.5
         let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
 

@@ -341,11 +341,7 @@ extension CameraManager: ARSessionDelegate {
         outputDelegate?(frame)
 
         guard cameraPosition == .front, hasTrueDepth else { return }
-        let cgOrientation = VerificationManager.shared.currentCGOrientation()
-        let uiOrientation = VerificationManager.shared.currentUIOrientation()
-        calibrationEstimator.ingest(frame: frame,
-                                    cgOrientation: cgOrientation,
-                                    uiOrientation: uiOrientation)
+        calibrationEstimator.ingest(frame: frame)
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {

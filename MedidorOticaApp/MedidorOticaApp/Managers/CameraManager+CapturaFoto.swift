@@ -38,7 +38,6 @@ extension CameraManager {
         let context = photoProcessingContext
         // Reaproveita a orientação calculada pelo VerificationManager para alinhar a foto ao preview.
         let cgOrientation = VerificationManager.shared.currentCGOrientation()
-        let uiOrientation = VerificationManager.shared.currentUIOrientation()
         let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
 
         guard let cgImageFull = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
@@ -63,8 +62,7 @@ extension CameraManager {
         let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: .up)
         guard let calibration = buildCalibration(from: frame,
                                                  cropRect: cropRect,
-                                                 cgOrientation: cgOrientation,
-                                                 uiOrientation: uiOrientation),
+                                                 cgOrientation: cgOrientation),
               calibration.isReliable else {
             print("ERRO: Calibração TrueDepth indisponível ou inválida")
             publishError(.missingTrueDepthData)
@@ -81,20 +79,17 @@ extension CameraManager {
     /// Calcula a calibração da imagem utilizando dados do TrueDepth respeitando o recorte aplicado.
     private func buildCalibration(from frame: ARFrame,
                                   cropRect: CGRect,
-                                  cgOrientation: CGImagePropertyOrientation,
-                                  uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
+                                  cgOrientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
         if let refined = calibrationEstimator.refinedCalibration(for: frame,
                                                                  cropRect: cropRect,
-                                                                 cgOrientation: cgOrientation,
-                                                                 uiOrientation: uiOrientation) {
+                                                                 orientation: cgOrientation) {
             logCalibration(refined, cropRect: cropRect, label: "✅ Calibração TrueDepth refinada")
             return refined
         }
 
         guard let fallback = calibrationEstimator.instantCalibration(for: frame,
                                                                      cropRect: cropRect,
-                                                                     cgOrientation: cgOrientation,
-                                                                     uiOrientation: uiOrientation) else {
+                                                                     orientation: cgOrientation) else {
             print("ERRO: Nenhuma calibração TrueDepth pôde ser derivada do frame atual")
             logDepthDiagnostics(reason: "sem calibração disponível")
             return nil
@@ -115,18 +110,13 @@ extension CameraManager {
         print("\(label) mm/pixel: \(formattedHorizontal) x \(formattedVertical)")
     }
 
-    /// Emite um log detalhado com as estatísticas do estimador TrueDepth para auditoria e depuração.
+    /// Emite um log detalhado com as estatisticas do estimador TrueDepth para auditoria e depuracao.
     private func logDepthDiagnostics(reason: String) {
         let diagnostics = calibrationEstimator.diagnostics()
         let horizontal = diagnostics.lastHorizontalMMPerPixel.map { String(format: "%.5f", $0) } ?? "n/d"
         let vertical = diagnostics.lastVerticalMMPerPixel.map { String(format: "%.5f", $0) } ?? "n/d"
-        let depth = diagnostics.lastMeanDepth.map { String(format: "%.3f", $0) } ?? "n/d"
-        let horizontalWeight = diagnostics.lastHorizontalWeight.map { String(format: "%.1f", $0) } ?? "n/d"
-        let verticalWeight = diagnostics.lastVerticalWeight.map { String(format: "%.1f", $0) } ?? "n/d"
+        let depth = diagnostics.lastDepthMM.map { String(format: "%.1f", $0) } ?? "n/d"
+        let baselineError = diagnostics.lastBaselineError.map { String(format: "%.3f", $0) } ?? "n/d"
 
-        print("🔍 Diagnóstico TrueDepth (\(reason)) -> amostras: \(diagnostics.storedSampleCount)/\(diagnostics.recentSampleCount) " +
-              "mm/pixel: \(horizontal) x \(vertical) profundidade: \(depth)m pesos: \(horizontalWeight) | \(verticalWeight) " +
-              "pixels avaliados: \(diagnostics.evaluatedPixelCount) candidatos: \(diagnostics.filteredCandidateCount)/\(diagnostics.rawCandidateCount) " +
-              "confiança alta: \(diagnostics.highConfidencePixelCount)")
+        print("Diagnostico TrueDepth (\(reason)) -> amostras: \(diagnostics.recentSampleCount)/\(diagnostics.storedSampleCount) mm/pixel: \(horizontal) x \(vertical) profundidade: \(depth)mm erroIPD: \(baselineError)")
     }
-}
