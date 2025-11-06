@@ -138,6 +138,7 @@ final class PostCaptureViewModel: ObservableObject {
             await MainActor.run {
                 self.configuration = result.configuration
                 self.detectedPupils = result.detectedPupils
+                self.normalizeEyeOrdering()
                 self.faceBounds = result.configuration.faceBounds
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
@@ -190,6 +191,27 @@ final class PostCaptureViewModel: ObservableObject {
     func restartFlowFromBeginning() {
         currentStage = .confirmation
         currentEye = .right
+    }
+
+    private func normalizeEyeOrdering() {
+        let rightEye = configuration.rightEye
+        let leftEye = configuration.leftEye
+        let centralX = configuration.centralPoint.x
+
+        let rightPupilX = rightEye.pupil.x
+        let leftPupilX = leftEye.pupil.x
+
+        let shouldSwap = rightPupilX > leftPupilX || (rightPupilX >= centralX && leftPupilX >= centralX)
+
+        guard shouldSwap else { return }
+
+        configuration = PostCaptureConfiguration(centralPoint: configuration.centralPoint,
+                                                 rightEye: leftEye,
+                                                 leftEye: rightEye,
+                                                 faceBounds: configuration.faceBounds)
+
+        detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: detectedPupils.left,
+                                                                  left: detectedPupils.right)
     }
 
     func goBack() {

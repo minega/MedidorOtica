@@ -49,8 +49,12 @@ struct PostCaptureMeasurementCalculator {
         let verticalReference = Double(scale.verticalReferenceMM)
 
         // Normaliza os olhos para garantir que as barras estejam ordenadas corretamente.
-        let normalizedRight = configuration.rightEye.normalized(centralX: centralPoint.x)
-        let normalizedLeft = configuration.leftEye.normalized(centralX: centralPoint.x)
+        var normalizedRight = configuration.rightEye.normalized(centralX: centralPoint.x)
+        var normalizedLeft = configuration.leftEye.normalized(centralX: centralPoint.x)
+
+        if normalizedRight.pupil.x > normalizedLeft.pupil.x {
+            swap(&normalizedRight, &normalizedLeft)
+        }
 
         let rightHorizontal = horizontalMillimeters(between: normalizedRight.temporalBarX,
                                                     and: normalizedRight.nasalBarX,

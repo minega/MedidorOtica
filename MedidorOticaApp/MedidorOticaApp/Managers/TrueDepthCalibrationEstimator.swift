@@ -41,14 +41,20 @@ final class TrueDepthCalibrationEstimator {
         static let maximumBaselineError: Double = 0.6
         static let maximumBaselineErrorDiscard: Double = 1.2
         static let minimumHorizontalPixels: Double = 6
-        static let minMMPerPixel: Double = 0.005
-        static let maxMMPerPixel: Double = 1.8
+        static let minMMPerPixel: Double = 0.01
+        static let maxMMPerPixel: Double = 1.0
     }
 
     // MARK: - Estado
     private let queue = DispatchQueue(label: "com.medidorotica.truedepth.calibration", qos: .userInitiated)
     private var samples: [CalibrationSample] = []
     private var lastSample: CalibrationSample?
+
+    // MARK: - Log
+    @inline(__always)
+    private static func debug(_ code: Int, _ message: String) {
+        print("TDCalib[\(code)]: \(message)")
+    }
 
     // MARK: - Log
     @inline(__always)
@@ -266,21 +272,25 @@ final class TrueDepthCalibrationEstimator {
         let blendedHorizontal = (baselineHorizontal * 0.7) + (depthHorizontal * 0.3)
         let verticalMMPerPixel = (averageDepth * 1000.0) / fy
 
-        guard blendedHorizontal.isFinite,
-              verticalMMPerPixel.isFinite else {
-            debug(208, "Valor mm/pixel nao finito")
+        guard blendedHorizontal.isFinite else {
+            debug(208, "mmPerPixelX nao finito \(blendedHorizontal)")
+            return nil
+        }
+
+        guard verticalMMPerPixel.isFinite else {
+            debug(209, "mmPerPixelY nao finito \(verticalMMPerPixel)")
             return nil
         }
 
         guard blendedHorizontal >= Constants.minMMPerPixel,
               blendedHorizontal <= Constants.maxMMPerPixel else {
-            debug(209, "mmPerPixelX fora de faixa \(blendedHorizontal)")
+            debug(210, "mmPerPixelX fora de faixa \(blendedHorizontal)")
             return nil
         }
 
         guard verticalMMPerPixel >= Constants.minMMPerPixel,
               verticalMMPerPixel <= Constants.maxMMPerPixel else {
-            debug(210, "mmPerPixelY fora de faixa \(verticalMMPerPixel)")
+            debug(211, "mmPerPixelY fora de faixa \(verticalMMPerPixel)")
             return nil
         }
 
