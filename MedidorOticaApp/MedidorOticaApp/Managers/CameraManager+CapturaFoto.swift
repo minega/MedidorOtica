@@ -32,7 +32,7 @@ extension CameraManager {
     }
 
     /// Realiza a captura diretamente da ARSession validando o frame atual.
-    private func captureARPhoto(completion: @escaping (CapturedPhoto?) -> Void) {
+    private func captureARPhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
         guard let frame = arSession?.currentFrame else {
             failCapture(with: .captureFailed, completion: completion)
             return
