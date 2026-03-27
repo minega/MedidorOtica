@@ -64,7 +64,7 @@ final class VerificationManager: ObservableObject {
     /// Verifica se todas as verificacoes obrigatorias estao corretas.
     var allVerificationsChecked: Bool {
         guard activeSensor != .trueDepth || trueDepthGateOpen else { return false }
-        faceDetected && distanceCorrect && faceAligned && headAligned
+        return faceDetected && distanceCorrect && faceAligned && headAligned
     }
 
     // MARK: - Processamento de frame
@@ -111,7 +111,7 @@ final class VerificationManager: ObservableObject {
     /// Reavalia um frame especifico de forma sincrona para validar a captura final.
     func evaluationForCapture(_ frame: ARFrame) -> VerificationFrameEvaluation {
         guard canProcessCurrentSensorFrame() else { return .empty }
-        makeEvaluation(from: frame)
+        return makeEvaluation(from: frame)
     }
 
     /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
