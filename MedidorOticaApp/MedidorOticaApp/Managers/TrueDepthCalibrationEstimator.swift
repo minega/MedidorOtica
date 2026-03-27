@@ -553,9 +553,6 @@ final class TrueDepthCalibrationEstimator {
         let vertices = faceAnchor.geometry.vertices
         guard vertices.count >= 2 else { return ([], []) }
 
-        let scaleFactor = Double(faceAnchor.estimatedScaleFactor)
-        guard scaleFactor.isFinite, scaleFactor > 0 else { return ([], []) }
-
         let horizontalPairs = candidatePairs(from: vertices.sorted { $0.x < $1.x })
         let verticalPairs = candidatePairs(from: vertices.sorted { $0.y < $1.y })
 
@@ -564,15 +561,13 @@ final class TrueDepthCalibrationEstimator {
                                          faceAnchor: faceAnchor,
                                          camera: camera,
                                          uiOrientation: uiOrientation,
-                                         viewportSize: viewportSize,
-                                         scaleFactor: scaleFactor)
+                                         viewportSize: viewportSize)
         let vertical = candidateValues(from: verticalPairs,
                                        axis: \.pixelDY,
                                        faceAnchor: faceAnchor,
                                        camera: camera,
                                        uiOrientation: uiOrientation,
-                                       viewportSize: viewportSize,
-                                       scaleFactor: scaleFactor)
+                                       viewportSize: viewportSize)
         return (horizontal, vertical)
     }
 
@@ -595,16 +590,14 @@ final class TrueDepthCalibrationEstimator {
                                         faceAnchor: ARFaceAnchor,
                                         camera: ARCamera,
                                         uiOrientation: UIInterfaceOrientation,
-                                        viewportSize: CGSize,
-                                        scaleFactor: Double) -> [Double] {
+                                        viewportSize: CGSize) -> [Double] {
         pairs.compactMap { pair in
             guard let measurement = measurePair(first: pair.0,
                                                 second: pair.1,
                                                 faceAnchor: faceAnchor,
                                                 camera: camera,
                                                 uiOrientation: uiOrientation,
-                                                viewportSize: viewportSize,
-                                                scaleFactor: scaleFactor) else {
+                                                viewportSize: viewportSize) else {
                 return nil
             }
 
@@ -635,9 +628,8 @@ final class TrueDepthCalibrationEstimator {
                                     faceAnchor: ARFaceAnchor,
                                     camera: ARCamera,
                                     uiOrientation: UIInterfaceOrientation,
-                                    viewportSize: CGSize,
-                                    scaleFactor: Double) -> PairMeasurement? {
-        let distanceMeters = euclideanDistance(first, second) * scaleFactor
+                                    viewportSize: CGSize) -> PairMeasurement? {
+        let distanceMeters = euclideanDistance(first, second)
         guard distanceMeters.isFinite, distanceMeters > 0 else { return nil }
 
         let worldFirst = worldPosition(of: first, transform: faceAnchor.transform)
