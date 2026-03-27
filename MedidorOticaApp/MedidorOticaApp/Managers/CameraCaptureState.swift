@@ -40,7 +40,7 @@ enum TrueDepthBlockReason: Error, Equatable, Sendable {
         case .baselineNoiseTooHigh:
             return "Mantenha o rosto firme para reduzir ruido."
         case .noRecentSamples:
-            return "Segure firme para estabilizar o TrueDepth."
+            return "Aguardando pontos da malha facial."
         }
     }
 

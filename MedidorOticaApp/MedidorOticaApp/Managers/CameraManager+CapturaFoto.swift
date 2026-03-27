@@ -65,6 +65,7 @@ extension CameraManager {
         let pixelBuffer = frame.capturedImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let cgOrientation = VerificationManager.shared.currentCGOrientation()
+        let uiOrientation = VerificationManager.shared.currentUIOrientation()
         let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
 
         guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
@@ -79,7 +80,8 @@ extension CameraManager {
                               height: CGFloat(cgImage.height))
         guard let calibration = buildCalibration(from: frame,
                                                  cropRect: cropRect,
-                                                 cgOrientation: cgOrientation) else {
+                                                 cgOrientation: cgOrientation,
+                                                 uiOrientation: uiOrientation) else {
             failCapture(with: .missingTrueDepthData, completion: completion)
             return
         }
@@ -99,10 +101,12 @@ extension CameraManager {
     /// Calcula a calibracao da imagem utilizando dados do TrueDepth.
     private func buildCalibration(from frame: ARFrame,
                                   cropRect: CGRect,
-                                  cgOrientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
+                                  cgOrientation: CGImagePropertyOrientation,
+                                  uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
         if let refined = validCalibration(calibrationEstimator.refinedCalibration(for: frame,
                                                                                   cropRect: cropRect,
-                                                                                  orientation: cgOrientation)) {
+                                                                                  orientation: cgOrientation,
+                                                                                  uiOrientation: uiOrientation)) {
             logCalibration(refined,
                            cropRect: cropRect,
                            frameTimestamp: frame.timestamp,
@@ -112,7 +116,8 @@ extension CameraManager {
 
         if let instant = validCalibration(calibrationEstimator.instantCalibration(for: frame,
                                                                                   cropRect: cropRect,
-                                                                                  orientation: cgOrientation)) {
+                                                                                  orientation: cgOrientation,
+                                                                                  uiOrientation: uiOrientation)) {
             logCalibration(instant,
                            cropRect: cropRect,
                            frameTimestamp: frame.timestamp,

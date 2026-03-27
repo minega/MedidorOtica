@@ -9,6 +9,8 @@ import Foundation
 import AVFoundation
 import ARKit
 import Combine
+import ImageIO
+import UIKit
 
 // MARK: - Notificacoes
 extension Notification.Name {
@@ -168,7 +170,7 @@ final class CameraManager: NSObject, ObservableObject {
             return (true, nil)
         }
 
-        return calibrationEstimator.readiness(minRecentSamples: 4)
+        return calibrationEstimator.readiness(minRecentSamples: 2)
     }
 
     /// Publica uma mensagem de erro relacionada a sessao AR.
@@ -310,6 +312,21 @@ final class CameraManager: NSObject, ObservableObject {
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return false }
         guard lastFrameTimestamp > 0 else { return false }
         return abs(lastFrameTimestamp - timestamp) <= CaptureReadinessEngine.defaultMaximumCaptureAge
+    }
+
+    private func updatePreviewCalibration(for frame: ARFrame,
+                                          cgOrientation: CGImagePropertyOrientation,
+                                          uiOrientation: UIInterfaceOrientation) {
+        guard let calibration = calibrationEstimator.previewCalibration(for: frame,
+                                                                        orientation: cgOrientation,
+                                                                        uiOrientation: uiOrientation),
+              calibration.isReliable else {
+            return
+        }
+
+        lastSuccessfulCalibration = calibration
+        lastSuccessfulCalibrationTimestamp = frame.timestamp
+        lastCalibrationFailure = nil
     }
 
     private func applyReadiness(_ status: CaptureReadinessStatus,
@@ -727,7 +744,14 @@ extension CameraManager: ARSessionDelegate {
             return
         }
 
-        let bootstrapStatus = calibrationEstimator.ingest(frame: frame)
+        let cgOrientation = VerificationManager.shared.currentCGOrientation()
+        let uiOrientation = VerificationManager.shared.currentUIOrientation()
+        let bootstrapStatus = calibrationEstimator.ingest(frame: frame,
+                                                          cgOrientation: cgOrientation,
+                                                          uiOrientation: uiOrientation)
+        updatePreviewCalibration(for: frame,
+                                 cgOrientation: cgOrientation,
+                                 uiOrientation: uiOrientation)
         handleTrueDepthBootstrap(status: bootstrapStatus,
                                  referenceTimestamp: frame.timestamp)
         outputDelegate?(frame)

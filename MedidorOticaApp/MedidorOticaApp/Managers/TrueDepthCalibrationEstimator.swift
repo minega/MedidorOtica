@@ -2,16 +2,17 @@
 //  TrueDepthCalibrationEstimator.swift
 //  MedidorOticaApp
 //
-//  Calcula a calibracao real do TrueDepth e publica o estado de bootstrap do sensor.
+//  Estima a escala real do TrueDepth usando malha facial e projecao 3D.
 //
 
 import Foundation
 import ARKit
 import ImageIO
+import UIKit
 import simd
 
 // MARK: - Estimador TrueDepth
-/// Consolida amostras em mm/pixel diretamente a partir do TrueDepth, mantendo apenas leituras confiaveis.
+/// Consolida amostras em mm/pixel a partir do Face Tracking, mantendo apenas leituras confiaveis.
 final class TrueDepthCalibrationEstimator {
 
     // MARK: - Diagnosticos Publicos
@@ -36,6 +37,12 @@ final class TrueDepthCalibrationEstimator {
         let baselineError: Double
     }
 
+    private struct PairMeasurement {
+        let mmDistance: Double
+        let pixelDX: Double
+        let pixelDY: Double
+    }
+
     private enum SampleOutcome {
         case accepted(CalibrationSample)
         case rejected(TrueDepthBlockReason)
@@ -48,16 +55,21 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Constantes
     private enum Constants {
-        static let maxSamples = 24
-        static let sampleLifetime: TimeInterval = 2.0
-        static let minimumEyeDistanceMM: Double = 45
-        static let maximumEyeDistanceMM: Double = 80
-        static let maximumBaselineError: Double = 0.35
-        static let maximumBaselineErrorDiscard: Double = 0.8
-        static let minimumHorizontalPixels: Double = 6
-        static let minMMPerPixel: Double = 0.01
-        static let maxMMPerPixel: Double = 1.0
+        static let maxSamples = 90
+        static let sampleLifetime: TimeInterval = 1.5
         static let sensorLivenessLifetime: TimeInterval = 0.45
+        static let minimumHorizontalPixels: Double = 3
+        static let minimumInterPupillaryMM: Double = 45
+        static let maximumInterPupillaryMM: Double = 80
+        static let minimumMeshDistanceMM: Double = 60
+        static let maximumMeshDistanceMM: Double = 240
+        static let minMMPerPixel: Double = 0.01
+        static let maxMMPerPixel: Double = 0.35
+        static let maximumBaselineError: Double = 0.18
+        static let maximumBaselineErrorDiscard: Double = 0.35
+        static let trimRatio = 0.10
+        static let meshPairTrimDivisor = 20
+        static let maxMeshPairs = 6
     }
 
     // MARK: - Estado
@@ -72,14 +84,8 @@ final class TrueDepthCalibrationEstimator {
     private var lastLivenessFailureTimestamp: TimeInterval?
     private var lastFrameTimestamp: TimeInterval = 0
 
-    // MARK: - Log
-    @inline(__always)
-    private static func debug(_ code: Int, _ message: String) {
-        print("TDCalib[\(code)]: \(message)")
-    }
-
     // MARK: - API Publica
-    /// Remove todas as amostras acumuladas e limpa o diagnostico do bootstrap.
+    /// Limpa todas as amostras e reinicia o bootstrap do sensor.
     func reset() {
         queue.sync {
             samples.removeAll()
@@ -93,92 +99,86 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
-    /// Armazena o frame atual e retorna o estado consolidado do bootstrap.
+    /// Registra o frame atual e devolve o estado do bootstrap do sensor.
     @discardableResult
     func ingest(frame: ARFrame,
-                bootstrapSampleCount: Int = 2) -> TrueDepthBootstrapStatus {
+                cgOrientation: CGImagePropertyOrientation,
+                uiOrientation: UIInterfaceOrientation,
+                bootstrapSampleCount: Int = 1) -> TrueDepthBootstrapStatus {
         let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
         let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
-        let outcome = Self.makeSampleOutcome(from: frame,
-                                             faceAnchorResult: faceAnchorResult)
+        let sampleOutcome = Self.makeSampleOutcome(from: frame,
+                                                   faceAnchorResult: faceAnchorResult,
+                                                   cgOrientation: cgOrientation,
+                                                   uiOrientation: uiOrientation)
         let timestamp = frame.timestamp
 
         return queue.sync {
             lastFrameTimestamp = timestamp
             register(livenessOutcome: livenessOutcome, timestamp: timestamp)
-            register(outcome: outcome, timestamp: timestamp)
+            register(outcome: sampleOutcome, timestamp: timestamp)
             purgeSamples(referenceTime: timestamp)
             return bootstrapStatusLocked(minRecentSamples: bootstrapSampleCount)
         }
     }
 
-    /// Retorna o estado atual do bootstrap usando as ultimas amostras conhecidas.
-    func bootstrapStatus(minRecentSamples: Int = 2) -> TrueDepthBootstrapStatus {
+    /// Informa o estado atual do bootstrap sem inserir um novo frame.
+    func bootstrapStatus(minRecentSamples: Int = 1) -> TrueDepthBootstrapStatus {
         queue.sync {
             bootstrapStatusLocked(minRecentSamples: minRecentSamples)
         }
     }
 
-    /// Retorna uma calibracao estabilizada combinando as amostras mais recentes.
+    /// Retorna uma calibracao estabilizada para o frame atual.
     func refinedCalibration(for frame: ARFrame,
                             cropRect: CGRect,
-                            orientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
-        guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
-        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
-        let outcome = Self.makeSampleOutcome(from: frame,
-                                             faceAnchorResult: faceAnchorResult)
-        let timestamp = frame.timestamp
+                            orientation: CGImagePropertyOrientation,
+                            uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
+        updateEstimator(frame: frame,
+                        cgOrientation: orientation,
+                        uiOrientation: uiOrientation)
 
         return queue.sync {
-            lastFrameTimestamp = timestamp
-            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
-            register(outcome: outcome, timestamp: timestamp)
-            purgeSamples(referenceTime: timestamp)
-            return Self.makeCalibration(from: samples,
-                                        cropRect: cropRect,
-                                        orientation: orientation)
+            Self.makeCalibration(from: samples, cropRect: cropRect)
         }
     }
 
     /// Retorna uma calibracao imediata usando a amostra atual ou a ultima valida.
     func instantCalibration(for frame: ARFrame,
                             cropRect: CGRect,
-                            orientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
-        guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
-        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
-        let outcome = Self.makeSampleOutcome(from: frame,
-                                             faceAnchorResult: faceAnchorResult)
-        let timestamp = frame.timestamp
+                            orientation: CGImagePropertyOrientation,
+                            uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
+        updateEstimator(frame: frame,
+                        cgOrientation: orientation,
+                        uiOrientation: uiOrientation)
 
         return queue.sync {
-            lastFrameTimestamp = timestamp
-            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
-            register(outcome: outcome, timestamp: timestamp)
-            purgeSamples(referenceTime: timestamp)
-
-            if case .accepted(let sample) = outcome {
-                return Self.makeCalibration(from: [sample],
-                                            cropRect: cropRect,
-                                            orientation: orientation)
-            }
-
             guard let lastSample else { return nil }
-            return Self.makeCalibration(from: [lastSample],
-                                        cropRect: cropRect,
-                                        orientation: orientation)
+            return Self.makeCalibration(from: [lastSample], cropRect: cropRect)
         }
     }
 
-    /// Retorna informacoes resumidas sobre o estado atual do estimador.
+    /// Gera uma calibracao de preview usando a imagem inteira orientada.
+    func previewCalibration(for frame: ARFrame,
+                            orientation: CGImagePropertyOrientation,
+                            uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
+        let cropRect = CGRect(origin: .zero,
+                              size: Self.orientedViewportSize(resolution: frame.camera.imageResolution,
+                                                              orientation: orientation))
+        return refinedCalibration(for: frame,
+                                  cropRect: cropRect,
+                                  orientation: orientation,
+                                  uiOrientation: uiOrientation)
+    }
+
+    /// Retorna um diagnostico resumido do estado interno atual.
     func diagnostics() -> Diagnostics {
         queue.sync {
-            let referenceTimestamp = max(lastFrameTimestamp, lastSample?.timestamp ?? 0)
-            let recent = samples.filter { referenceTimestamp - $0.timestamp <= Constants.sampleLifetime }
+            let referenceTime = currentReferenceTimeLocked()
+            let recentSamples = samples.filter { referenceTime - $0.timestamp <= Constants.sampleLifetime }
 
             return Diagnostics(storedSampleCount: samples.count,
-                               recentSampleCount: recent.count,
+                               recentSampleCount: recentSamples.count,
                                lastHorizontalMMPerPixel: lastSample?.mmPerPixelX,
                                lastVerticalMMPerPixel: lastSample?.mmPerPixelY,
                                lastDepthMM: lastSample.map { $0.depthMeters * 1000.0 },
@@ -189,58 +189,57 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
-    /// Indica se ja existem amostras recentes e consistentes para permitir a captura.
-    func readiness(minRecentSamples: Int = 4,
-                   depthRangeMM: ClosedRange<Double> = 250...600,
-                   mmPerPixelRange: ClosedRange<Double> = 0.03...0.25) -> (ready: Bool, hint: String?) {
+    /// Indica se ja existe escala suficiente para liberar a captura.
+    func readiness(minRecentSamples: Int = 2,
+                   mmPerPixelRange: ClosedRange<Double> = 0.015...0.30) -> (ready: Bool, hint: String?) {
         queue.sync {
-            let bootstrap = bootstrapStatusLocked(minRecentSamples: 2)
+            let bootstrap = bootstrapStatusLocked(minRecentSamples: 1)
             guard bootstrap.sensorAlive else {
-                let hint = bootstrap.failureReason?.shortMessage ?? "TrueDepth indisponivel."
-                return (false, hint)
+                return (false, bootstrap.failureReason?.shortMessage ?? "TrueDepth indisponivel.")
             }
 
             guard let lastSample else {
                 return (false, TrueDepthBlockReason.noRecentSamples.shortMessage)
             }
 
-            let referenceTime = max(lastFrameTimestamp, lastSample.timestamp)
+            let referenceTime = currentReferenceTimeLocked()
             let recentSamples = samples.filter { referenceTime - $0.timestamp <= Constants.sampleLifetime }
             var reasons: [String] = []
 
             if recentSamples.count < minRecentSamples {
-                reasons.append("Coletando calibracao (\(recentSamples.count)/\(minRecentSamples)).")
-            }
-
-            let depthMM = lastSample.depthMeters * 1000.0
-            if !depthRangeMM.contains(depthMM) {
-                reasons.append("Ajuste a distancia para \(Int(depthRangeMM.lowerBound))-\(Int(depthRangeMM.upperBound))mm.")
+                reasons.append("Coletando escala do TrueDepth.")
             }
 
             if !mmPerPixelRange.contains(lastSample.mmPerPixelX) ||
                 !mmPerPixelRange.contains(lastSample.mmPerPixelY) {
-                reasons.append("Estabilize a posicao para obter escala consistente.")
+                reasons.append("Reposicione o rosto para medir a escala.")
             }
 
             if lastSample.baselineError > Constants.maximumBaselineError {
-                reasons.append("Rastreie o rosto novamente para reduzir ruido.")
+                reasons.append("Mantenha o rosto firme.")
             }
 
-            let ready = reasons.isEmpty
-            return (ready, ready ? nil : reasons.joined(separator: " "))
+            return reasons.isEmpty ? (true, nil) : (false, reasons.joined(separator: " "))
         }
     }
 
-    // MARK: - Armazenamento
-    private func register(outcome: SampleOutcome, timestamp: TimeInterval) {
-        switch outcome {
-        case .accepted(let sample):
-            lastRejectReason = nil
-            lastRejectTimestamp = nil
-            store(sample)
-        case .rejected(let reason):
-            lastRejectReason = reason
-            lastRejectTimestamp = timestamp
+    // MARK: - Atualizacao Interna
+    private func updateEstimator(frame: ARFrame,
+                                 cgOrientation: CGImagePropertyOrientation,
+                                 uiOrientation: UIInterfaceOrientation) {
+        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
+        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
+        let sampleOutcome = Self.makeSampleOutcome(from: frame,
+                                                   faceAnchorResult: faceAnchorResult,
+                                                   cgOrientation: cgOrientation,
+                                                   uiOrientation: uiOrientation)
+        let timestamp = frame.timestamp
+
+        queue.sync {
+            lastFrameTimestamp = timestamp
+            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
+            register(outcome: sampleOutcome, timestamp: timestamp)
+            purgeSamples(referenceTime: timestamp)
         }
     }
 
@@ -257,23 +256,26 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    private func register(outcome: SampleOutcome,
+                          timestamp: TimeInterval) {
+        switch outcome {
+        case .accepted(let sample):
+            lastRejectReason = nil
+            lastRejectTimestamp = nil
+            store(sample)
+        case .rejected(let reason):
+            lastRejectReason = reason
+            lastRejectTimestamp = timestamp
+        }
+    }
+
     private func store(_ sample: CalibrationSample) {
-        guard sample.baselineError.isFinite else {
-            Self.debug(120, "Descartando amostra com baseline indefinido")
-            return
-        }
-
-        guard sample.baselineError <= Constants.maximumBaselineErrorDiscard else {
-            Self.debug(121, "Descartando amostra com baseline muito alto (\(sample.baselineError))")
-            return
-        }
-
-        let clippedBaseline = min(sample.baselineError, Constants.maximumBaselineError)
         let adjustedSample = CalibrationSample(timestamp: sample.timestamp,
                                                mmPerPixelX: sample.mmPerPixelX,
                                                mmPerPixelY: sample.mmPerPixelY,
                                                depthMeters: sample.depthMeters,
-                                               baselineError: clippedBaseline)
+                                               baselineError: min(sample.baselineError,
+                                                                  Constants.maximumBaselineError))
 
         if let last = samples.last,
            abs(last.timestamp - adjustedSample.timestamp) < 0.0005 {
@@ -295,15 +297,7 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Bootstrap
     private func bootstrapStatusLocked(minRecentSamples: Int) -> TrueDepthBootstrapStatus {
-        let referenceCandidates: [TimeInterval] = [
-            lastFrameTimestamp,
-            lastSample?.timestamp ?? 0,
-            lastRejectTimestamp ?? 0,
-            lastTrackedFaceTimestamp ?? 0,
-            lastLivenessFailureTimestamp ?? 0
-        ]
-        let referenceTime = referenceCandidates.max() ?? 0
-
+        let referenceTime = currentReferenceTimeLocked()
         guard referenceTime > 0 else {
             return TrueDepthBootstrapStatus(state: .startingSession,
                                             failureReason: nil,
@@ -313,7 +307,9 @@ final class TrueDepthCalibrationEstimator {
         }
 
         let recentSamples = samples.filter { referenceTime - $0.timestamp <= Constants.sampleLifetime }
-        if hasRecentTrackedFaceLocked(referenceTime: referenceTime) {
+        let hasTrackedFace = hasRecentTrackedFaceLocked(referenceTime: referenceTime)
+
+        if hasTrackedFace && recentSamples.count >= minRecentSamples {
             return TrueDepthBootstrapStatus(state: .sensorAlive,
                                             failureReason: nil,
                                             recentSampleCount: recentSamples.count,
@@ -321,7 +317,7 @@ final class TrueDepthCalibrationEstimator {
                                             lastRejectTimestamp: lastRejectTimestamp)
         }
 
-        guard recentSamples.count < minRecentSamples else {
+        if hasTrackedFace {
             return TrueDepthBootstrapStatus(state: .sensorAlive,
                                             failureReason: nil,
                                             recentSampleCount: recentSamples.count,
@@ -329,8 +325,7 @@ final class TrueDepthCalibrationEstimator {
                                             lastRejectTimestamp: lastRejectTimestamp)
         }
 
-        let reason = currentBootstrapReasonLocked(referenceTime: referenceTime,
-                                                  recentSampleCount: recentSamples.count)
+        let reason = currentBootstrapReasonLocked(referenceTime: referenceTime)
         return TrueDepthBootstrapStatus(state: bootstrapState(for: reason),
                                         failureReason: reason,
                                         recentSampleCount: recentSamples.count,
@@ -338,8 +333,17 @@ final class TrueDepthCalibrationEstimator {
                                         lastRejectTimestamp: lastRejectTimestamp)
     }
 
-    private func currentBootstrapReasonLocked(referenceTime: TimeInterval,
-                                              recentSampleCount: Int) -> TrueDepthBlockReason {
+    private func currentReferenceTimeLocked() -> TimeInterval {
+        [
+            lastFrameTimestamp,
+            lastSample?.timestamp ?? 0,
+            lastRejectTimestamp ?? 0,
+            lastTrackedFaceTimestamp ?? 0,
+            lastLivenessFailureTimestamp ?? 0
+        ].max() ?? 0
+    }
+
+    private func currentBootstrapReasonLocked(referenceTime: TimeInterval) -> TrueDepthBlockReason {
         if let lastLivenessFailureReason,
            let lastLivenessFailureTimestamp,
            referenceTime - lastLivenessFailureTimestamp <= Constants.sensorLivenessLifetime {
@@ -350,14 +354,6 @@ final class TrueDepthCalibrationEstimator {
            let lastRejectTimestamp,
            referenceTime - lastRejectTimestamp <= Constants.sampleLifetime {
             return lastRejectReason
-        }
-
-        if recentSampleCount > 0 {
-            return .noRecentSamples
-        }
-
-        if let lastSample, referenceTime - lastSample.timestamp > Constants.sampleLifetime {
-            return .noRecentSamples
         }
 
         return .noFaceAnchor
@@ -372,30 +368,34 @@ final class TrueDepthCalibrationEstimator {
         switch reason {
         case .noFaceAnchor, .faceNotTracked:
             return .waitingForFaceAnchor
-        case .invalidIntrinsics, .invalidEyeDepth, .pixelBaselineTooSmall:
+        case .invalidIntrinsics, .invalidEyeDepth:
             return .waitingForEyeProjection
-        case .ipdOutOfRange, .scaleOutOfRange, .baselineNoiseTooHigh, .noRecentSamples:
+        case .ipdOutOfRange, .pixelBaselineTooSmall, .scaleOutOfRange,
+                .baselineNoiseTooHigh, .noRecentSamples:
             return .waitingForDepthConsistency
         }
     }
 
-    // MARK: - Construcao da calibracao
+    // MARK: - Calibracao
     private static func makeCalibration(from samples: [CalibrationSample],
-                                        cropRect: CGRect,
-                                        orientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
+                                        cropRect: CGRect) -> PostCaptureCalibration? {
+        guard cropRect.width > 0, cropRect.height > 0 else { return nil }
         guard !samples.isEmpty else { return nil }
 
         let horizontalValues = samples.map(\.mmPerPixelX)
         let verticalValues = samples.map(\.mmPerPixelY)
 
         guard let horizontal = Statistics.robustMean(horizontalValues),
-              let vertical = Statistics.robustMean(verticalValues) else {
+              let vertical = Statistics.robustMean(verticalValues),
+              horizontal.isFinite,
+              vertical.isFinite,
+              horizontal > 0,
+              vertical > 0 else {
             return nil
         }
 
-        let axes = orientation.adjustedAxes(horizontal: horizontal, vertical: vertical)
-        let horizontalReference = axes.horizontal * Double(cropRect.width)
-        let verticalReference = axes.vertical * Double(cropRect.height)
+        let horizontalReference = horizontal * Double(cropRect.width)
+        let verticalReference = vertical * Double(cropRect.height)
 
         guard horizontalReference.isFinite,
               verticalReference.isFinite,
@@ -408,7 +408,7 @@ final class TrueDepthCalibrationEstimator {
                                       verticalReferenceMM: verticalReference)
     }
 
-    // MARK: - Geracao de amostras
+    // MARK: - Amostras
     private static func makeSensorLivenessOutcome(from faceAnchorResult: Result<ARFaceAnchor, TrueDepthBlockReason>) -> SensorLivenessOutcome {
         switch faceAnchorResult {
         case .success:
@@ -419,9 +419,10 @@ final class TrueDepthCalibrationEstimator {
     }
 
     private static func makeSampleOutcome(from frame: ARFrame,
-                                          faceAnchorResult: Result<ARFaceAnchor, TrueDepthBlockReason>) -> SampleOutcome {
+                                          faceAnchorResult: Result<ARFaceAnchor, TrueDepthBlockReason>,
+                                          cgOrientation: CGImagePropertyOrientation,
+                                          uiOrientation: UIInterfaceOrientation) -> SampleOutcome {
         guard case .normal = frame.camera.trackingState else {
-            debug(201, "Tracking state nao normal")
             return .rejected(.faceNotTracked)
         }
 
@@ -432,127 +433,285 @@ final class TrueDepthCalibrationEstimator {
             return .rejected(.noFaceAnchor)
         }
 
-        let intrinsics = frame.camera.intrinsics
-        let fx = Double(intrinsics.columns.0.x)
-        let fy = Double(intrinsics.columns.1.y)
-        guard fx > 0, fy > 0 else {
-            debug(203, "Intrinsecos invalidos fx=\(fx) fy=\(fy)")
+        let viewportSize = orientedViewportSize(resolution: frame.camera.imageResolution,
+                                                orientation: cgOrientation)
+        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
+                                         orientation: cgOrientation)
+        guard focal.fx > 0, focal.fy > 0 else {
             return .rejected(.invalidIntrinsics)
         }
 
-        let worldToCamera = simd_inverse(frame.camera.transform)
-        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
-        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
-        let leftEyeCamera = simd_mul(worldToCamera, leftEyeWorld)
-        let rightEyeCamera = simd_mul(worldToCamera, rightEyeWorld)
-        let leftPositionCamera = position(from: leftEyeCamera)
-        let rightPositionCamera = position(from: rightEyeCamera)
+        var horizontalCandidates: [Double] = []
+        var verticalCandidates: [Double] = []
 
-        let leftDepth = Double(-leftPositionCamera.z)
-        let rightDepth = Double(-rightPositionCamera.z)
-        guard leftDepth.isFinite,
-              rightDepth.isFinite,
-              leftDepth > 0,
-              rightDepth > 0 else {
-            debug(204, "Profundidade invalida left=\(leftDepth) right=\(rightDepth)")
+        if let interPupillaryCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
+                                                                 camera: frame.camera,
+                                                                 uiOrientation: uiOrientation,
+                                                                 viewportSize: viewportSize) {
+            horizontalCandidates.append(interPupillaryCandidate)
+        }
+
+        let meshCandidates = meshBasedCandidates(faceAnchor: faceAnchor,
+                                                 camera: frame.camera,
+                                                 uiOrientation: uiOrientation,
+                                                 viewportSize: viewportSize)
+        horizontalCandidates.append(contentsOf: meshCandidates.horizontal)
+        verticalCandidates.append(contentsOf: meshCandidates.vertical)
+
+        guard !horizontalCandidates.isEmpty else {
             return .rejected(.invalidEyeDepth)
         }
 
-        let leftWorldPosition = position(from: leftEyeWorld)
-        let rightWorldPosition = position(from: rightEyeWorld)
-        let distanceMM = Double(simd_distance(leftWorldPosition, rightWorldPosition)) * 1000.0
-        guard distanceMM >= Constants.minimumEyeDistanceMM,
-              distanceMM <= Constants.maximumEyeDistanceMM else {
-            debug(205, "IPD fora da faixa (\(distanceMM)mm)")
-            return .rejected(.ipdOutOfRange)
-        }
-
-        guard let leftPixelX = projectToPixelX(position: leftPositionCamera, intrinsics: intrinsics),
-              let rightPixelX = projectToPixelX(position: rightPositionCamera, intrinsics: intrinsics) else {
-            debug(206, "Falha ao projetar olhos para pixels")
-            return .rejected(.invalidEyeDepth)
-        }
-
-        let pixelDeltaX = Swift.abs(rightPixelX - leftPixelX)
-        guard pixelDeltaX >= Constants.minimumHorizontalPixels,
-              pixelDeltaX.isFinite else {
-            debug(207, "Delta de pixels insuficiente \(pixelDeltaX)")
-            return .rejected(.pixelBaselineTooSmall)
-        }
-
-        let baselineHorizontal = distanceMM / pixelDeltaX
-        guard baselineHorizontal.isFinite else {
-            debug(208, "mmPerPixelX nao finito \(baselineHorizontal)")
+        guard let mmPerPixelX = Statistics.robustMean(horizontalCandidates),
+              mmPerPixelX.isFinite,
+              mmPerPixelX >= Constants.minMMPerPixel,
+              mmPerPixelX <= Constants.maxMMPerPixel else {
             return .rejected(.scaleOutOfRange)
         }
 
-        guard baselineHorizontal >= Constants.minMMPerPixel,
-              baselineHorizontal <= Constants.maxMMPerPixel else {
-            debug(209, "mmPerPixelX fora da faixa \(baselineHorizontal)")
-            return .rejected(.scaleOutOfRange)
+        let projectedVertical = mmPerPixelX * (focal.fx / focal.fy)
+        if projectedVertical.isFinite {
+            verticalCandidates.append(projectedVertical)
         }
 
-        let verticalScale = (fy > 0 && fx > 0) ? (fx / fy) : 1.0
-        let mmPerPixelY = baselineHorizontal * verticalScale
-        guard mmPerPixelY.isFinite,
+        guard let mmPerPixelY = Statistics.robustMean(verticalCandidates),
+              mmPerPixelY.isFinite,
               mmPerPixelY >= Constants.minMMPerPixel,
               mmPerPixelY <= Constants.maxMMPerPixel else {
-            debug(210, "mmPerPixelY fora da faixa \(mmPerPixelY)")
             return .rejected(.scaleOutOfRange)
         }
 
-        let averageDepth = max(0.12, (leftDepth + rightDepth) * 0.5)
-        let depthSkew = Swift.abs(leftDepth - rightDepth) / max(averageDepth, 0.0001)
-        let scaleSkew = Swift.abs(mmPerPixelY - baselineHorizontal) / max(baselineHorizontal, 0.0001)
-        let qualityError = max(depthSkew, scaleSkew)
-        guard qualityError <= Constants.maximumBaselineErrorDiscard else {
-            debug(213, "Ruido excessivo na baseline \(qualityError)")
+        let baselineError = max(Statistics.normalizedDispersion(horizontalCandidates, center: mmPerPixelX),
+                                Statistics.normalizedDispersion(verticalCandidates, center: mmPerPixelY))
+        guard baselineError <= Constants.maximumBaselineErrorDiscard else {
             return .rejected(.baselineNoiseTooHigh)
         }
 
+        let depthMeters = averageEyeDepth(faceAnchor: faceAnchor, camera: frame.camera)
         let sample = CalibrationSample(timestamp: frame.timestamp,
-                                       mmPerPixelX: baselineHorizontal,
+                                       mmPerPixelX: mmPerPixelX,
                                        mmPerPixelY: mmPerPixelY,
-                                       depthMeters: averageDepth,
-                                       baselineError: qualityError)
+                                       depthMeters: depthMeters,
+                                       baselineError: baselineError)
         return .accepted(sample)
     }
 
     private static func trackedFaceAnchor(in frame: ARFrame) -> Result<ARFaceAnchor, TrueDepthBlockReason> {
         guard let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first else {
-            debug(202, "FaceAnchor indisponivel")
             return .failure(.noFaceAnchor)
         }
 
         guard faceAnchor.isTracked else {
-            debug(212, "FaceAnchor presente mas nao rastreado")
             return .failure(.faceNotTracked)
         }
 
         return .success(faceAnchor)
     }
 
-    // MARK: - Helpers matematicos
-    private static func position(from transform: simd_float4x4) -> simd_float3 {
+    private static func interPupillaryCandidate(faceAnchor: ARFaceAnchor,
+                                                camera: ARCamera,
+                                                uiOrientation: UIInterfaceOrientation,
+                                                viewportSize: CGSize) -> Double? {
+        let leftTransform = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightTransform = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+        let leftPosition = worldPosition(from: leftTransform)
+        let rightPosition = worldPosition(from: rightTransform)
+
+        let distanceMM = Double(simd_distance(leftPosition, rightPosition)) * 1000.0
+        guard distanceMM.isFinite,
+              distanceMM >= Constants.minimumInterPupillaryMM,
+              distanceMM <= Constants.maximumInterPupillaryMM else {
+            return nil
+        }
+
+        let projectedLeft = camera.projectPoint(leftPosition,
+                                                orientation: uiOrientation,
+                                                viewportSize: viewportSize)
+        let projectedRight = camera.projectPoint(rightPosition,
+                                                 orientation: uiOrientation,
+                                                 viewportSize: viewportSize)
+        let pixelDX = Double(abs(projectedRight.x - projectedLeft.x))
+        guard pixelDX.isFinite,
+              pixelDX >= Constants.minimumHorizontalPixels else {
+            return nil
+        }
+
+        let mmPerPixel = distanceMM / pixelDX
+        guard mmPerPixel.isFinite,
+              mmPerPixel >= Constants.minMMPerPixel,
+              mmPerPixel <= Constants.maxMMPerPixel else {
+            return nil
+        }
+
+        return mmPerPixel
+    }
+
+    private static func meshBasedCandidates(faceAnchor: ARFaceAnchor,
+                                            camera: ARCamera,
+                                            uiOrientation: UIInterfaceOrientation,
+                                            viewportSize: CGSize) -> (horizontal: [Double], vertical: [Double]) {
+        let vertices = faceAnchor.geometry.vertices
+        guard vertices.count >= 2 else { return ([], []) }
+
+        let scaleFactor = Double(faceAnchor.estimatedScaleFactor)
+        guard scaleFactor.isFinite, scaleFactor > 0 else { return ([], []) }
+
+        let horizontalPairs = candidatePairs(from: vertices.sorted { $0.x < $1.x })
+        let verticalPairs = candidatePairs(from: vertices.sorted { $0.y < $1.y })
+
+        let horizontal = candidateValues(from: horizontalPairs,
+                                         axis: \.pixelDX,
+                                         faceAnchor: faceAnchor,
+                                         camera: camera,
+                                         uiOrientation: uiOrientation,
+                                         viewportSize: viewportSize,
+                                         scaleFactor: scaleFactor)
+        let vertical = candidateValues(from: verticalPairs,
+                                       axis: \.pixelDY,
+                                       faceAnchor: faceAnchor,
+                                       camera: camera,
+                                       uiOrientation: uiOrientation,
+                                       viewportSize: viewportSize,
+                                       scaleFactor: scaleFactor)
+        return (horizontal, vertical)
+    }
+
+    private static func candidatePairs(from sortedVertices: [simd_float3]) -> [(simd_float3, simd_float3)] {
+        guard sortedVertices.count >= 2 else { return [] }
+
+        let trimCount = max(1, sortedVertices.count / Constants.meshPairTrimDivisor)
+        let trimmed = Array(sortedVertices.dropFirst(trimCount).dropLast(trimCount))
+        let workingSet = trimmed.count >= 2 ? trimmed : sortedVertices
+        let pairCount = min(Constants.maxMeshPairs, workingSet.count / 2)
+        guard pairCount > 0 else { return [] }
+
+        return (0..<pairCount).map {
+            (workingSet[$0], workingSet[workingSet.count - 1 - $0])
+        }
+    }
+
+    private static func candidateValues(from pairs: [(simd_float3, simd_float3)],
+                                        axis: KeyPath<PairMeasurement, Double>,
+                                        faceAnchor: ARFaceAnchor,
+                                        camera: ARCamera,
+                                        uiOrientation: UIInterfaceOrientation,
+                                        viewportSize: CGSize,
+                                        scaleFactor: Double) -> [Double] {
+        pairs.compactMap { pair in
+            guard let measurement = measurePair(first: pair.0,
+                                                second: pair.1,
+                                                faceAnchor: faceAnchor,
+                                                camera: camera,
+                                                uiOrientation: uiOrientation,
+                                                viewportSize: viewportSize,
+                                                scaleFactor: scaleFactor) else {
+                return nil
+            }
+
+            guard measurement.mmDistance >= Constants.minimumMeshDistanceMM,
+                  measurement.mmDistance <= Constants.maximumMeshDistanceMM else {
+                return nil
+            }
+
+            let pixels = measurement[keyPath: axis]
+            guard pixels.isFinite,
+                  pixels >= Constants.minimumHorizontalPixels else {
+                return nil
+            }
+
+            let value = measurement.mmDistance / pixels
+            guard value.isFinite,
+                  value >= Constants.minMMPerPixel,
+                  value <= Constants.maxMMPerPixel else {
+                return nil
+            }
+
+            return value
+        }
+    }
+
+    private static func measurePair(first: simd_float3,
+                                    second: simd_float3,
+                                    faceAnchor: ARFaceAnchor,
+                                    camera: ARCamera,
+                                    uiOrientation: UIInterfaceOrientation,
+                                    viewportSize: CGSize,
+                                    scaleFactor: Double) -> PairMeasurement? {
+        let distanceMeters = euclideanDistance(first, second) * scaleFactor
+        guard distanceMeters.isFinite, distanceMeters > 0 else { return nil }
+
+        let worldFirst = worldPosition(of: first, transform: faceAnchor.transform)
+        let worldSecond = worldPosition(of: second, transform: faceAnchor.transform)
+        let projectedFirst = camera.projectPoint(worldFirst,
+                                                 orientation: uiOrientation,
+                                                 viewportSize: viewportSize)
+        let projectedSecond = camera.projectPoint(worldSecond,
+                                                  orientation: uiOrientation,
+                                                  viewportSize: viewportSize)
+
+        let pixelDX = Double(abs(projectedSecond.x - projectedFirst.x))
+        let pixelDY = Double(abs(projectedSecond.y - projectedFirst.y))
+        guard pixelDX.isFinite, pixelDY.isFinite else { return nil }
+
+        return PairMeasurement(mmDistance: distanceMeters * 1000.0,
+                               pixelDX: pixelDX,
+                               pixelDY: pixelDY)
+    }
+
+    private static func averageEyeDepth(faceAnchor: ARFaceAnchor,
+                                        camera: ARCamera) -> Double {
+        let worldToCamera = simd_inverse(camera.transform)
+        let leftEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeWorld = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+        let leftEyeCamera = simd_mul(worldToCamera, leftEyeWorld)
+        let rightEyeCamera = simd_mul(worldToCamera, rightEyeWorld)
+
+        let leftDepth = Double(-leftEyeCamera.columns.3.z)
+        let rightDepth = Double(-rightEyeCamera.columns.3.z)
+        let averageDepth = (leftDepth + rightDepth) * 0.5
+
+        guard averageDepth.isFinite, averageDepth > 0 else {
+            return 0.30
+        }
+
+        return averageDepth
+    }
+
+    // MARK: - Helpers geometricos
+    private static func orientedViewportSize(resolution: CGSize,
+                                             orientation: CGImagePropertyOrientation) -> CGSize {
+        orientation.rotatesDimensions ?
+            CGSize(width: resolution.height, height: resolution.width) :
+            resolution
+    }
+
+    private static func orientedFocalLengths(from intrinsics: simd_float3x3,
+                                             orientation: CGImagePropertyOrientation) -> (fx: Double, fy: Double) {
+        let rawFX = Double(intrinsics.columns.0.x)
+        let rawFY = Double(intrinsics.columns.1.y)
+        return orientation.rotatesDimensions ? (rawFY, rawFX) : (rawFX, rawFY)
+    }
+
+    private static func worldPosition(of vertex: simd_float3,
+                                      transform: simd_float4x4) -> simd_float3 {
+        let position = simd_mul(transform, SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1))
+        return simd_float3(position.x, position.y, position.z)
+    }
+
+    private static func worldPosition(from transform: simd_float4x4) -> simd_float3 {
         simd_float3(transform.columns.3.x,
                     transform.columns.3.y,
                     transform.columns.3.z)
     }
 
-    private static func projectToPixelX(position: simd_float3,
-                                        intrinsics: simd_float3x3) -> Double? {
-        let z = Double(-position.z)
-        guard z > 0 else { return nil }
-
-        let x = Double(position.x)
-        let fx = Double(intrinsics.columns.0.x)
-        let cx = Double(intrinsics.columns.2.x)
-        return fx * (x / z) + cx
+    private static func euclideanDistance(_ first: simd_float3,
+                                          _ second: simd_float3) -> Double {
+        Double(simd_length(first - second))
     }
 }
 
 // MARK: - Concurrency
-/// O acesso as amostras fica protegido pela fila privada do estimador.
+/// O acesso ao estado interno fica protegido pela fila privada do estimador.
 extension TrueDepthCalibrationEstimator: @unchecked Sendable {}
 
 // MARK: - Estatistica robusta
@@ -561,45 +720,33 @@ private enum Statistics {
         let valid = values.filter { $0.isFinite }
         guard !valid.isEmpty else { return nil }
 
-        let median = valid.median()
-        let tolerance = max(0.12 * median, 0.0005)
-        let filtered = valid.filter { abs($0 - median) <= tolerance }
-        let usable = filtered.isEmpty ? valid : filtered
-        return usable.average()
-    }
-}
-
-private extension Array where Element == Double {
-    func median() -> Double {
-        guard !isEmpty else { return 0 }
-        let sorted = self.sorted()
-        let mid = sorted.count / 2
-
-        if sorted.count % 2 == 0 {
-            return (sorted[mid - 1] + sorted[mid]) / 2.0
-        }
-
-        return sorted[mid]
+        let sorted = valid.sorted()
+        let trimCount = Int(Double(sorted.count) * 0.10)
+        let trimmed = Array(sorted.dropFirst(trimCount).dropLast(trimCount))
+        let usable = trimmed.isEmpty ? sorted : trimmed
+        let sum = usable.reduce(0, +)
+        return sum / Double(usable.count)
     }
 
-    func average() -> Double {
-        guard !isEmpty else { return 0 }
-        return reduce(0, +) / Double(count)
+    static func normalizedDispersion(_ values: [Double],
+                                     center: Double) -> Double {
+        let valid = values.filter { $0.isFinite }
+        guard !valid.isEmpty, center.isFinite, abs(center) > 0.0001 else { return 0 }
+
+        let deviations = valid.map { abs($0 - center) / abs(center) }
+        let sum = deviations.reduce(0, +)
+        return sum / Double(deviations.count)
     }
 }
 
 // MARK: - Orientacao
 private extension CGImagePropertyOrientation {
-    var swapsAxes: Bool {
+    var rotatesDimensions: Bool {
         switch self {
         case .left, .leftMirrored, .right, .rightMirrored:
             return true
         default:
             return false
         }
-    }
-
-    func adjustedAxes(horizontal: Double, vertical: Double) -> (horizontal: Double, vertical: Double) {
-        swapsAxes ? (vertical, horizontal) : (horizontal, vertical)
     }
 }
