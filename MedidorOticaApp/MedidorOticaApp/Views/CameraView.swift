@@ -2,8 +2,7 @@
 //  CameraView.swift
 //  MedidorOticaApp
 //
-//  Tela de captura de imagem para medições de ótica.
-//  Versão modularizada para melhor manutenção.
+//  Tela de captura de imagem para medicoes de otica.
 //
 
 import SwiftUI
@@ -12,13 +11,13 @@ import UIKit
 import ARKit
 
 struct CameraView: View {
-    // MARK: - Propriedades
+    // MARK: - Dependencias
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cameraManager = CameraManager.shared
     @StateObject private var verificationManager = VerificationManager.shared
     @EnvironmentObject private var historyManager: HistoryManager
-    
-    // Estados da interface
+
+    // MARK: - Estado de UI
     @State private var isAutoCaptureEnabled = true
     @State private var countdownValue = 0
     @State private var countdownTimer: Timer?
@@ -28,108 +27,71 @@ struct CameraView: View {
     @State private var isProcessing = false
     @State private var showFlash = false
     @State private var showingResultView = false
-    @State private var showVerifications = true // Mostrar verificações por padrão
+    @State private var showVerifications = true
     @State private var cameraInitialized = false
-    /// Define se o medidor de distância deve ser exibido.
+    @State private var notificationObservers: [NSObjectProtocol] = []
+
     private let showDistanceOverlay = true
-    /// Define se o indicador de status AR deve ser exibido.
     private let showARStatusIndicator = true
+
 #if DEBUG
-    /// Define se o painel de depuração do alinhamento deve ser exibido durante os testes.
     private let showAlignmentDebugOverlay = true
 #endif
 
-
-    // Observadores de notificações adicionados dinamicamente
-    @State private var notificationObservers: [NSObjectProtocol] = []
-    
-    
-    // Feedback tátil
+    // MARK: - Feedback
     private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
     private let notificationGenerator = UINotificationFeedbackGenerator()
-    
+
     // MARK: - Computadas
-    // Verifica se todas as verificações estão corretas
-    private var allVerificationsChecked: Bool {
-        return verificationManager.allVerificationsChecked
+    private var captureEnabled: Bool {
+        cameraManager.isCaptureReady && cameraInitialized && !isProcessing
     }
-    
-    // MARK: - View principal
+
+    // MARK: - View
     var body: some View {
         ZStack {
-            // Preview da câmera ou AR
-            Group {
-                if cameraManager.isUsingARSession, let arSession = cameraManager.arSession {
-                    ARCameraPreview(session: arSession, delegate: cameraManager)
-                } else {
-                    CameraPreview(session: cameraManager.session)
-                }
+            previewLayer
+            flashOverlay
+            ProgressOval(verificationManager: verificationManager,
+                         showDistance: showDistanceOverlay)
+            countdownOverlay
+            debugOverlay
+            controlsOverlay
+        }
+        .alert(alertMessage, isPresented: $showingAlert) {
+            Button("OK", role: .cancel) { }
+        }
+        .fullScreenCover(isPresented: $showingResultView) {
+            if let photo = capturedPhoto {
+                PostCaptureFlowView(capturedPhoto: photo, onRetake: {
+                    capturedPhoto = nil
+                    showingResultView = false
+                })
+                .environmentObject(historyManager)
             }
-            .edgesIgnoringSafeArea(.all)
-            .onAppear {
-                    print("CameraView apareceu - iniciando câmera")
-                    // Inicia as verificações e a câmera
-                    setupCamera()
-                    
-                    // Observador de erros da câmera
-                    let camToken = NotificationCenter.default.addObserver(
-                        forName: .cameraError,
-                        object: nil,
-                        queue: .main
-                    ) { notification in
-                        if let error = notification.userInfo?["error"] as? CameraError {
-                            self.alertMessage = error.localizedDescription
-                            self.showingAlert = true
-                            self.isProcessing = false
-                        }
-                    }
-                    notificationObservers.append(camToken)
+        }
+        .onAppear(perform: handleAppear)
+        .onDisappear(perform: handleDisappear)
+        .onChange(of: isAutoCaptureEnabled, perform: handleAutoCaptureChange)
+        .onChange(of: cameraManager.captureState, perform: handleCaptureStateChange)
+        .onChange(of: showingResultView, perform: handleResultPresentationChange)
+    }
 
-                    // Observa falhas na configuração da sessão AR
-                    let configToken = NotificationCenter.default.addObserver(
-                        forName: NSNotification.Name("ARConfigurationFailed"),
-                        object: nil,
-                        queue: .main
-                    ) { notification in
-                        if let message = notification.userInfo?["error"] as? String {
-                            self.alertMessage = message
-                        } else {
-                            self.alertMessage = "Falha ao configurar ARSession."
-                        }
-                        self.cameraManager.stop()
-                        self.showingAlert = true
-                    }
-                    notificationObservers.append(configToken)
-
-                    // Observa erros de execução da sessão AR
-                    let arToken = NotificationCenter.default.addObserver(
-                        forName: .arSessionError,
-                        object: nil,
-                        queue: .main
-                    ) { notification in
-                        if let message = notification.userInfo?["message"] as? String {
-                            self.alertMessage = message
-                        } else {
-                            self.alertMessage = "A sessão de AR apresentou um erro."
-                        }
-                        self.cameraManager.stop()
-                        self.showingAlert = true
-                    }
-                    notificationObservers.append(arToken)
+    // MARK: - Preview
+    @ViewBuilder
+    private var previewLayer: some View {
+        Group {
+            if cameraManager.isUsingARSession, let arSession = cameraManager.arSession {
+                ARCameraPreview(session: arSession, delegate: cameraManager)
+            } else {
+                CameraPreview(session: cameraManager.session)
             }
-            .onDisappear {
-                print("CameraView desapareceu - parando câmera")
-                // Para a câmera e limpa recursos
-                cameraManager.stop()
+        }
+        .edgesIgnoringSafeArea(.all)
+    }
 
-                // Remove todos os observadores registrados
-                notificationObservers.forEach {
-                    NotificationCenter.default.removeObserver($0)
-                }
-                notificationObservers.removeAll()
-            }
-
-            // Overlay de flash ao tirar foto
+    private var flashOverlay: some View {
+        Group {
             if showFlash {
                 Color.white
                     .edgesIgnoringSafeArea(.all)
@@ -141,437 +103,422 @@ struct CameraView: View {
                         }
                     }
             }
-            
-            // Oval centralizado com barra de progresso
-            ProgressOval(verificationManager: verificationManager,
-                         showDistance: showDistanceOverlay)
+        }
+    }
 
+    private var countdownOverlay: some View {
+        Group {
             if countdownValue > 0 {
                 VStack(spacing: 16) {
-                    Text("Olhe para a câmera")
+                    Text("Olhe para a camera")
                         .font(.title2)
                         .foregroundColor(.white)
+
                     Text("\(countdownValue)")
                         .font(.system(size: 72, weight: .bold))
                         .foregroundColor(.white)
                 }
             }
+        }
+    }
 
+    @ViewBuilder
+    private var debugOverlay: some View {
 #if DEBUG
-            if showAlignmentDebugOverlay {
-                HeadAlignmentDebugOverlay(verificationManager: verificationManager)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .transition(.opacity)
-            }
+        if showAlignmentDebugOverlay {
+            HeadAlignmentDebugOverlay(verificationManager: verificationManager)
+                .padding(12)
+                .frame(maxWidth: .infinity,
+                       maxHeight: .infinity,
+                       alignment: .topLeading)
+                .transition(.opacity)
+        }
 #endif
+    }
 
+    // MARK: - Controles
+    private var controlsOverlay: some View {
+        VStack {
+            topBar
 
+            if showVerifications {
+                VerificationMenu(verificationManager: verificationManager)
+            }
 
-            // Overlay de controles (usando um VStack para elementos de interface)
-            VStack {
-                // Barra superior com botões
-                HStack {
-                    // Botão de fechar
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.title3)
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(Color.black.opacity(0.6)))
-                    }
+            CameraInstructions(verificationManager: verificationManager,
+                               cameraManager: cameraManager)
 
-                    if showARStatusIndicator {
-                        ARStatusIndicator(cameraManager: cameraManager,
-                                         verificationManager: verificationManager)
-                    }
+            Spacer()
+            captureButton
+        }
+    }
 
-                    Spacer()
+    private var topBar: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
 
-                    // Botão de captura automática
-                    Button(action: {
-                        isAutoCaptureEnabled.toggle()
-                    }) {
-                        Image(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle")
-                            .font(.title3)
-                            .foregroundColor(isAutoCaptureEnabled ? .green : .white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(Color.black.opacity(0.6)))
-                    }
+            if showARStatusIndicator {
+                ARStatusIndicator(cameraManager: cameraManager,
+                                  verificationManager: verificationManager)
+            }
 
-                    // Botão de flash
-                    Button(action: {
-                        cameraManager.toggleFlash()
-                    }) {
-                        Image(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash")
-                            .font(.title3)
-                            .foregroundColor(cameraManager.isFlashOn ? .yellow : .white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(Color.black.opacity(0.6)))
-                    }
-                    
-                    // Botão para alternar câmera
-                    Button(action: {
-                        cameraManager.switchCamera()
-                    }) {
-                        Image(systemName: "arrow.triangle.2.circlepath.camera")
-                            .font(.title3)
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(Color.black.opacity(0.6)))
-                    }
-                }
-                .padding()
-                .background(Color.black.opacity(0.3))
-                
-                // Menu de verificações (canto direito)
-                if showVerifications {
-                    VerificationMenu(verificationManager: verificationManager)
-                }
-                
-                // Instruções detalhadas usando o componente dedicado
-                CameraInstructions(verificationManager: verificationManager)
-                
-                Spacer()
-                
-                // Botão de captura na parte inferior (em formato de pílula)
-                Button(action: {
-                    // Só permite captura se todas as verificações obrigatórias estiverem concluídas
-                    if verificationManager.allVerificationsChecked {
-                        capturePhoto()
-                    } else {
-                        // Feedback específico baseado na verificação que está falhando
-                        if !verificationManager.faceDetected {
-                            alertMessage = "Posicione seu rosto para ser detectado."
-                        } else if !verificationManager.distanceCorrect {
-                            if verificationManager.lastMeasuredDistance < verificationManager.minDistance {
-                                alertMessage = "Aproxime-se da câmera."
-                            } else {
-                                alertMessage = "Afaste-se da câmera."
-                            }
-                        } else if !verificationManager.faceAligned {
-                            alertMessage = "Centralize seu rosto no oval."
-                        } else if !verificationManager.headAligned {
-                            alertMessage = "Mantenha sua cabeça reta alinhada com a câmera."
-                        }
-                        showingAlert = true
-                        notificationGenerator.notificationOccurred(.warning)
-                    }
-                }) {
-                    ZStack {
-                        Capsule()
-                            .fill(allVerificationsChecked ?
-                                  AnyShapeStyle(LinearGradient(
-                                      gradient: Gradient(colors: [Color.blue, Color.purple]),
-                                      startPoint: .leading,
-                                      endPoint: .trailing
-                                  )) : AnyShapeStyle(Color.gray))
-                            .frame(width: 140, height: 50)
-                            .shadow(color: .black.opacity(0.2), radius: 3)
-                        
-                        if isProcessing {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(1.2)
-                        } else {
-                            Text("Capturar")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                        }
-                    }
-                }
+            Spacer()
+
+            Button(action: { isAutoCaptureEnabled.toggle() }) {
+                Image(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle")
+                    .font(.title3)
+                    .foregroundColor(isAutoCaptureEnabled ? .green : .white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+
+            Button(action: { cameraManager.toggleFlash() }) {
+                Image(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash")
+                    .font(.title3)
+                    .foregroundColor(cameraManager.isFlashOn ? .yellow : .white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
             }
         }
-        // Alerta para mensagens de erro
-        .alert(alertMessage, isPresented: $showingAlert) {
-            Button("OK", role: .cancel) { }
-        }
-        // Navegação para a tela de resultados após captura
-        .fullScreenCover(isPresented: $showingResultView) {
-            if let photo = capturedPhoto {
-                PostCaptureFlowView(capturedPhoto: photo, onRetake: {
-                    capturedPhoto = nil
-                    showingResultView = false
-                })
-                .environmentObject(historyManager)
-            }
-        }
-        .onChange(of: allVerificationsChecked) { checked in
-            if checked && isAutoCaptureEnabled {
-                startCountdown()
-            } else {
-                cancelCountdown()
-            }
-        }
-        .onChange(of: isAutoCaptureEnabled) { isEnabled in
-            if isEnabled {
-                if allVerificationsChecked { startCountdown() }
-            } else {
-                cancelCountdown()
-            }
-        }
-        .onChange(of: showingResultView) { isShowing in
-            if isShowing {
-                cancelCountdown()
-                cameraManager.stop()
-                cameraInitialized = false
-            } else if !cameraManager.isSessionRunning {
-                DispatchQueue.main.async {
-                    setupCamera()
+        .padding()
+        .background(Color.black.opacity(0.3))
+    }
+
+    private var captureButton: some View {
+        Button(action: capturePhoto) {
+            ZStack {
+                Capsule()
+                    .fill(captureEnabled ?
+                          AnyShapeStyle(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.purple]),
+                                                       startPoint: .leading,
+                                                       endPoint: .trailing)) :
+                            AnyShapeStyle(Color.gray))
+                    .frame(width: 140, height: 50)
+                    .shadow(color: .black.opacity(0.2), radius: 3)
+
+                if isProcessing {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.2)
+                } else {
+                    Text("Capturar")
+                        .font(.headline)
+                        .foregroundColor(.white)
                 }
             }
         }
     }
-    
-    // MARK: - Métodos auxiliares
-    
-    // Configura a câmera e as verificações reais
-    func setupCamera() {
-        // Se a câmera já está inicializada, apenas a reinicia
-        if cameraInitialized {
-            print("Câmera já inicializada, reiniciando...")
+
+    // MARK: - Ciclo de vida
+    private func handleAppear() {
+        setupCamera()
+        registerObservers()
+    }
+
+    private func handleDisappear() {
+        cancelCountdown(refreshState: false)
+        cameraManager.stop()
+        cameraInitialized = false
+        notificationObservers.forEach { observer in
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+    }
+
+    private func handleAutoCaptureChange(_ isEnabled: Bool) {
+        if isEnabled {
+            attemptAutoCountdown()
+        } else {
+            cancelCountdown()
+        }
+    }
+
+    private func handleCaptureStateChange(_ state: CameraCaptureState) {
+        switch state {
+        case .stableReady:
+            attemptAutoCountdown()
+        case .countdown:
+            break
+        case .capturing, .captured, .checking(_), .error(_), .idle, .preparing:
+            cancelCountdown(refreshState: false)
+        }
+    }
+
+    private func handleResultPresentationChange(_ isShowing: Bool) {
+        if isShowing {
+            cancelCountdown(refreshState: false)
             cameraManager.stop()
             cameraInitialized = false
-            
-            // Pequeno atraso para garantir que a câmera foi parada corretamente
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.setupCamera()
-            }
             return
         }
-        
-        print("Iniciando configuração da câmera")
-        
-        // Verificamos primeiro as permissões da câmera - essa deve ser a primeira etapa
+
+        guard !cameraManager.isSessionRunning else { return }
+        DispatchQueue.main.async {
+            setupCamera()
+        }
+    }
+
+    // MARK: - Setup
+    private func setupCamera() {
+        if cameraInitialized {
+            cameraManager.stop()
+            cameraInitialized = false
+        }
+
         checkCameraPermissions { permissionGranted in
-            guard permissionGranted else {
-                print("Permissão da câmera negada")
-                return
-            }
-            
-            print("Permissão da câmera concedida, continuando configuração")
-            
-            // Verifica os sensores disponíveis no dispositivo
-            self.cameraManager.checkAvailableSensors()
-            let capabilities = (hasTrueDepth: self.cameraManager.hasTrueDepth,
-                                hasLiDAR: self.cameraManager.hasLiDAR)
+            guard permissionGranted else { return }
 
-            // Seleciona o tipo de câmera de acordo com os sensores disponíveis
-            let cameraType: CameraType
-            let position: AVCaptureDevice.Position
-
-            if capabilities.hasTrueDepth {
-                cameraType = .front
-                position = .front
-            } else if capabilities.hasLiDAR {
-                cameraType = .back
-                position = .back
-            } else {
-                // Nenhum sensor compatível encontrado
-                DispatchQueue.main.async {
-                    self.alertMessage = "Este dispositivo não possui sensores TrueDepth ou LiDAR necessários para as medições."
-                    self.showingAlert = true
-                }
+            cameraManager.checkAvailableSensors()
+            guard cameraManager.hasTrueDepth else {
+                alertMessage = "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao."
+                showingAlert = true
                 return
             }
 
-            // Configura a AR Session
-            let arSession = self.cameraManager.createARSession(for: cameraType)
-
-            // Configura a câmera com o sensor disponível
-            // A configuração real é feita dentro dessa chamada, não precisamos chamar setupSession() separadamente
-            self.cameraManager.setup(position: position, arSession: arSession) { success in
+            cameraManager.startMeasurementSession { success in
                 DispatchQueue.main.async {
                     if success {
-                        print("Câmera configurada com sucesso, iniciando processamento")
-                        self.cameraInitialized = true
-                        self.configureCameraProcessing()
+                        cameraInitialized = true
+                        configureCameraProcessing()
                     } else {
-                        self.alertMessage = "Não foi possível acessar a câmera."
-                        self.showingAlert = true
+                        alertMessage = "Nao foi possivel acessar a camera."
+                        showingAlert = true
                     }
                 }
             }
         }
-        
-        // Registra para notificações de compatibilidade do dispositivo
-        NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
-                                               object: nil,
-                                               queue: .main) { notification in
-            if let reason = notification.userInfo?["reason"] as? String {
-                self.alertMessage = "Dispositivo não compatível: \(reason)"
-            } else if let sensor = notification.userInfo?["sensor"] as? String {
-                self.alertMessage = "Dispositivo não possui o sensor \(sensor) necessário."
-            } else {
-                self.alertMessage = "Dispositivo não compatível com as medições."
-            }
-            self.showingAlert = true
-        }
-        
     }
-    
-    // Verifica as permissões da câmera
+
+    private func configureCameraProcessing() {
+        cameraManager.outputDelegate = { frame in
+            verificationManager.processARFrame(frame)
+        }
+    }
+
+    private func registerObservers() {
+        registerCameraErrorObserver()
+        registerARConfigurationObserver()
+        registerARErrorObserver()
+        registerCompatibilityObserver()
+    }
+
+    private func registerCameraErrorObserver() {
+        let token = NotificationCenter.default.addObserver(forName: .cameraError,
+                                                           object: nil,
+                                                           queue: .main) { notification in
+            guard let error = notification.userInfo?["error"] as? CameraError else { return }
+            handleCameraError(error)
+        }
+        notificationObservers.append(token)
+    }
+
+    private func registerARConfigurationObserver() {
+        let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
+                                                           object: nil,
+                                                           queue: .main) { notification in
+            if let message = notification.userInfo?["error"] as? String {
+                alertMessage = message
+            } else {
+                alertMessage = "Falha ao configurar ARSession."
+            }
+            cameraManager.stop()
+            showingAlert = true
+        }
+        notificationObservers.append(token)
+    }
+
+    private func registerARErrorObserver() {
+        let token = NotificationCenter.default.addObserver(forName: .arSessionError,
+                                                           object: nil,
+                                                           queue: .main) { notification in
+            if let message = notification.userInfo?["message"] as? String {
+                alertMessage = message
+            } else {
+                alertMessage = "A sessao de AR apresentou um erro."
+            }
+            showingAlert = true
+        }
+        notificationObservers.append(token)
+    }
+
+    private func registerCompatibilityObserver() {
+        let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
+                                                           object: nil,
+                                                           queue: .main) { notification in
+            if let reason = notification.userInfo?["reason"] as? String {
+                alertMessage = "Dispositivo nao compativel: \(reason)"
+            } else if let sensor = notification.userInfo?["sensor"] as? String {
+                alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
+            } else {
+                alertMessage = "Dispositivo nao compativel com as medicoes."
+            }
+            showingAlert = true
+        }
+        notificationObservers.append(token)
+    }
+
     private func checkCameraPermissions(completion: @escaping (Bool) -> Void) {
         let cameraAuthStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        
+
         switch cameraAuthStatus {
         case .authorized:
-            print("Permissão de câmera já concedida")
             completion(true)
         case .notDetermined:
-            print("Solicitando permissão de câmera")
             AVCaptureDevice.requestAccess(for: .video) { granted in
-                if granted {
-                    print("Permissão de câmera concedida")
-                    DispatchQueue.main.async {
+                DispatchQueue.main.async {
+                    if granted {
                         completion(true)
-                    }
-                } else {
-                    print("Permissão de câmera negada")
-                    DispatchQueue.main.async {
+                    } else {
                         showPermissionDeniedAlert()
                         completion(false)
                     }
                 }
             }
         case .denied, .restricted:
-            print("Permissão de câmera negada ou restrita")
-            DispatchQueue.main.async {
-                showPermissionDeniedAlert()
-                completion(false)
-            }
+            showPermissionDeniedAlert()
+            completion(false)
         @unknown default:
-            // Lida com possíveis valores futuros do enum
-            print("Status de autorização de câmera desconhecido: \(cameraAuthStatus)")
-            DispatchQueue.main.async {
-                showPermissionDeniedAlert()
-                completion(false)
-            }
+            showPermissionDeniedAlert()
+            completion(false)
         }
     }
-    
+
     private func showPermissionDeniedAlert() {
-        alertMessage = "O acesso à câmera é necessário para fazer medições. Por favor, ative a permissão nas configurações do dispositivo."
+        alertMessage = "O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo."
         showingAlert = true
     }
-    
+
     private func handleCameraError(_ error: CameraError) {
-        alertMessage = error.localizedDescription
+        if case .missingTrueDepthData = error,
+           let hint = cameraManager.latestCalibrationFailureHint() {
+            alertMessage = "\(error.localizedDescription)\n\(hint)"
+        } else {
+            alertMessage = error.localizedDescription
+        }
+
         showingAlert = true
         isProcessing = false
     }
-    
-    func capturePhoto() {
-        // Verifica se a captura está habilitada e pronta
-        guard !isProcessing else {
-            print("Processo de captura já em andamento, ignorando...")
-            return
-        }
 
-        cancelCountdown()
-
-        // Verifica se todas as condições para captura foram atendidas
-        guard allVerificationsChecked else {
-            print("Nem todas as verificações foram completadas, ignorando...")
+    // MARK: - Captura
+    private func capturePhoto() {
+        guard !isProcessing else { return }
+        guard captureEnabled else {
+            alertMessage = manualCaptureBlockMessage()
+            showingAlert = true
             notificationGenerator.notificationOccurred(.warning)
-            alertMessage = "Ajuste a posição de acordo com as instruções antes de capturar."
-            showingAlert = true
             return
         }
-        
-        // Verifica se a câmera está inicializada
-        guard cameraInitialized else {
-            print("Câmera não inicializada, tentando inicializar...")
-            setupCamera() // Tenta inicializar a câmera
-            
-            // Notifica o usuário e evita continuar a captura
-            notificationGenerator.notificationOccurred(.error)
-            alertMessage = "Aguarde a inicialização da câmera e tente novamente."
-            showingAlert = true
-            return
-        }
-        
-        // Feedback tátil ao usuário
+
+        cancelCountdown(refreshState: false)
         impactGenerator.impactOccurred()
-        
-        // Marca o início do processamento
         isProcessing = true
         showFlash = true
-        
-        // Tenta capturar a foto com tratamento de erro
-        print("Iniciando captura de foto...")
+
         cameraManager.capturePhoto { photo in
-            // Certifica-se de processar na thread principal
             DispatchQueue.main.async {
-                // Marca o fim do processamento
                 isProcessing = false
 
-                if let photo = photo {
-                    let size = photo.image.size
-                    print("Imagem capturada com sucesso, tamanho: \(size.width) x \(size.height)")
+                if let photo {
                     capturedPhoto = photo
                     showingResultView = true
-                } else {
-                    print("Falha ao capturar imagem")
-                    alertMessage = "Não foi possível capturar a imagem. Tente novamente."
-                    showingAlert = true
-                    notificationGenerator.notificationOccurred(.error)
+                    return
                 }
+
+                if cameraManager.error == nil {
+                    alertMessage = "Nao foi possivel capturar a imagem. Tente novamente."
+                    showingAlert = true
+                }
+                notificationGenerator.notificationOccurred(.error)
             }
         }
     }
-    
-    // Configura o processamento real dos frames da câmera
-    func configureCameraProcessing() {
-        // Processa cada ARFrame recebido da câmera
-        cameraManager.outputDelegate = { frame in
-            self.verificationManager.processARFrame(frame)
+
+    private func manualCaptureBlockMessage() -> String {
+        if !cameraInitialized {
+            return "A camera ainda esta iniciando."
         }
+
+        if !verificationManager.faceDetected {
+            return "Posicione seu rosto para ser detectado."
+        }
+
+        if !verificationManager.distanceCorrect {
+            return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
+                "Aproxime-se da camera." : "Afaste-se da camera."
+        }
+
+        if !verificationManager.faceAligned {
+            return "Centralize seu rosto no oval."
+        }
+
+        if !verificationManager.headAligned {
+            return "Mantenha sua cabeca reta alinhada com a camera."
+        }
+
+        return cameraManager.captureHint
+    }
+
+    // MARK: - Contagem automatica
+    private func attemptAutoCountdown() {
+        guard isAutoCaptureEnabled else { return }
+        guard cameraManager.captureState == .stableReady else { return }
+        guard countdownTimer == nil else { return }
+        startCountdown()
     }
 
     private func startCountdown() {
         guard isAutoCaptureEnabled else { return }
-        cancelCountdown()
+        cancelCountdown(refreshState: false)
         countdownValue = 3
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+        cameraManager.setCountdownActive(true)
+
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
+                                              repeats: true) { timer in
             if countdownValue > 1 {
                 countdownValue -= 1
-            } else {
-                timer.invalidate()
-                countdownTimer = nil
-                countdownValue = 0
-                capturePhoto()
+                return
             }
+
+            timer.invalidate()
+            countdownTimer = nil
+            countdownValue = 0
+            capturePhoto()
         }
     }
 
-    private func cancelCountdown() {
+    private func cancelCountdown(refreshState: Bool = true) {
         countdownTimer?.invalidate()
         countdownTimer = nil
         countdownValue = 0
+        if refreshState {
+            cameraManager.setCountdownActive(false)
+        }
     }
 }
 
 #if DEBUG
 //  HeadAlignmentDebugOverlay.swift
-//  Painel rápido para mostrar ângulos calculados durante os testes.
+//  Painel rapido para mostrar angulos calculados durante os testes.
 //
 
-/// Overlay que apresenta as medições atuais de rotação da cabeça para depuração.
+/// Overlay que apresenta as medicoes atuais de rotacao da cabeca para depuracao.
 struct HeadAlignmentDebugOverlay: View {
-    // MARK: - Dependências
     @ObservedObject var verificationManager: VerificationManager
 
-    // MARK: - View
     var body: some View {
         let roll = verificationManager.alignmentData["roll"] ?? 0
         let yaw = verificationManager.alignmentData["yaw"] ?? 0
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
 
         VStack(alignment: .leading, spacing: 4) {
-            Text("🔧 Depuração Alinhamento")
+            Text("🔧 Depuracao Alinhamento")
                 .font(.caption2.weight(.bold))
                 .foregroundColor(.white)
 
@@ -582,10 +529,9 @@ struct HeadAlignmentDebugOverlay: View {
         .padding(10)
         .background(Color.black.opacity(0.65))
         .cornerRadius(8)
-        .accessibilityLabel("Painel de depuração do alinhamento da cabeça")
+        .accessibilityLabel("Painel de depuracao do alinhamento da cabeca")
     }
 
-    // MARK: - Componentes
     private func debugRow(label: String, value: Float) -> some View {
         HStack {
             Text(label)
@@ -605,7 +551,3 @@ struct CameraView_Previews: PreviewProvider {
             .environmentObject(HistoryManager.shared)
     }
 }
-
-// Os componentes foram movidos para:
-// - CameraComponents.swift: CameraPreview, ProgressOval, EllipticalProgressBar, CameraHighlight
-// - CameraInstructions.swift: CameraInstructions, VerificationMenu

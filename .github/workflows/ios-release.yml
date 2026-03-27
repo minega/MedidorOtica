@@ -1,0 +1,155 @@
+name: iOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_testflight:
+        description: "Enviar para o TestFlight ao final"
+        type: boolean
+        required: true
+        default: true
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive-and-upload:
+    name: Archive e TestFlight
+    runs-on: macos-latest
+    env:
+      PROJECT_PATH: MedidorOticaApp/MedidorOticaApp.xcodeproj
+      SCHEME: MedidorOticaApp
+      CONFIGURATION: Release
+      APP_STORE_CONNECT_KEY_ID: G5V2B335RL
+      APP_STORE_CONNECT_ISSUER_ID: c585729a-639d-41fa-b8d8-bfeb29e17f71
+      APPLE_TEAM_ID: 9T7N4J79TW
+      ARCHIVE_PATH: ${{ github.workspace }}/.build/ios-release/MedidorOticaApp.xcarchive
+      EXPORT_PATH: ${{ github.workspace }}/.build/ios-release/export
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Selecionar Xcode estavel
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Validar chave da App Store Connect
+        env:
+          ASC_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        shell: bash
+        run: |
+          if [ -z "$ASC_API_KEY_BASE64" ]; then
+            echo "::error::Segredo obrigatorio ausente: APP_STORE_CONNECT_API_KEY_BASE64"
+            exit 1
+          fi
+
+      - name: Criar chave da App Store Connect
+        env:
+          ASC_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ env.APP_STORE_CONNECT_KEY_ID }}.p8
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          import pathlib
+
+          output = pathlib.Path(os.environ["ASC_KEY_PATH"])
+          output.write_bytes(base64.b64decode(os.environ["ASC_API_KEY_BASE64"]))
+          PY
+
+          echo "ASC_KEY_PATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Gerar ExportOptions.plist
+        shell: bash
+        run: |
+          cat <<EOF > "$RUNNER_TEMP/ExportOptions.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>export</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Archive assinado
+        env:
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
+        shell: bash
+        run: |
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            clean archive
+
+      - name: Exportar IPA
+        env:
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
+        shell: bash
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$EXPORT_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Publicar artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release
+          path: |
+            ${{ env.ARCHIVE_PATH }}
+            ${{ env.EXPORT_PATH }}
+
+      - name: Enviar para o TestFlight
+        if: ${{ inputs.upload_to_testflight }}
+        env:
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
+        shell: bash
+        run: |
+          IPA_PATH=$(find "$EXPORT_PATH" -name "*.ipa" -print -quit)
+
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::Nenhum IPA foi gerado para envio."
+            exit 1
+          fi
+
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"

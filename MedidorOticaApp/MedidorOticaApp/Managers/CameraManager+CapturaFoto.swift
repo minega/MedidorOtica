@@ -2,32 +2,61 @@
 //  CameraManager+CapturaFoto.swift
 //  MedidorOticaApp
 //
-//  Extensão que controla a captura de fotos utilizando exclusivamente o sensor TrueDepth.
+//  Captura de foto validando sessao, frame e calibracao TrueDepth.
 //
 
 import AVFoundation
 import UIKit
 import ARKit
+import ImageIO
 
 extension CameraManager {
-    // MARK: - Captura de Foto
-    /// Captura uma foto garantindo o uso do TrueDepth para preservar as medições milimétricas.
-    func capturePhoto(completion: @escaping (CapturedPhoto?) -> Void) {
-        guard isUsingARSession, cameraPosition == .front, hasTrueDepth else {
-            print("ERRO 200: Tentativa de captura sem sessao TrueDepth ativa")
-            publishError(.missingTrueDepthData)
-            DispatchQueue.main.async { completion(nil) }
+    // MARK: - Captura de foto
+    /// Captura uma foto somente quando o pipeline estiver realmente pronto.
+    func capturePhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        clearError()
+
+        guard isMeasurementSessionReady else {
+            failCapture(with: .sessionNotReady, completion: completion)
             return
         }
 
+        guard canCaptureCurrentFrame() else {
+            let error: CameraError = captureReadinessEngine.isFrameFresh(lastFrameTimestamp) ? .sessionNotReady : .staleFrame
+            failCapture(with: error, completion: completion)
+            return
+        }
+
+        markCaptureStarted()
         captureARPhoto(completion: completion)
     }
 
-    /// Realiza a captura diretamente da ARSession validando a calibração recebida.
-    private func captureARPhoto(completion: @escaping (CapturedPhoto?) -> Void) {
+    /// Realiza a captura diretamente da ARSession validando o frame atual.
+    private func captureARPhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
         guard let frame = arSession?.currentFrame else {
-            print("ERRO 201: Nao foi possivel obter o frame atual da sessao AR")
-            DispatchQueue.main.async { completion(nil) }
+            failCapture(with: .captureFailed, completion: completion)
+            return
+        }
+
+        guard case .normal = frame.camera.trackingState else {
+            failCapture(with: .sessionNotReady, completion: completion)
+            return
+        }
+
+        guard frame.anchors.contains(where: { ($0 as? ARFaceAnchor)?.isTracked == true }) else {
+            failCapture(with: .sessionNotReady, completion: completion)
+            return
+        }
+
+        guard captureReadinessEngine.isFrameFresh(frame.timestamp) else {
+            failCapture(with: .staleFrame, completion: completion)
+            return
+        }
+
+        let captureEvaluation = VerificationManager.shared.evaluationForCapture(frame)
+        handleVerificationEvaluation(captureEvaluation)
+        guard captureEvaluation.allChecksPassed else {
+            failCapture(with: .sessionNotReady, completion: completion)
             return
         }
 
@@ -35,75 +64,99 @@ extension CameraManager {
 
         let pixelBuffer = frame.capturedImage
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = photoProcessingContext
-        // Reaproveita a orientação calculada pelo VerificationManager para alinhar a foto ao preview.
         let cgOrientation = VerificationManager.shared.currentCGOrientation()
         let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
 
-        guard let cgImageFull = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
-            print("ERRO 202: Falha ao criar CGImage a partir do buffer de pixel")
-            DispatchQueue.main.async { completion(nil) }
+        guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
+                                                                 from: orientedCIImage.extent) else {
+            failCapture(with: .captureFailed, completion: completion)
             return
         }
 
-        let width = CGFloat(cgImageFull.width)
-        let height = CGFloat(cgImageFull.height)
-        let viewSize = UIScreen.main.bounds.size
-        var cropRect = AVMakeRect(aspectRatio: viewSize, insideRect: CGRect(x: 0, y: 0, width: width, height: height))
-        cropRect.origin.x = (width - cropRect.width) / 2
-        cropRect.origin.y = (height - cropRect.height) / 2
-
-        guard let croppedCG = cgImageFull.cropping(to: cropRect) else {
-            print("ERRO 203: Falha ao recortar a imagem capturada")
-            DispatchQueue.main.async { completion(nil) }
-            return
-        }
-
-        let image = UIImage(cgImage: croppedCG, scale: 1.0, orientation: .up)
+        let cropRect = CGRect(x: 0,
+                              y: 0,
+                              width: CGFloat(cgImage.width),
+                              height: CGFloat(cgImage.height))
         guard let calibration = buildCalibration(from: frame,
                                                  cropRect: cropRect,
-                                                 cgOrientation: cgOrientation),
-              calibration.isReliable else {
-            logCalibrationFailure(code: 103, message: "Calibracao TrueDepth indisponivel ou invalida")
-            publishError(.missingTrueDepthData)
-            DispatchQueue.main.async { completion(nil) }
+                                                 cgOrientation: cgOrientation) else {
+            failCapture(with: .missingTrueDepthData, completion: completion)
             return
         }
 
-        print("Imagem capturada da sessão AR com sucesso")
+        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
+        let photo = CapturedPhoto(image: image,
+                                  calibration: calibration,
+                                  frameTimestamp: frame.timestamp,
+                                  orientation: cgOrientation)
+
         DispatchQueue.main.async {
-            completion(CapturedPhoto(image: image, calibration: calibration))
+            self.markCaptureCompleted()
+            completion(photo)
         }
     }
 
-    /// Calcula a calibração da imagem utilizando dados do TrueDepth respeitando o recorte aplicado.
+    /// Calcula a calibracao da imagem utilizando dados do TrueDepth.
     private func buildCalibration(from frame: ARFrame,
                                   cropRect: CGRect,
                                   cgOrientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
-        if let refined = calibrationEstimator.refinedCalibration(for: frame,
-                                                                 cropRect: cropRect,
-                                                                 orientation: cgOrientation) {
-            logCalibration(refined, cropRect: cropRect, label: "OK Calibracao TrueDepth refinada")
+        if let refined = validCalibration(calibrationEstimator.refinedCalibration(for: frame,
+                                                                                  cropRect: cropRect,
+                                                                                  orientation: cgOrientation)) {
+            logCalibration(refined,
+                           cropRect: cropRect,
+                           frameTimestamp: frame.timestamp,
+                           label: "OK Calibracao TrueDepth refinada")
             return refined
         }
 
-        logCalibrationFailure(code: 101, message: "Calibracao refinada indisponivel")
-
-        guard let fallback = calibrationEstimator.instantCalibration(for: frame,
-                                                                     cropRect: cropRect,
-                                                                     orientation: cgOrientation) else {
-            logCalibrationFailure(code: 102, message: "Nenhuma calibracao TrueDepth pode ser derivada do frame atual")
-            return nil
+        if let instant = validCalibration(calibrationEstimator.instantCalibration(for: frame,
+                                                                                  cropRect: cropRect,
+                                                                                  orientation: cgOrientation)) {
+            logCalibration(instant,
+                           cropRect: cropRect,
+                           frameTimestamp: frame.timestamp,
+                           label: "OK Calibracao TrueDepth imediata")
+            return instant
         }
 
-        logCalibration(fallback, cropRect: cropRect, label: "WARN Calibracao TrueDepth instantanea")
-        return fallback
+        if let reused = recentSuccessfulCalibration(referenceTimestamp: frame.timestamp) {
+            logCalibration(reused,
+                           cropRect: cropRect,
+                           frameTimestamp: frame.timestamp,
+                           label: "INFO Calibracao TrueDepth reutilizada")
+            return reused
+        }
+
+        logCalibrationFailure(code: 301,
+                              message: "Nao foi possivel obter calibracao confiavel no frame atual.")
+        return nil
     }
 
-    /// Registra os valores milimétricos por pixel gerados a partir do sensor garantindo rastreabilidade.
+    /// Valida a calibracao antes de permitir o uso no resumo final.
+    private func validCalibration(_ calibration: PostCaptureCalibration?) -> PostCaptureCalibration? {
+        guard let calibration, calibration.isReliable else { return nil }
+        return calibration
+    }
+
+    /// Reutiliza a ultima calibracao valida apenas quando ela ainda e recente.
+    private func recentSuccessfulCalibration(referenceTimestamp: TimeInterval) -> PostCaptureCalibration? {
+        guard let calibration = lastSuccessfulCalibration, calibration.isReliable else { return nil }
+        guard let timestamp = lastSuccessfulCalibrationTimestamp else { return nil }
+        let age = abs(referenceTimestamp - timestamp)
+        guard age <= CaptureReadinessEngine.defaultMaximumCaptureAge else { return nil }
+        return calibration
+    }
+
+    /// Registra os valores milimetricos por pixel gerados a partir do sensor.
     private func logCalibration(_ calibration: PostCaptureCalibration,
                                 cropRect: CGRect,
+                                frameTimestamp: TimeInterval,
                                 label: String) {
+        lastSuccessfulCalibration = calibration
+        lastSuccessfulCalibrationTimestamp = frameTimestamp
+        lastCalibrationFailure = nil
+
         let horizontalMMPerPixel = calibration.horizontalReferenceMM / Double(cropRect.width)
         let verticalMMPerPixel = calibration.verticalReferenceMM / Double(cropRect.height)
         let formattedHorizontal = String(format: "%.5f", horizontalMMPerPixel)
@@ -111,7 +164,7 @@ extension CameraManager {
         print("\(label) mm/pixel: \(formattedHorizontal) x \(formattedVertical)")
     }
 
-    /// Emite um log detalhado com as estatisticas do estimador TrueDepth para auditoria e depuracao.
+    /// Emite um log detalhado com as estatisticas do estimador TrueDepth.
     private func logDepthDiagnostics(reason: String) {
         let diagnostics = calibrationEstimator.diagnostics()
         let horizontal = diagnostics.lastHorizontalMMPerPixel.map { String(format: "%.5f", $0) } ?? "n/d"
@@ -126,6 +179,16 @@ extension CameraManager {
     private func logCalibrationFailure(code: Int, message: String) {
         let reason = "ERRO \(code): \(message)"
         print(reason)
+        lastCalibrationFailure = (code, message)
         logDepthDiagnostics(reason: reason)
+    }
+
+    /// Encapsula o fluxo comum de falha da captura.
+    private func failCapture(with error: CameraError,
+                             completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        publishError(error)
+        DispatchQueue.main.async {
+            completion(nil)
+        }
     }
 }

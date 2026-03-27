@@ -192,10 +192,10 @@ struct ProgressOval: View {
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 
                 // Barra de progresso verde que vai se preenchendo
-                // Calcula a porcentagem de preenchimento baseada nas verificações concluídas
-                let completedCount = verificationManager.verifications.prefix(5).filter { $0.isChecked }.count
-                let totalCount = 5.0 // Total de verificações que consideramos (1, 2, 3, 4 e 7)
-                let progressPercentage = CGFloat(completedCount) / totalCount
+                // Calcula a porcentagem de preenchimento baseada nas verificações obrigatórias concluídas
+                let completedCount = verificationManager.verifications.filter { $0.isChecked && !$0.type.isOptional }.count
+                let totalCount = max(Double(verificationManager.verifications.filter { !$0.type.isOptional }.count), 1)
+                let progressPercentage = CGFloat(Double(completedCount) / totalCount)
                 
                 // Oval de progresso parcialmente desenhado
                 EllipticalProgressBar(progress: progressPercentage)

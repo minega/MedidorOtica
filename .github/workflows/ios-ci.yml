@@ -1,0 +1,43 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/**
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build no simulador
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Selecionar Xcode estável
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Exibir versão do Xcode
+        run: xcodebuild -version
+
+      - name: Exibir simuladores disponíveis
+        shell: bash
+        run: |
+          xcrun simctl list devices
+
+      - name: Build para testes
+        shell: bash
+        run: |
+          xcodebuild \
+            -project "MedidorOticaApp/MedidorOticaApp.xcodeproj" \
+            -scheme "MedidorOticaApp" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build-for-testing

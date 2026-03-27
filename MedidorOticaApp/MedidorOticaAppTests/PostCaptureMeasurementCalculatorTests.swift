@@ -11,7 +11,7 @@ import Testing
 struct PostCaptureMeasurementCalculatorTests {
     // MARK: - Cenário padrão com calibração conhecida
     @Test func convertsNormalizedDistancesUsingCalibration() async throws {
-        let calibration = PostCaptureCalibration(horizontalReferenceMM: 120, verticalReferenceMM: 80)
+        let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)
         let scale = PostCaptureScale(calibration: calibration)
 
         // Posição do ponto central no meio da imagem.
@@ -41,20 +41,20 @@ struct PostCaptureMeasurementCalculatorTests {
 
         let metrics = try calculator.makeMetrics()
 
-        // Cada valor esperado resulta de distance * referência mm (120 ou 80).
-        #expect(metrics.rightEye.horizontalMaior.rounded() == 29)
-        #expect(metrics.leftEye.horizontalMaior.rounded() == 38)
+        // Cada valor esperado resulta de distance * referência mm (100 ou 80).
+        #expect(metrics.rightEye.horizontalMaior.rounded() == 24)
+        #expect(metrics.leftEye.horizontalMaior.rounded() == 32)
         #expect(metrics.rightEye.verticalMaior.rounded() == 32)
         #expect(metrics.leftEye.verticalMaior.rounded() == 32)
-        #expect(metrics.rightEye.dnp.rounded() == 12)
-        #expect(metrics.leftEye.dnp.rounded() == 14)
+        #expect(metrics.rightEye.dnp.rounded() == 10)
+        #expect(metrics.leftEye.dnp.rounded() == 12)
         #expect(metrics.rightEye.alturaPupilar.rounded() == 14)
         #expect(metrics.leftEye.alturaPupilar.rounded() == 17)
-        #expect(metrics.ponte.rounded() == 10)
+        #expect(metrics.ponte.rounded() == 8)
     }
 
-    // MARK: - Fallback para calibração padrão
-    @Test func fallsBackToDefaultCalibrationWhenValuesAreInvalid() async throws {
+    // MARK: - Rejeição para calibração inválida
+    @Test func rejectsUnreliableCalibrationWhenValuesAreInvalid() async throws {
         let invalidCalibration = PostCaptureCalibration(horizontalReferenceMM: 0,
                                                          verticalReferenceMM: .infinity)
         let scale = PostCaptureScale(calibration: invalidCalibration)
@@ -76,6 +76,85 @@ struct PostCaptureMeasurementCalculatorTests {
             #expect(false)
         } catch let error as PostCaptureMeasurementError {
             #expect(error == .unreliableCalibration)
+        } catch {
+            #expect(false)
+        }
+    }
+
+    // MARK: - Geometria inválida
+    @Test func rejectsGeometryWhenPupilIsOutsideBars() async throws {
+        let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)
+        let scale = PostCaptureScale(calibration: calibration)
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+
+        let invalidRightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.7, y: 0.55),
+                                                 nasalBarX: 0.46,
+                                                 temporalBarX: 0.22,
+                                                 inferiorBarY: 0.72,
+                                                 superiorBarY: 0.32)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.62, y: 0.53),
+                                         nasalBarX: 0.54,
+                                         temporalBarX: 0.86,
+                                         inferiorBarY: 0.74,
+                                         superiorBarY: 0.34)
+        let configuration = PostCaptureConfiguration(centralPoint: center,
+                                                     rightEye: invalidRightEye,
+                                                     leftEye: leftEye,
+                                                     faceBounds: NormalizedRect())
+
+        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
+                                                          centralPoint: center,
+                                                          scale: scale)
+
+        do {
+            _ = try calculator.makeMetrics()
+            #expect(false)
+        } catch let error as PostCaptureMeasurementError {
+            switch error {
+            case .invalidGeometry:
+                #expect(true)
+            default:
+                #expect(false)
+            }
+        } catch {
+            #expect(false)
+        }
+    }
+
+    // MARK: - Medida plausível
+    @Test func rejectsImplausibleHorizontalMeasurement() async throws {
+        let calibration = PostCaptureCalibration(horizontalReferenceMM: 220, verticalReferenceMM: 120)
+        let scale = PostCaptureScale(calibration: calibration)
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let rightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.40, y: 0.55),
+                                          nasalBarX: 0.49,
+                                          temporalBarX: 0.05,
+                                          inferiorBarY: 0.72,
+                                          superiorBarY: 0.32)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.60, y: 0.53),
+                                         nasalBarX: 0.51,
+                                         temporalBarX: 0.95,
+                                         inferiorBarY: 0.74,
+                                         superiorBarY: 0.34)
+        let configuration = PostCaptureConfiguration(centralPoint: center,
+                                                     rightEye: rightEye,
+                                                     leftEye: leftEye,
+                                                     faceBounds: NormalizedRect())
+
+        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
+                                                          centralPoint: center,
+                                                          scale: scale)
+
+        do {
+            _ = try calculator.makeMetrics()
+            #expect(false)
+        } catch let error as PostCaptureMeasurementError {
+            switch error {
+            case .implausibleMeasurement:
+                #expect(true)
+            default:
+                #expect(false)
+            }
         } catch {
             #expect(false)
         }

@@ -31,7 +31,17 @@ extension PostCaptureCalibration {
         // Rejeita a calibração padrão pois ela não provém dos sensores TrueDepth/LiDAR.
         let matchesDefault = abs(horizontalReferenceMM - PostCaptureCalibration.default.horizontalReferenceMM) < 0.0001 &&
                              abs(verticalReferenceMM - PostCaptureCalibration.default.verticalReferenceMM) < 0.0001
-        return !matchesDefault
+        if matchesDefault { return false }
+
+        // Aceita intervalo amplo, baseado em TrueDepth a 25–60 cm: mm/pixel típico ~0.03–0.6.
+        let horizontalRange: ClosedRange<Double> = 50...900
+        let verticalRange: ClosedRange<Double> = 50...900
+        guard horizontalRange.contains(horizontalReferenceMM),
+              verticalRange.contains(verticalReferenceMM) else { return false }
+
+        // Evita proporções extremamente distorcidas.
+        let ratio = horizontalReferenceMM / verticalReferenceMM
+        return ratio.isFinite && ratio > 0.5 && ratio < 2.2
     }
 }
 

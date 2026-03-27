@@ -51,6 +51,7 @@ final class PostCaptureViewModel: ObservableObject {
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
+    private let existingConfiguration: PostCaptureConfiguration?
     /// Calibração aplicada à imagem atual.
     let calibration: PostCaptureCalibration
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
@@ -64,13 +65,14 @@ final class PostCaptureViewModel: ObservableObject {
     init(photo: CapturedPhoto, existingMeasurement: Measurement? = nil) {
         self.capturedImage = photo.image
         self.baseMeasurement = existingMeasurement
+        self.existingConfiguration = existingMeasurement?.postCaptureConfiguration
         self.calibration = existingMeasurement?.postCaptureCalibration ?? photo.calibration
         self.scale = PostCaptureScale(calibration: self.calibration)
-        self.configuration = PostCaptureConfiguration()
+        self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
         self.isProcessing = true
 
-        Task { await runAnalysis() }
+        Task { await prepareInitialState() }
     }
 
     // MARK: - Acesso a Dados
@@ -131,6 +133,15 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Processamento Inicial
+    private func prepareInitialState() async {
+        if let existingConfiguration {
+            await restoreExistingConfiguration(existingConfiguration)
+            return
+        }
+
+        await runAnalysis()
+    }
+
     private func runAnalysis() async {
         do {
             let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage,
@@ -152,6 +163,20 @@ final class PostCaptureViewModel: ObservableObject {
                 self.configuration = PostCaptureConfiguration()
                 self.previewBounds = NormalizedRect()
             }
+        }
+    }
+
+    private func restoreExistingConfiguration(_ storedConfiguration: PostCaptureConfiguration) async {
+        let preview = generateFacePreview(from: storedConfiguration.faceBounds)
+        await MainActor.run {
+            self.configuration = storedConfiguration
+            self.detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: true, left: true)
+            self.normalizeEyeOrdering()
+            self.faceBounds = storedConfiguration.faceBounds
+            self.facePreview = preview.image
+            self.previewBounds = preview.bounds
+            self.isProcessing = false
+            self.errorMessage = nil
         }
     }
 
@@ -324,6 +349,14 @@ final class PostCaptureViewModel: ObservableObject {
 
     // MARK: - Cálculo de Métricas
     func finalizeMetrics() throws {
+        if !scale.isReliable,
+           let baseMeasurement,
+           let baseMetrics = baseMeasurement.postCaptureMetrics,
+           baseMeasurement.postCaptureConfiguration == configuration {
+            metrics = baseMetrics
+            return
+        }
+
         // Utiliza a calculadora dedicada para garantir que todas as medidas usem a calibração correta.
         let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
                                                          centralPoint: configuration.centralPoint,

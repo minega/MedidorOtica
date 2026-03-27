@@ -2,34 +2,85 @@
 //  CameraInstructions.swift
 //  MedidorOticaApp
 //
-//  Componente de instruções para a câmera
+//  Instrucoes curtas para orientar a captura em tempo real.
 //
 
 import SwiftUI
 
 struct CameraInstructions: View {
-    /// Observa alterações do `VerificationManager` para atualizar as instruções em tempo real
+    /// Observa alteracoes do `VerificationManager` para atualizar as instrucoes.
     @ObservedObject var verificationManager: VerificationManager
-    
+    /// Observa o estado real do pipeline de captura.
+    @ObservedObject var cameraManager: CameraManager
+
     var body: some View {
-        VStack(spacing: 8) {
-            // Verifica quais instruções exibir com base nas verificações pendentes
-            // Mostra instruções específicas para a primeira verificação que falhar
-            if !verificationManager.faceDetected {
-                instructionView(text: "📱↔️ Centralize o rosto no oval")
-            } else if !verificationManager.distanceCorrect {
-                distanceInstructionView()
-            } else if !verificationManager.faceAligned {
-                centeringInstructionView()
-            } else if !verificationManager.headAligned {
-                headAlignmentInstructionView()
-            } else {
-                instructionView(text: "🙂✅ Pronto para capturar")
-            }
+        instructionView(text: currentInstruction())
+    }
+
+    // MARK: - Texto principal
+    private func currentInstruction() -> String {
+        switch cameraManager.captureState {
+        case .preparing:
+            return "📱⏳ Preparando camera"
+        case .countdown:
+            return "🙂⏱️ Mantenha a posicao"
+        case .capturing:
+            return "📱📸 Capturando"
+        case .captured:
+            return "🙂✅ Foto concluida"
+        case .error(let reason):
+            return instruction(for: reason)
+        case .checking(let reason):
+            return instruction(for: reason)
+        case .stableReady:
+            return "🙂✅ Pronto para capturar"
+        case .idle:
+            return fallbackInstruction()
         }
     }
-    
-    // View padrão para instruções simples
+
+    private func fallbackInstruction() -> String {
+        if !verificationManager.faceDetected {
+            return "📱↔️ Centralize o rosto"
+        }
+
+        if !verificationManager.distanceCorrect {
+            return distanceInstruction()
+        }
+
+        if !verificationManager.faceAligned {
+            return centeringInstruction()
+        }
+
+        if !verificationManager.headAligned {
+            return headAlignmentInstruction()
+        }
+
+        return "📱⏳ \(cameraManager.captureHint)"
+    }
+
+    private func instruction(for reason: CameraCaptureBlockReason) -> String {
+        switch reason {
+        case .preparingSession:
+            return "📱⏳ Preparando camera"
+        case .sessionUnavailable:
+            return "📱⏳ Reiniciando sessao"
+        case .trackingUnavailable:
+            return "🙂🔄 Reenquadre o rosto"
+        case .faceNotDetected:
+            return "📱↔️ Centralize o rosto"
+        case .distanceOutOfRange:
+            return distanceInstruction()
+        case .faceNotCentered:
+            return centeringInstruction()
+        case .headNotAligned:
+            return headAlignmentInstruction()
+        case .calibrationUnavailable, .unstableFrame, .staleFrame:
+            return "📱⏳ \(cameraManager.captureHint)"
+        }
+    }
+
+    // MARK: - Bloco visual
     private func instructionView(text: String) -> some View {
         Text(text)
             .font(.headline)
@@ -39,128 +90,94 @@ struct CameraInstructions: View {
             .background(Color.black.opacity(0.6))
             .cornerRadius(10)
     }
-    
-    // View específica para instruções de distância
-    private func distanceInstructionView() -> some View {
+
+    // MARK: - Distancia
+    private func distanceInstruction() -> String {
         let minDistance = verificationManager.minDistance
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
 
-        let instruction: String
-
         if currentDistance <= 0 {
-            instruction = "🙂↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
-        } else if currentDistance < minDistance {
-            let diff = max(1, Int(round(minDistance - currentDistance)))
-            instruction = "🙂⬅️ Afaste \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
-        } else {
-            let diff = max(1, Int(round(currentDistance - maxDistance)))
-            instruction = "🙂➡️ Aproxime \(diff) cm (alvo \(Int(minDistance))-\(Int(maxDistance)))"
+            return "🙂↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
         }
 
-        return instructionView(text: instruction)
+        if currentDistance < minDistance {
+            let diff = max(1, Int(round(minDistance - currentDistance)))
+            return "🙂⬅️ Afaste \(diff) cm"
+        }
+
+        let diff = max(1, Int(round(currentDistance - maxDistance)))
+        return "🙂➡️ Aproxime \(diff) cm"
     }
 
-    // View específica para instruções de centralização
-    private func centeringInstructionView() -> some View {
-        // Usa os dados de posição do rosto e ajusta conforme a orientação do dispositivo
+    // MARK: - Centralizacao
+    private func centeringInstruction() -> String {
         let rawX = verificationManager.facePosition["x"] ?? 0
         let rawY = verificationManager.facePosition["y"] ?? 0
         let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
 
-        var instruction = "📱✅ Celular alinhado, mantenha assim"
-
-        // Determina a direção com base na posição atual
         if abs(xPos) >= abs(yPos) {
-            // xPos representa o deslocamento vertical
             if xPos > 0.5 {
-                let magnitude = String(format: "%.1f", abs(xPos))
-                instruction = "📱⬇️ Baixe \(magnitude) cm"
-            } else if xPos < -0.5 {
-                let magnitude = String(format: "%.1f", abs(xPos))
-                instruction = "📱⬆️ Levante \(magnitude) cm"
+                return "📱⬇️ Baixe \(format(abs(xPos))) cm"
+            }
+
+            if xPos < -0.5 {
+                return "📱⬆️ Levante \(format(abs(xPos))) cm"
             }
         } else {
-            // yPos representa o deslocamento horizontal
             if yPos > 0.5 {
-                let magnitude = String(format: "%.1f", abs(yPos))
-                instruction = "📱➡️ Mova \(magnitude) cm →"
-            } else if yPos < -0.5 {
-                let magnitude = String(format: "%.1f", abs(yPos))
-                instruction = "📱⬅️ Mova \(magnitude) cm ←"
+                return "📱➡️ Mova \(format(abs(yPos))) cm"
+            }
+
+            if yPos < -0.5 {
+                return "📱⬅️ Mova \(format(abs(yPos))) cm"
             }
         }
 
-        return instructionView(text: instruction)
+        return "📱⏳ Mantenha o celular alinhado"
     }
 
-    // View específica para instruções de alinhamento da cabeça
-    private func headAlignmentInstructionView() -> some View {
-        // Usa os dados de alinhamento para dar instruções específicas
+    // MARK: - Cabeca
+    private func headAlignmentInstruction() -> String {
         let roll = verificationManager.alignmentData["roll"] ?? 0
         let yaw = verificationManager.alignmentData["yaw"] ?? 0
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
-
         let tolerance: Float = 3
-        var instruction = "🙂✅ Cabeça alinhada, mantenha"
 
-        // Determina qual rotação precisa de maior correção
-        if abs(roll) > max(abs(yaw), abs(pitch)) && abs(roll) > tolerance {
-            let magnitude = String(format: "%.0f", abs(roll))
-            let directionEmoji = roll > 0 ? "↻" : "↺"
-            let directionText = roll > 0 ? "para a direita" : "para a esquerda"
-            instruction = "🙂\(directionEmoji) Incline \(directionText) \(magnitude)°"
-        } else if abs(yaw) > abs(pitch) && abs(yaw) > tolerance {
-            let magnitude = String(format: "%.0f", abs(yaw))
-            let directionEmoji = yaw > 0 ? "➡️" : "⬅️"
-            let directionText = yaw > 0 ? "para a direita" : "para a esquerda"
-            instruction = "🙂\(directionEmoji) Vire \(directionText) \(magnitude)°"
-        } else if abs(pitch) > tolerance {
-            let magnitude = String(format: "%.0f", abs(pitch))
-            let directionEmoji = pitch > 0 ? "⬆️" : "⬇️"
-            let directionText = pitch > 0 ? "para cima" : "para baixo"
-            instruction = "🙂\(directionEmoji) Queixo \(directionText) \(magnitude)°"
+        if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > tolerance {
+            let magnitude = format(abs(roll), digits: 0)
+            return roll > 0 ? "🙂↩️ Incline \(magnitude)°" : "🙂↪️ Incline \(magnitude)°"
         }
 
-        return instructionView(text: instruction)
+        if abs(yaw) > abs(pitch), abs(yaw) > tolerance {
+            let magnitude = format(abs(yaw), digits: 0)
+            return yaw > 0 ? "🙂➡️ Vire \(magnitude)°" : "🙂⬅️ Vire \(magnitude)°"
+        }
+
+        if abs(pitch) > tolerance {
+            let magnitude = format(abs(pitch), digits: 0)
+            return pitch > 0 ? "🙂⬆️ Queixo \(magnitude)°" : "🙂⬇️ Queixo \(magnitude)°"
+        }
+
+        return "🙂⏳ Mantenha a cabeca reta"
     }
-    
+
+    private func format(_ value: Float, digits: Int = 1) -> String {
+        String(format: "%.\(digits)f", value)
+    }
 }
 
-// View para o menu de verificações laterais
+// MARK: - Menu de verificacoes
 struct VerificationMenu: View {
-    /// Gerenciador observado para refletir mudanças no menu em tempo real
+    /// Gerenciador observado para refletir mudancas no menu em tempo real.
     @ObservedObject var verificationManager: VerificationManager
-    
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            // Contador de verificações
-            HStack {
-                let completedCount = verificationManager.verifications.filter { $0.isChecked && !$0.type.isOptional }.count
-                let requiredCount = verificationManager.verifications.filter { !$0.type.isOptional }.count
-                
-                Text("\(completedCount)/\(requiredCount)")
-                    .font(.caption)
-                    .foregroundColor(.white)
-                
-                // Indicador de progresso
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .frame(width: 50, height: 8)
-                        .foregroundColor(.gray.opacity(0.5))
-                    
-                    RoundedRectangle(cornerRadius: 4)
-                        .frame(width: requiredCount > 0 ? 50 * CGFloat(completedCount) / CGFloat(requiredCount) : 0, height: 8)
-                        .foregroundColor(verificationManager.allVerificationsChecked ? .green : .orange)
-                }
-            }
-            
-            // Todas as verificações (obrigatórias e opcionais)
+            progressHeader()
             ForEach(verificationManager.verifications) { verification in
                 HStack(spacing: 6) {
-                    let simplifiedText = simplifyVerificationText(verification.text)
-
-                    Text(verification.isChecked ? "OK" : simplifiedText)
+                    Text(verification.isChecked ? "OK" : simplifyVerificationText(verification.text))
                         .font(.caption)
                         .foregroundColor(.white)
 
@@ -177,25 +194,42 @@ struct VerificationMenu: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.trailing, 20)
     }
-    
-    // Função para simplificar os textos das verificações no menu lateral
+
+    private func progressHeader() -> some View {
+        let completedCount = verificationManager.verifications.filter { $0.isChecked && !$0.type.isOptional }.count
+        let requiredCount = verificationManager.verifications.filter { !$0.type.isOptional }.count
+        let progressWidth = requiredCount > 0 ? 50 * CGFloat(completedCount) / CGFloat(requiredCount) : 0
+
+        return HStack {
+            Text("\(completedCount)/\(requiredCount)")
+                .font(.caption)
+                .foregroundColor(.white)
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4)
+                    .frame(width: 50, height: 8)
+                    .foregroundColor(.gray.opacity(0.5))
+
+                RoundedRectangle(cornerRadius: 4)
+                    .frame(width: progressWidth, height: 8)
+                    .foregroundColor(verificationManager.allVerificationsChecked ? .green : .orange)
+            }
+        }
+    }
+
     private func simplifyVerificationText(_ text: String) -> String {
-        // Mapeando textos longos para versões mais curtas com emoji
         switch text.lowercased() {
-        case let t where t.contains("rosto detectado"):
+        case let value where value.contains("rosto detectado"):
             return "👤 Rosto"
-        case let t where t.contains("distância"):
-            return "📍 Distância"
-        case let t where t.contains("centraliz"):
-            return "⬜️ Centrado"
-        case let t where t.contains("alinha"):
+        case let value where value.contains("distancia") || value.contains("distância"):
+            return "📍 Distancia"
+        case let value where value.contains("centraliz"):
+            return "⬜ Centro"
+        case let value where value.contains("alinha"):
             return "🕯️ Alinhado"
-        case let t where t.contains("cabeça"):
-            return "🧠 Cabeça"
-        case let t where t.contains("frame") || t.contains("borda"):
-            return "🖼️ Borda"
+        case let value where value.contains("cabeca") || value.contains("cabeça"):
+            return "🧠 Cabeca"
         default:
-            // Se não encontrar um padrão conhecido, retorna os primeiros 10 caracteres
             return text.count > 10 ? String(text.prefix(10)) + "..." : text
         }
     }

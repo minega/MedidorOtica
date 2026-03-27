@@ -2,153 +2,132 @@
 //  CameraManager+ControleSessao.swift
 //  MedidorOticaApp
 //
-//  Extensão dedicada ao controle do ciclo de vida da sessão da câmera ou
-//  da ARSession utilizada pelo aplicativo.
+//  Controle do ciclo de vida da sessao de medicao.
 //
 
 import AVFoundation
 import ARKit
 
 extension CameraManager {
-    // MARK: - Controle de Sessão
-
-    func createARConfiguration() -> ARConfiguration {
-        if cameraPosition == .front, hasTrueDepth {
-            let config = ARFaceTrackingConfiguration()
-            config.maximumNumberOfTrackedFaces = 1
-            if #available(iOS 13.0, *) {
-                config.isLightEstimationEnabled = true
-            }
-            print("Usando ARFaceTrackingConfiguration")
-            return config
-        } else if ARWorldTrackingConfiguration.isSupported {
-            let config = ARWorldTrackingConfiguration()
-            if #available(iOS 13.4, *) {
-                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-                    config.sceneReconstruction = .mesh
-                }
-                if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
-                    config.frameSemantics.insert(.sceneDepth)
-                }
-            }
-            print("Usando ARWorldTrackingConfiguration")
-            return config
+    // MARK: - Sessao de medicao
+    /// Inicia a sessao principal de medicao usando exclusivamente TrueDepth.
+    func startMeasurementSession(completion: @escaping (Bool) -> Void) {
+        guard canStartTrueDepthMeasurement() else {
+            completion(false)
+            return
         }
 
-        print("ERRO: Nenhuma configuração AR suportada")
-        publishError(.deviceConfigurationFailed)
-        return ARWorldTrackingConfiguration()
-    }
+        stop()
+        beginPreparingCapture()
 
-    /// Cria e configura uma nova `ARSession` de acordo com o `CameraType`.
-    func createARSession(for cameraType: CameraType) -> ARSession {
-        arSession?.pause()
         let newSession = ARSession()
+        newSession.delegate = self
+
         arSession = newSession
-        arSession?.delegate = self
+        cameraPosition = .front
+        isUsingARSession = true
+        isSessionRunning = true
+        clearError()
 
-        let configuration: ARConfiguration
-        var configurationError: String? = nil
+        let configuration = createMeasurementConfiguration()
+        newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
 
-        do {
-            switch cameraType {
-            case .front:
-                guard isFrontCameraEnabled else {
-                    configurationError = "A câmera frontal foi desabilitada manualmente."
-                    throw NSError(domain: "ARError", code: 1000, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                guard hardwareHasTrueDepth else {
-                    configurationError = "Este dispositivo não possui sensor TrueDepth disponível."
-                    throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                guard ARFaceTrackingConfiguration.isSupported else {
-                    configurationError = "Este dispositivo não suporta rastreamento facial (TrueDepth)."
-                    throw NSError(domain: "ARError", code: 1001, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                cameraPosition = .front
-                let faceConfig = ARFaceTrackingConfiguration()
-                faceConfig.maximumNumberOfTrackedFaces = 1
-                if #available(iOS 13.0, *) { faceConfig.isLightEstimationEnabled = true }
-                configuration = faceConfig
-                print("Configurando sessão AR para rastreamento facial")
-            case .back:
-                cameraPosition = .back
-                guard ARWorldTrackingConfiguration.isSupported else {
-                    configurationError = "Este dispositivo não suporta rastreamento de mundo."
-                    throw NSError(domain: "ARError", code: 1002, userInfo: [NSLocalizedDescriptionKey: configurationError ?? "Erro desconhecido"])
-                }
-                let worldConfig = ARWorldTrackingConfiguration()
-                if #available(iOS 13.4, *) {
-                    if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-                        worldConfig.sceneReconstruction = .mesh
-                    }
-                    if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
-                        worldConfig.frameSemantics.insert(.sceneDepth)
-                    }
-                    print("Configurando sessão AR com LiDAR para profundidade")
-                }
-                configuration = worldConfig
-            }
-
-            newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-            isUsingARSession = true
-            isSessionRunning = true
-            print("Sessão AR configurada com sucesso para \(cameraType)")
-        } catch {
-            let errorMessage = configurationError ?? "Falha ao configurar a sessão AR: \(error.localizedDescription)"
-            print(errorMessage)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: NSNotification.Name("ARConfigurationFailed"),
-                                                object: nil,
-                                                userInfo: ["error": errorMessage])
-            }
-        }
-
-        // Mantém o VerificationManager sincronizado com o sensor atualmente ativo
         VerificationManager.shared.updateActiveSensor(using: self)
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.updateLensMonitoring(for: self.cameraPosition)
-        }
-
-        return newSession
+        updateLensMonitoring(for: .front)
+        completion(true)
     }
 
+    /// Cria a configuracao principal da sessao TrueDepth.
+    func createMeasurementConfiguration() -> ARFaceTrackingConfiguration {
+        let configuration = ARFaceTrackingConfiguration()
+        configuration.maximumNumberOfTrackedFaces = 1
+        if #available(iOS 13.0, *) {
+            configuration.isLightEstimationEnabled = true
+        }
+        return configuration
+    }
 
-    /// Encerra a sessão de captura ou AR em execução.
+    /// Cria uma nova `ARSession` para compatibilidade com chamadas legadas.
+    func createARSession(for cameraType: CameraType) -> ARSession {
+        guard cameraType == .front else {
+            publishARError("LiDAR permanece fora do fluxo ativo desta entrega.")
+            return ARSession()
+        }
+
+        let session = ARSession()
+        session.delegate = self
+        return session
+    }
+
+    /// Encerra a sessao ativa e limpa o pipeline associado.
     func stop() {
-        guard isSessionRunning else { return }
-
         if isUsingARSession {
             stopARSession()
-        } else {
+        } else if isSessionRunning {
             stopCaptureSession()
         }
 
         isSessionRunning = false
         isUsingARSession = false
-
+        resetCapturePipeline(resetCalibration: true)
+        setCaptureState(.idle, hint: "Camera parada.", progress: 0)
         VerificationManager.shared.reset()
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.updateLensMonitoring(for: self.cameraPosition)
+        updateLensMonitoring(for: cameraPosition)
+    }
+
+    /// Reinicia a sessao atual apos interrupcoes ou falhas do ARKit.
+    func restartSession() {
+        guard cameraPosition == .front, hasTrueDepth else {
+            stop()
+            return
         }
+
+        guard let arSession else {
+            startMeasurementSession { _ in }
+            return
+        }
+
+        beginPreparingCapture()
+        arSession.run(createMeasurementConfiguration(),
+                      options: [.resetTracking, .removeExistingAnchors])
+        isUsingARSession = true
+        isSessionRunning = true
+    }
+
+    // MARK: - Helpers
+    private func canStartTrueDepthMeasurement() -> Bool {
+        guard isFrontCameraEnabled else {
+            notifyUnsupportedDevice(reason: "A camera frontal foi desabilitada manualmente.")
+            return false
+        }
+
+        guard hardwareHasTrueDepth, ARFaceTrackingConfiguration.isSupported else {
+            notifyUnsupportedDevice(reason: "Este dispositivo nao possui sensor TrueDepth compativel.")
+            return false
+        }
+
+        return true
+    }
+
+    private func notifyUnsupportedDevice(reason: String) {
+        publishError(.cameraUnavailable)
+        NotificationCenter.default.post(name: NSNotification.Name("DeviceNotCompatible"),
+                                        object: nil,
+                                        userInfo: ["reason": reason,
+                                                   "sensor": "TrueDepth"])
     }
 
     private func stopARSession() {
         arSession?.pause()
         arSession?.delegate = nil
         arSession = nil
-        print("Sessão AR parada e recursos liberados")
     }
 
     private func stopCaptureSession() {
         sessionQueue.async { [weak self] in
-            guard let self = self, self.session.isRunning else { return }
-
+            guard let self, self.session.isRunning else { return }
             self.session.stopRunning()
             self.cleanupSession()
-            print("Sessão da câmera parada")
         }
     }
 
@@ -158,25 +137,5 @@ extension CameraManager {
         session.outputs.forEach { session.removeOutput($0) }
         session.commitConfiguration()
         videoDeviceInput = nil
-    }
-
-    /// Reinicia a sessão atual após interrupções ou falhas
-    func restartSession() {
-        if isUsingARSession {
-            let configuration = createARConfiguration()
-            calibrationEstimator.reset()
-            arSession?.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-            isSessionRunning = true
-            print("Sessão AR reiniciada")
-        } else {
-            sessionQueue.async { [weak self] in
-                guard let self = self else { return }
-                if !self.session.isRunning {
-                    self.session.startRunning()
-                    DispatchQueue.main.async { self.isSessionRunning = true }
-                    print("Sessão da câmera reiniciada")
-                }
-            }
-        }
     }
 }

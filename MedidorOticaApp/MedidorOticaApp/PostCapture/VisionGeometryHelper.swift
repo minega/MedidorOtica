@@ -133,7 +133,9 @@ enum VisionGeometryHelper {
     /// Cria uma requisição de landmarks utilizando a revisão mais atual.
     static func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
         let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
+        if let latestRevision = VNDetectFaceLandmarksRequest.supportedRevisions.max() {
+            request.revision = latestRevision
+        }
         return request
     }
 }
