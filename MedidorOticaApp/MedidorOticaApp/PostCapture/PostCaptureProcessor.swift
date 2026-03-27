@@ -25,7 +25,7 @@ struct PostCaptureAnalysisResult {
 /// Processa a imagem estática com Vision para localizar pupilas e o ponto central.
 final class PostCaptureProcessor {
     // MARK: - Singleton
-    static let shared = PostCaptureProcessor()
+    @MainActor static let shared = PostCaptureProcessor()
     private init() {}
 
     // MARK: - Processamento
