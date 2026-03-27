@@ -12,6 +12,8 @@ import CoreGraphics
 /// Possíveis falhas encontradas durante o cálculo das métricas finais.
 enum PostCaptureMeasurementError: Error, Equatable {
     case unreliableCalibration
+    case invalidGeometry(String)
+    case implausibleMeasurement(String)
 }
 
 extension PostCaptureMeasurementError: LocalizedError {
@@ -19,6 +21,10 @@ extension PostCaptureMeasurementError: LocalizedError {
         switch self {
         case .unreliableCalibration:
             return "Calibração inválida. Refaça a captura garantindo o uso dos sensores de profundidade."
+        case .invalidGeometry(let message):
+            return message
+        case .implausibleMeasurement(let message):
+            return message
         }
     }
 }
@@ -47,14 +53,10 @@ struct PostCaptureMeasurementCalculator {
 
         let horizontalReference = Double(scale.horizontalReferenceMM)
         let verticalReference = Double(scale.verticalReferenceMM)
-
-        // Normaliza os olhos para garantir que as barras estejam ordenadas corretamente.
-        var normalizedRight = configuration.rightEye.normalized(centralX: centralPoint.x)
-        var normalizedLeft = configuration.leftEye.normalized(centralX: centralPoint.x)
-
-        if normalizedRight.pupil.x > normalizedLeft.pupil.x {
-            swap(&normalizedRight, &normalizedLeft)
-        }
+        let geometry = try PostCaptureMeasurementValidator(configuration: configuration,
+                                                           centralPoint: centralPoint).validate()
+        let normalizedRight = geometry.rightEye
+        let normalizedLeft = geometry.leftEye
 
         let rightHorizontal = horizontalMillimeters(between: normalizedRight.temporalBarX,
                                                     and: normalizedRight.nasalBarX,
@@ -97,9 +99,11 @@ struct PostCaptureMeasurementCalculator {
                                                 dnp: leftDNP,
                                                 alturaPupilar: leftAltura)
 
-        return PostCaptureMetrics(rightEye: rightSummary,
-                                  leftEye: leftSummary,
-                                  ponte: ponte)
+        let metrics = PostCaptureMetrics(rightEye: rightSummary,
+                                         leftEye: leftSummary,
+                                         ponte: ponte)
+        try validatePlausibility(of: metrics)
+        return metrics
     }
 
     // MARK: - Conversões Auxiliares
@@ -122,5 +126,44 @@ struct PostCaptureMeasurementCalculator {
         guard value.isFinite, value >= 0 else { return 0 }
         let precision = 0.01
         return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
+    }
+
+    /// Bloqueia medidas fora de dominio para evitar resumos absurdos.
+    private func validatePlausibility(of metrics: PostCaptureMetrics) throws {
+        try validate(metric: metrics.rightEye.horizontalMaior,
+                     within: 20...90,
+                     message: "A largura do olho direito ficou fora da faixa plausivel.")
+        try validate(metric: metrics.leftEye.horizontalMaior,
+                     within: 20...90,
+                     message: "A largura do olho esquerdo ficou fora da faixa plausivel.")
+        try validate(metric: metrics.rightEye.verticalMaior,
+                     within: 10...80,
+                     message: "A altura do olho direito ficou fora da faixa plausivel.")
+        try validate(metric: metrics.leftEye.verticalMaior,
+                     within: 10...80,
+                     message: "A altura do olho esquerdo ficou fora da faixa plausivel.")
+        try validate(metric: metrics.rightEye.dnp,
+                     within: 10...45,
+                     message: "A DNP do olho direito ficou fora da faixa plausivel.")
+        try validate(metric: metrics.leftEye.dnp,
+                     within: 10...45,
+                     message: "A DNP do olho esquerdo ficou fora da faixa plausivel.")
+        try validate(metric: metrics.rightEye.alturaPupilar,
+                     within: 5...40,
+                     message: "A altura pupilar do olho direito ficou fora da faixa plausivel.")
+        try validate(metric: metrics.leftEye.alturaPupilar,
+                     within: 5...40,
+                     message: "A altura pupilar do olho esquerdo ficou fora da faixa plausivel.")
+        try validate(metric: metrics.ponte,
+                     within: 5...35,
+                     message: "A ponte ficou fora da faixa plausivel.")
+    }
+
+    private func validate(metric value: Double,
+                          within range: ClosedRange<Double>,
+                          message: String) throws {
+        guard value.isFinite, range.contains(value) else {
+            throw PostCaptureMeasurementError.implausibleMeasurement(message)
+        }
     }
 }

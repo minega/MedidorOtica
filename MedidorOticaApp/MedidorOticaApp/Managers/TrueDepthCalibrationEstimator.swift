@@ -35,11 +35,11 @@ final class TrueDepthCalibrationEstimator {
     // MARK: - Constantes
     private enum Constants {
         static let maxSamples = 24
-        static let sampleLifetime: TimeInterval = 1.4
+        static let sampleLifetime: TimeInterval = 2.0
         static let minimumEyeDistanceMM: Double = 45
         static let maximumEyeDistanceMM: Double = 80
-        static let maximumBaselineError: Double = 0.6
-        static let maximumBaselineErrorDiscard: Double = 1.2
+        static let maximumBaselineError: Double = 0.35
+        static let maximumBaselineErrorDiscard: Double = 0.8
         static let minimumHorizontalPixels: Double = 6
         static let minMMPerPixel: Double = 0.01
         static let maxMMPerPixel: Double = 1.0
@@ -49,12 +49,6 @@ final class TrueDepthCalibrationEstimator {
     private let queue = DispatchQueue(label: "com.medidorotica.truedepth.calibration", qos: .userInitiated)
     private var samples: [CalibrationSample] = []
     private var lastSample: CalibrationSample?
-
-    // MARK: - Log
-    @inline(__always)
-    private static func debug(_ code: Int, _ message: String) {
-        print("TDCalib[\(code)]: \(message)")
-    }
 
     // MARK: - Log
     @inline(__always)
@@ -135,6 +129,47 @@ final class TrueDepthCalibrationEstimator {
                                lastVerticalMMPerPixel: lastSample?.mmPerPixelY,
                                lastDepthMM: lastSample.map { $0.depthMeters * 1000.0 },
                                lastBaselineError: lastSample?.baselineError)
+        }
+    }
+
+    /// Indica se já existem amostras recentes e consistentes para permitir a captura.
+    /// Mantém a mensagem de hint para exibir feedback amigável na UI.
+    func readiness(minRecentSamples: Int = 4,
+                   depthRangeMM: ClosedRange<Double> = 250...600,
+                   mmPerPixelRange: ClosedRange<Double> = 0.03...0.25) -> (ready: Bool, hint: String?) {
+        queue.sync {
+            guard let lastSample else {
+                return (false, "Aguardando dados do TrueDepth.")
+            }
+
+            let referenceTime = lastSample.timestamp
+            let recentSamples = samples.filter { referenceTime - $0.timestamp <= Constants.sampleLifetime }
+            let recentCount = recentSamples.count
+
+            var reasons: [String] = []
+
+            if recentCount < minRecentSamples {
+                reasons.append("Coletando calibração (\(recentCount)/\(minRecentSamples)).")
+            }
+
+            let depthMM = lastSample.depthMeters * 1000.0
+            if !depthRangeMM.contains(depthMM) {
+                reasons.append("Ajuste a distância para \(Int(depthRangeMM.lowerBound))-\(Int(depthRangeMM.upperBound))mm.")
+            }
+
+            let mmPerPixelX = lastSample.mmPerPixelX
+            let mmPerPixelY = lastSample.mmPerPixelY
+
+            if !mmPerPixelRange.contains(mmPerPixelX) || !mmPerPixelRange.contains(mmPerPixelY) {
+                reasons.append("Estabilize a posição para obter escala consistente.")
+            }
+
+            if lastSample.baselineError > Constants.maximumBaselineError {
+                reasons.append("Rastreie o rosto novamente para reduzir ruído.")
+            }
+
+            let ready = reasons.isEmpty
+            return (ready, ready ? nil : reasons.joined(separator: " "))
         }
     }
 
@@ -255,50 +290,50 @@ final class TrueDepthCalibrationEstimator {
 
         guard let leftPixelX = projectToPixelX(position: leftPositionCamera, intrinsics: intrinsics),
               let rightPixelX = projectToPixelX(position: rightPositionCamera, intrinsics: intrinsics) else {
-            debug(206, "Falha ao projetar olhos para pixels")
+            debug(206, "Falha ao projetar olhos para pixels (eixo X)")
             return nil
         }
 
-        let pixelDelta = abs(rightPixelX - leftPixelX)
-        guard pixelDelta >= Constants.minimumHorizontalPixels, pixelDelta.isFinite else {
-            debug(207, "Delta de pixels insuficiente \(pixelDelta)")
+        let pixelDeltaX = abs(rightPixelX - leftPixelX)
+        guard pixelDeltaX >= Constants.minimumHorizontalPixels, pixelDeltaX.isFinite else {
+            debug(207, "Delta de pixels insuficiente \(pixelDeltaX)")
             return nil
         }
 
-        let baselineHorizontal = distanceMM / pixelDelta
-        let depthHorizontal = (averageDepth * 1000.0) / fx
-        let baselineError = abs(baselineHorizontal - depthHorizontal) / baselineHorizontal
+        let baselineHorizontal = distanceMM / pixelDeltaX
 
-        let blendedHorizontal = (baselineHorizontal * 0.7) + (depthHorizontal * 0.3)
-        let verticalMMPerPixel = (averageDepth * 1000.0) / fy
-
-        guard blendedHorizontal.isFinite else {
-            debug(208, "mmPerPixelX nao finito \(blendedHorizontal)")
+        guard baselineHorizontal.isFinite else {
+            debug(208, "mmPerPixelX nao finito \(baselineHorizontal)")
             return nil
         }
 
-        guard verticalMMPerPixel.isFinite else {
-            debug(209, "mmPerPixelY nao finito \(verticalMMPerPixel)")
+        guard baselineHorizontal >= Constants.minMMPerPixel,
+              baselineHorizontal <= Constants.maxMMPerPixel else {
+            debug(209, "mmPerPixelX fora de faixa \(baselineHorizontal)")
             return nil
         }
 
-        guard blendedHorizontal >= Constants.minMMPerPixel,
-              blendedHorizontal <= Constants.maxMMPerPixel else {
-            debug(210, "mmPerPixelX fora de faixa \(blendedHorizontal)")
+        // Ajusta mm/pixel vertical com base na razão dos focos para compensar diferenças entre fx e fy.
+        let verticalScale: Double = (fy > 0 && fx > 0) ? (fx / fy) : 1.0
+        let mmPerPixelY = baselineHorizontal * verticalScale
+
+        guard mmPerPixelY.isFinite,
+              mmPerPixelY >= Constants.minMMPerPixel,
+              mmPerPixelY <= Constants.maxMMPerPixel else {
+            debug(210, "mmPerPixelY fora de faixa \(mmPerPixelY)")
             return nil
         }
 
-        guard verticalMMPerPixel >= Constants.minMMPerPixel,
-              verticalMMPerPixel <= Constants.maxMMPerPixel else {
-            debug(211, "mmPerPixelY fora de faixa \(verticalMMPerPixel)")
-            return nil
-        }
+        // Usa a diferenca de profundidade entre os olhos e o desalinhamento de escala como qualidade.
+        let depthSkew = abs(leftDepth - rightDepth) / max(averageDepth, 0.0001)
+        let scaleSkew = abs(mmPerPixelY - baselineHorizontal) / max(baselineHorizontal, 0.0001)
+        let qualityError = max(depthSkew, scaleSkew)
 
         return CalibrationSample(timestamp: frame.timestamp,
-                                 mmPerPixelX: blendedHorizontal,
-                                 mmPerPixelY: verticalMMPerPixel,
+                                 mmPerPixelX: baselineHorizontal,
+                                 mmPerPixelY: mmPerPixelY,
                                  depthMeters: averageDepth,
-                                 baselineError: baselineError)
+                                 baselineError: qualityError)
     }
 
     // MARK: - Helpers Matemáticos

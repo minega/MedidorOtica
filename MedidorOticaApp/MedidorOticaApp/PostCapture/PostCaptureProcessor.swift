@@ -35,11 +35,13 @@ final class PostCaptureProcessor {
     ///   - scale: Escala utilizada para converter milímetros em coordenadas normalizadas.
     /// - Returns: Estrutura com configuração inicial calculada.
     func analyze(image: UIImage, scale: PostCaptureScale) async throws -> PostCaptureAnalysisResult {
-        guard let cgImage = image.cgImage else {
+        let orientedImage = image.normalizedOrientation()
+
+        guard let cgImage = orientedImage.cgImage else {
             throw NSError(domain: "PostCaptureProcessor", code: -1, userInfo: [NSLocalizedDescriptionKey: "Imagem inválida para análise"])
         }
 
-        let orientation = CGImagePropertyOrientation(image.imageOrientation)
+        let orientation = CGImagePropertyOrientation.up
         let request = VisionGeometryHelper.makeLandmarksRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 
@@ -50,8 +52,7 @@ final class PostCaptureProcessor {
             throw NSError(domain: "PostCaptureProcessor", code: -2, userInfo: [NSLocalizedDescriptionKey: "Não foi possível localizar o rosto"])
         }
 
-        let dimensions = VisionGeometryHelper.orientedDimensions(for: cgImage, orientation: orientation)
-        let imageSize = CGSize(width: dimensions.width, height: dimensions.height)
+        let imageSize = orientedImage.size
         let analysis = buildConfiguration(from: observation,
                                           imageSize: imageSize,
                                           orientation: orientation,
@@ -100,14 +101,13 @@ final class PostCaptureProcessor {
                                                  orientation: orientation)
         }
 
-        let detectedPupilYs = [rightPupilPoint?.y, leftPupilPoint?.y].compactMap { $0 }
-        let averagePupilY: CGFloat
-        if detectedPupilYs.isEmpty {
-            averagePupilY = 0.5
-        } else {
-            averagePupilY = detectedPupilYs.reduce(0, +) / CGFloat(detectedPupilYs.count)
-        }
-        let centralX = nosePoint?.x ?? 0.5
+        let averagePupilY = resolvedCentralY(rightPupilPoint: rightPupilPoint,
+                                             leftPupilPoint: leftPupilPoint,
+                                             normalizedBounds: normalizedBounds)
+        let centralX = resolvedCentralX(nosePoint: nosePoint,
+                                        rightPupilPoint: rightPupilPoint,
+                                        leftPupilPoint: leftPupilPoint,
+                                        normalizedBounds: normalizedBounds)
         let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
 
         // Monta dados por olho utilizando offsets padrão
@@ -130,6 +130,32 @@ final class PostCaptureProcessor {
                                                                 left: leftPupilPoint != nil)
 
         return (configuration, detected)
+    }
+
+    private func resolvedCentralX(nosePoint: CGPoint?,
+                                  rightPupilPoint: CGPoint?,
+                                  leftPupilPoint: CGPoint?,
+                                  normalizedBounds: NormalizedRect) -> CGFloat {
+        if let nosePoint {
+            return nosePoint.x
+        }
+
+        if let rightPupilPoint, let leftPupilPoint {
+            return (rightPupilPoint.x + leftPupilPoint.x) / 2
+        }
+
+        return normalizedBounds.x + (normalizedBounds.width / 2)
+    }
+
+    private func resolvedCentralY(rightPupilPoint: CGPoint?,
+                                  leftPupilPoint: CGPoint?,
+                                  normalizedBounds: NormalizedRect) -> CGFloat {
+        let detectedPupilYs = [rightPupilPoint?.y, leftPupilPoint?.y].compactMap { $0 }
+        guard !detectedPupilYs.isEmpty else {
+            return normalizedBounds.y + (normalizedBounds.height * 0.42)
+        }
+
+        return detectedPupilYs.reduce(0, +) / CGFloat(detectedPupilYs.count)
     }
 
     /// Utiliza os landmarks do Vision para recortar toda a cabeça (orelhas, queixo e topo do cabelo).
@@ -249,8 +275,9 @@ final class PostCaptureProcessor {
         }
 
         let defaultX: CGFloat = isRightEye ? 0.35 : 0.65
+        let defaultY = centralPoint.y
         let pupilPoint = NormalizedPoint(x: point?.x ?? defaultX,
-                                         y: point?.y ?? 0.5).clamped()
+                                         y: point?.y ?? defaultY).clamped()
 
         // Conversões de milímetros para valores normalizados
         let nasalOffset = scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM)

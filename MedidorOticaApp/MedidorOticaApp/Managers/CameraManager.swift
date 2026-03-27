@@ -2,7 +2,7 @@
 //  CameraManager.swift
 //  MedidorOticaApp
 //
-//  Gerenciador otimizado da câmera
+//  Gerenciador principal da camera com estado explicito de captura.
 //
 
 import Foundation
@@ -10,10 +10,10 @@ import AVFoundation
 import ARKit
 import Combine
 
-// MARK: - Notificações
+// MARK: - Notificacoes
 extension Notification.Name {
     static let cameraError = Notification.Name("CameraError")
-    /// Notificação disparada quando a sessão AR encontra um erro
+    /// Notificacao disparada quando a sessao AR encontra um erro.
     static let arSessionError = Notification.Name("ARSessionError")
 }
 
@@ -27,24 +27,38 @@ enum CameraError: Error, LocalizedError {
     case deviceConfigurationFailed
     case captureFailed
     case missingTrueDepthData
+    case sessionNotReady
+    case staleFrame
 
     var errorDescription: String {
         switch self {
-        case .deniedAuthorization: return "Acesso à câmera negado. Habilite nas configurações do dispositivo."
-        case .cameraUnavailable: return "Câmera não disponível no dispositivo."
-        case .cannotAddInput: return "Não foi possível adicionar a entrada da câmera."
-        case .cannotAddOutput: return "Não foi possível adicionar a saída da câmera."
-        case .createCaptureInput(let error): return "Erro na câmera: \(error.localizedDescription)"
-        case .deviceConfigurationFailed: return "Falha na configuração da câmera."
-        case .captureFailed: return "Falha ao capturar a foto."
-        case .missingTrueDepthData: return "Sensor TrueDepth obrigatório não forneceu dados confiáveis."
+        case .deniedAuthorization:
+            return "Acesso a camera negado. Habilite nas configuracoes do dispositivo."
+        case .cameraUnavailable:
+            return "Camera nao disponivel no dispositivo."
+        case .cannotAddInput:
+            return "Nao foi possivel adicionar a entrada da camera."
+        case .cannotAddOutput:
+            return "Nao foi possivel adicionar a saida da camera."
+        case .createCaptureInput(let error):
+            return "Erro na camera: \(error.localizedDescription)"
+        case .deviceConfigurationFailed:
+            return "Falha na configuracao da camera."
+        case .captureFailed:
+            return "Falha ao capturar a foto."
+        case .missingTrueDepthData:
+            return "Sensor TrueDepth obrigatorio nao forneceu dados confiaveis."
+        case .sessionNotReady:
+            return "A camera ainda nao esta pronta para medir."
+        case .staleFrame:
+            return "O ultimo frame valido ficou desatualizado. Reposicione e tente novamente."
         }
     }
 }
 
 // MARK: - CameraManager
-/// Classe responsável por gerenciar a câmera e delegar atualizações da sessão AR.
-class CameraManager: NSObject, ObservableObject {
+/// Classe responsavel por gerenciar a camera e delegar atualizacoes da sessao AR.
+final class CameraManager: NSObject, ObservableObject {
     static let shared = CameraManager()
 
     // MARK: - Published Properties
@@ -54,53 +68,95 @@ class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning = false
     @Published private(set) var hasTrueDepth = false
     @Published private(set) var hasLiDAR = false
-    /// Indica se a câmera frontal está habilitada para uso no aplicativo.
     @Published private(set) var isFrontCameraEnabled = true
-    /// Estado da limpeza da lente frontal, quando suportado pelo dispositivo.
     @Published private(set) var frontLensCondition: CameraLensCondition = .unknown
-    /// Indica se a sessão atual utiliza ARKit (TrueDepth ou LiDAR)
     @Published var isUsingARSession = false
+    @Published private(set) var captureState: CameraCaptureState = .idle
+    @Published private(set) var captureHint = CameraCaptureBlockReason.preparingSession.shortMessage
+    @Published private(set) var captureProgress = 0.0
 
-    /// Callback invocado a cada novo frame AR
-    public var outputDelegate: ((ARFrame) -> Void)?
+    /// Callback invocado a cada novo frame AR.
+    var outputDelegate: ((ARFrame) -> Void)?
 
-    // MARK: - Private Properties
-    /// Sessão de captura utilizada pela visualização
+    // MARK: - Shared Camera Resources
     let session = AVCaptureSession()
     let sessionQueue = DispatchQueue(label: "com.oticaManzolli.sessionQueue", qos: .userInitiated)
     let videoOutput = AVCapturePhotoOutput()
     var videoDeviceInput: AVCaptureDeviceInput?
     var arSession: ARSession?
-    /// Contexto compartilhado para operações de processamento de imagem e correção de orientação.
     let photoProcessingContext = CIContext()
-    /// Indica se o hardware possui suporte ao sensor TrueDepth.
     private(set) var hardwareHasTrueDepth = false
-    /// Estimador dedicado a consolidar a calibração proveniente do sensor TrueDepth.
     let calibrationEstimator = TrueDepthCalibrationEstimator()
-    /// Observadores dedicados ao monitoramento de condições relacionadas à lente frontal.
+
+    // MARK: - Capture State
+    let captureReadinessEngine = CaptureReadinessEngine()
+    var lastSuccessfulCalibration: PostCaptureCalibration?
+    var lastCalibrationFailure: (code: Int, message: String)?
+    private var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
+    var lastFrameTimestamp: TimeInterval = 0
+    var lastSuccessfulCalibrationTimestamp: TimeInterval?
+
+    // MARK: - Monitoring
     private var lensMonitorCancellables: Set<AnyCancellable> = []
-    /// Heurística que estima a limpeza da lente frontal analisando resultados das verificações.
     private let frontLensMonitor = FrontLensCleanlinessMonitor()
 
     // MARK: - Initialization
     private override init() {
         super.init()
         checkAvailableSensors()
-        // Agenda a integração com o VerificationManager após concluir a criação do singleton.
         connectVerificationManagerAsync()
     }
 
     // MARK: - Error Handling
-    /// Publica um erro e dispara uma notificação para os observadores.
+    /// Publica um erro e dispara uma notificacao para os observadores.
     func publishError(_ error: CameraError) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             self.error = error
-            NotificationCenter.default.post(name: .cameraError, object: nil, userInfo: ["error": error])
+            if let blockReason = self.blockReason(for: error) {
+                self.setCaptureState(.error(blockReason),
+                                     hint: blockReason.shortMessage,
+                                     progress: 0)
+            }
+            NotificationCenter.default.post(name: .cameraError,
+                                            object: nil,
+                                            userInfo: ["error": error])
         }
     }
 
-    /// Publica uma mensagem de erro relacionada à sessão AR.
+    /// Limpa o ultimo erro publicado sem alterar o restante do pipeline.
+    func clearError() {
+        if Thread.isMainThread {
+            error = nil
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.error = nil
+            }
+        }
+    }
+
+    /// Retorna a ultima mensagem detalhada de falha na calibracao, quando disponivel.
+    func latestCalibrationFailureHint() -> String? {
+        guard let failure = lastCalibrationFailure else { return nil }
+        return "Codigo \(failure.code): \(failure.message)"
+    }
+
+    /// Informa se a calibracao TrueDepth esta pronta para captura e retorna um hint amigavel.
+    func calibrationReadiness() -> (ready: Bool, hint: String?) {
+        if let calibration = lastSuccessfulCalibration,
+           calibration.isReliable,
+           hasRecentSuccessfulCalibration {
+            return (true, nil)
+        }
+
+        guard cameraPosition == .front, isUsingARSession else {
+            return (true, nil)
+        }
+
+        return calibrationEstimator.readiness(minRecentSamples: 4)
+    }
+
+    /// Publica uma mensagem de erro relacionada a sessao AR.
     func publishARError(_ message: String) {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .arSessionError,
@@ -110,26 +166,194 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     // MARK: - Device Capabilities
-    /// Verifica sensores disponíveis como TrueDepth e LiDAR.
+    /// Verifica sensores disponiveis. Nesta fase o fluxo ativo usa apenas TrueDepth.
     func checkAvailableSensors() {
+        isFrontCameraEnabled = true
         hardwareHasTrueDepth = ARFaceTrackingConfiguration.isSupported
-        hasTrueDepth = hardwareHasTrueDepth && isFrontCameraEnabled
+        hasTrueDepth = hardwareHasTrueDepth
+        hasLiDAR = false
+        print("Sensores disponiveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
+    }
 
-        if #available(iOS 13.4, *) {
-            // Verifica suporte a profundidade de cena ou reconstrução 3D
-            hasLiDAR = ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) ||
-                       ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+    // MARK: - Capture Pipeline
+    /// Informa se a sessao atual esta realmente pronta para medir.
+    var isMeasurementSessionReady: Bool {
+        isUsingARSession &&
+        isSessionRunning &&
+        cameraPosition == .front &&
+        hasTrueDepth &&
+        isFrontCameraEnabled &&
+        arSession != nil
+    }
+
+    /// Informa se a captura esta liberada pelo pipeline.
+    var isCaptureReady: Bool {
+        captureState == .stableReady || captureState == .countdown
+    }
+
+    /// Marca o pipeline como em preparacao.
+    func beginPreparingCapture() {
+        resetCapturePipeline(resetCalibration: true)
+        setCaptureState(.preparing,
+                        hint: CameraCaptureBlockReason.preparingSession.shortMessage,
+                        progress: 0)
+    }
+
+    /// Atualiza o estado de contagem regressiva da captura automatica.
+    func setCountdownActive(_ isActive: Bool) {
+        guard captureState != .capturing, captureState != .captured else { return }
+
+        if isActive {
+            setCaptureState(.countdown,
+                            hint: "Mantenha a posicao.",
+                            progress: 1)
         } else {
-            hasLiDAR = false
+            updateCaptureReadiness()
+        }
+    }
+
+    /// Marca o inicio da captura real da foto.
+    func markCaptureStarted() {
+        setCaptureState(.capturing, hint: "Capturando foto.", progress: 1)
+    }
+
+    /// Marca a captura como concluida.
+    func markCaptureCompleted() {
+        setCaptureState(.captured, hint: "Foto capturada.", progress: 1)
+    }
+
+    /// Reinicia apenas o estado de captura mantendo a sessao aberta.
+    func resetCaptureStateForReuse() {
+        guard isMeasurementSessionReady else {
+            beginPreparingCapture()
+            return
         }
 
-        print("Sensores disponíveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
+        captureReadinessEngine.reset()
+        lastVerificationEvaluation = .empty
+        setCaptureState(.preparing,
+                        hint: CameraCaptureBlockReason.preparingSession.shortMessage,
+                        progress: 0)
+    }
+
+    /// Atualiza o pipeline com a avaliacao mais recente das verificacoes.
+    func handleVerificationEvaluation(_ evaluation: VerificationFrameEvaluation) {
+        guard isSessionRunning || captureState == .preparing else { return }
+        lastVerificationEvaluation = evaluation
+        updateCaptureReadiness()
+    }
+
+    /// Atualiza o estado publicado da captura usando a avaliacao mais recente.
+    func updateCaptureReadiness() {
+        guard captureState != .capturing, captureState != .captured else { return }
+
+        let readiness = calibrationReadiness()
+        let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
+                                          sessionReady: isMeasurementSessionReady,
+                                          calibrationReady: readiness.ready)
+        let status = captureReadinessEngine.evaluate(input: input)
+        applyReadiness(status, calibrationHint: readiness.hint)
+    }
+
+    /// Informa se ainda existe um frame estavel e recente o suficiente para capturar.
+    func canCaptureCurrentFrame() -> Bool {
+        guard isCaptureReady else { return false }
+        guard lastFrameTimestamp > 0 else { return false }
+        guard captureReadinessEngine.isFrameFresh(lastFrameTimestamp) else { return false }
+        return calibrationReadiness().ready
+    }
+
+    /// Limpa os dados acumulados do pipeline de captura.
+    func resetCapturePipeline(resetCalibration: Bool) {
+        captureReadinessEngine.reset()
+        lastVerificationEvaluation = .empty
+        lastFrameTimestamp = 0
+        if Thread.isMainThread {
+            captureProgress = 0
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.captureProgress = 0
+            }
+        }
+
+        if resetCalibration {
+            lastSuccessfulCalibration = nil
+            lastSuccessfulCalibrationTimestamp = nil
+            lastCalibrationFailure = nil
+            calibrationEstimator.reset()
+        }
+    }
+
+    // MARK: - Helpers de estado
+    private var hasRecentSuccessfulCalibration: Bool {
+        guard let timestamp = lastSuccessfulCalibrationTimestamp else { return false }
+        guard lastFrameTimestamp > 0 else { return false }
+        return abs(lastFrameTimestamp - timestamp) <= CaptureReadinessEngine.defaultMaximumCaptureAge
+    }
+
+    private func applyReadiness(_ status: CaptureReadinessStatus,
+                                calibrationHint: String?) {
+        if status.isStableReady {
+            let nextState: CameraCaptureState = captureState == .countdown ? .countdown : .stableReady
+            setCaptureState(nextState, hint: "Pronto para capturar.", progress: 1)
+            return
+        }
+
+        let reason = status.blockReason ?? .unstableFrame
+        let hint = guidance(for: reason,
+                            progress: status.progress,
+                            calibrationHint: calibrationHint)
+        setCaptureState(.checking(reason), hint: hint, progress: status.progress)
+    }
+
+    private func guidance(for reason: CameraCaptureBlockReason,
+                          progress: Double,
+                          calibrationHint: String?) -> String {
+        switch reason {
+        case .calibrationUnavailable:
+            return calibrationHint ?? reason.shortMessage
+        case .unstableFrame:
+            let percent = max(Int((progress * 100).rounded()), 1)
+            return "Mantenha a posicao (\(percent)% )."
+        default:
+            return reason.shortMessage
+        }
+    }
+
+    func setCaptureState(_ state: CameraCaptureState,
+                         hint: String,
+                         progress: Double) {
+        let publish = { [weak self] in
+            guard let self else { return }
+            self.captureState = state
+            self.captureHint = hint
+            self.captureProgress = min(max(progress, 0), 1)
+        }
+
+        if Thread.isMainThread {
+            publish()
+        } else {
+            DispatchQueue.main.async(execute: publish)
+        }
+    }
+
+    private func blockReason(for error: CameraError) -> CameraCaptureBlockReason? {
+        switch error {
+        case .missingTrueDepthData:
+            return .calibrationUnavailable
+        case .sessionNotReady:
+            return .sessionUnavailable
+        case .staleFrame:
+            return .staleFrame
+        case .captureFailed:
+            return .sessionUnavailable
+        default:
+            return nil
+        }
     }
 
     // MARK: - Cleanup
     deinit {
-        print("CameraManager sendo desalocado")
-
         if isSessionRunning {
             stop()
         }
@@ -142,17 +366,15 @@ class CameraManager: NSObject, ObservableObject {
     }
 }
 
-// MARK: - Controle Manual da Câmera Frontal
+// MARK: - Controle Manual da Camera Frontal
 extension CameraManager {
-
-    /// Define manualmente se a câmera frontal pode ser utilizada pelo aplicativo.
-    /// - Parameter enabled: `true` para permitir o uso da câmera frontal, `false` para bloqueá-la.
+    /// Define manualmente se a camera frontal pode ser utilizada pelo aplicativo.
+    /// - Parameter enabled: `true` para permitir o uso da camera frontal.
     func setFrontCameraEnabled(_ enabled: Bool) {
         guard isFrontCameraEnabled != enabled else { return }
 
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
+            guard let self else { return }
             self.isFrontCameraEnabled = enabled
             self.hasTrueDepth = self.hardwareHasTrueDepth && enabled
 
@@ -165,49 +387,37 @@ extension CameraManager {
         }
     }
 
-    /// Estados possíveis para a lente da câmera frontal.
-    /// Mantém valores adicionais para futuros SDKs que reportarem o estado de limpeza diretamente.
+    /// Estados possiveis para a lente da camera frontal.
     enum CameraLensCondition: Equatable {
-        /// Estado inicial ou não determinado da lente.
         case unknown
-        /// A lente foi avaliada e está limpa.
         case clean
-        /// A lente apresenta sujeira ou precisa ser limpa.
         case needsCleaning
-        /// O dispositivo sinalizou que não está reportando o estado da lente.
         case notReporting
-        /// O hardware ou a versão do sistema não suporta a leitura da lente.
         case unsupported
-        /// A câmera frontal foi desabilitada manualmente pelo aplicativo.
         case disabled
     }
 
-    /// Trata a habilitação manual da câmera frontal.
+    /// Trata a habilitacao manual da camera frontal.
     private func handleFrontCameraEnabled() {
-        print("Câmera frontal habilitada manualmente")
+        print("Camera frontal habilitada manualmente")
         updateLensMonitoring(for: cameraPosition)
         VerificationManager.shared.updateActiveSensor(using: self)
     }
 
-    /// Trata a desabilitação manual da câmera frontal, garantindo que o app não use sensores inválidos.
+    /// Trata a desabilitacao manual da camera frontal.
     private func handleFrontCameraDisabled() {
-        print("Câmera frontal desabilitada manualmente")
+        print("Camera frontal desabilitada manualmente")
         publishLensCondition(.disabled)
 
         if cameraPosition == .front {
-            if hasLiDAR {
-                switchCamera()
-            } else {
-                stop()
-                publishError(.cameraUnavailable)
-            }
+            stop()
+            publishError(.cameraUnavailable)
         } else {
             VerificationManager.shared.updateActiveSensor(using: self)
         }
     }
 
-    /// Atualiza o monitoramento da limpeza da lente frontal conforme a posição atual.
-    /// - Parameter position: Posição da câmera atualmente ativa.
+    /// Atualiza o monitoramento da limpeza da lente frontal conforme a posicao atual.
     func updateLensMonitoring(for position: AVCaptureDevice.Position) {
         guard position == .front else {
             publishLensCondition(isFrontCameraEnabled ? .unknown : .disabled)
@@ -224,7 +434,6 @@ extension CameraManager {
             return
         }
 
-        // API oficial indisponível; utiliza heurística baseada nas verificações recentes.
         let inferredCondition = frontLensMonitor.estimatedCondition
         publishLensCondition(inferredCondition == .unknown ? .notReporting : inferredCondition)
     }
@@ -240,18 +449,20 @@ extension CameraManager {
         }
     }
 
-    /// Integra o gerenciamento de verificações de forma assíncrona para evitar ciclos de inicialização.
+    /// Integra o gerenciamento de verificacoes de forma assincrona.
     private func connectVerificationManagerAsync() {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             let verificationManager = VerificationManager.shared
+            verificationManager.evaluationHandler = { [weak self] evaluation in
+                self?.handleVerificationEvaluation(evaluation)
+            }
             self.configureLensMonitoring(using: verificationManager)
             verificationManager.updateActiveSensor(using: self)
         }
     }
 
-    /// Configura observadores para ajustar a condição da lente frontal com base nas verificações em tempo real.
-    /// - Parameter verificationManager: Fonte das verificações publicadas para o Combine.
+    /// Configura observadores para ajustar a condicao da lente frontal.
     private func configureLensMonitoring(using verificationManager: VerificationManager) {
         guard lensMonitorCancellables.isEmpty else { return }
 
@@ -265,7 +476,7 @@ extension CameraManager {
             .store(in: &lensMonitorCancellables)
     }
 
-    /// Atualiza a condição da lente com base no retorno das verificações do `VerificationManager`.
+    /// Atualiza a condicao da lente com base no retorno das verificacoes.
     private func handleLensFeedback(hasValidFaceFrame: Bool) {
         guard cameraPosition == .front else {
             frontLensMonitor.reset()
@@ -292,21 +503,16 @@ extension CameraManager {
 
 // MARK: - FrontLensCleanlinessMonitor
 private final class FrontLensCleanlinessMonitor {
-    /// Número máximo de perdas aceitáveis antes de considerar a lente suja.
     private let missThreshold: Int
-    /// Contador de atualizações consecutivas sem detecção facial.
     private var consecutiveMisses = 0
-    /// Última condição inferida para a lente frontal.
     private var lastCondition: CameraManager.CameraLensCondition = .unknown
-    /// Indica se já houve dados suficientes para estimar o estado da lente.
     private var hasReceivedFeedback = false
 
     init(missThreshold: Int = 24) {
         self.missThreshold = missThreshold
     }
 
-    /// Registra uma nova observação e retorna a condição estimada da lente frontal.
-    /// - Parameter hasValidFaceFrame: Indica se o frame atual possui rosto detectado em posição utilizável.
+    /// Registra uma nova observacao e retorna a condicao estimada da lente frontal.
     func register(hasValidFaceFrame: Bool) -> CameraManager.CameraLensCondition {
         hasReceivedFeedback = true
 
@@ -321,13 +527,13 @@ private final class FrontLensCleanlinessMonitor {
         return lastCondition
     }
 
-    /// Retorna a melhor estimativa disponível mesmo quando não há feedback recente.
+    /// Retorna a melhor estimativa disponivel mesmo sem feedback recente.
     var estimatedCondition: CameraManager.CameraLensCondition {
         guard hasReceivedFeedback else { return .unknown }
         return lastCondition
     }
 
-    /// Reinicia os contadores e estado interno do monitor.
+    /// Reinicia o estado interno do monitor.
     func reset() {
         consecutiveMisses = 0
         lastCondition = .unknown
@@ -338,6 +544,7 @@ private final class FrontLensCleanlinessMonitor {
 // MARK: - ARSessionDelegate
 extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        lastFrameTimestamp = frame.timestamp
         outputDelegate?(frame)
 
         guard cameraPosition == .front, hasTrueDepth else { return }
@@ -345,25 +552,31 @@ extension CameraManager: ARSessionDelegate {
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
-        if case .normal = camera.trackingState { return }
+        guard case .normal = camera.trackingState else {
+            VerificationManager.shared.reset()
+            resetCapturePipeline(resetCalibration: true)
+            setCaptureState(.checking(.trackingUnavailable),
+                            hint: CameraCaptureBlockReason.trackingUnavailable.shortMessage,
+                            progress: 0)
+            return
+        }
 
-        // Quando o rastreamento não está normal, reseta verificações
-        VerificationManager.shared.reset()
-        calibrationEstimator.reset()
+        updateCaptureReadiness()
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
-        publishARError("Sessão AR falhou: \(error.localizedDescription)")
-        calibrationEstimator.reset()
+        publishARError("Sessao AR falhou: \(error.localizedDescription)")
+        beginPreparingCapture()
         restartSession()
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
-        publishARError("Sessão AR interrompida")
-        calibrationEstimator.reset()
+        publishARError("Sessao AR interrompida")
+        beginPreparingCapture()
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
+        beginPreparingCapture()
         restartSession()
     }
 }
