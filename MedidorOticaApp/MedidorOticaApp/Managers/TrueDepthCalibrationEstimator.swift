@@ -24,6 +24,7 @@ final class TrueDepthCalibrationEstimator {
         let lastBaselineError: Double?
         let lastRejectReason: TrueDepthBlockReason?
         let lastValidSampleTimestamp: TimeInterval?
+        let lastTrackedFaceTimestamp: TimeInterval?
     }
 
     // MARK: - Tipos Internos
@@ -40,6 +41,11 @@ final class TrueDepthCalibrationEstimator {
         case rejected(TrueDepthBlockReason)
     }
 
+    private enum SensorLivenessOutcome {
+        case trackedFace
+        case blocked(TrueDepthBlockReason)
+    }
+
     // MARK: - Constantes
     private enum Constants {
         static let maxSamples = 24
@@ -51,6 +57,7 @@ final class TrueDepthCalibrationEstimator {
         static let minimumHorizontalPixels: Double = 6
         static let minMMPerPixel: Double = 0.01
         static let maxMMPerPixel: Double = 1.0
+        static let sensorLivenessLifetime: TimeInterval = 0.45
     }
 
     // MARK: - Estado
@@ -60,6 +67,9 @@ final class TrueDepthCalibrationEstimator {
     private var lastSample: CalibrationSample?
     private var lastRejectReason: TrueDepthBlockReason?
     private var lastRejectTimestamp: TimeInterval?
+    private var lastTrackedFaceTimestamp: TimeInterval?
+    private var lastLivenessFailureReason: TrueDepthBlockReason?
+    private var lastLivenessFailureTimestamp: TimeInterval?
     private var lastFrameTimestamp: TimeInterval = 0
 
     // MARK: - Log
@@ -76,6 +86,9 @@ final class TrueDepthCalibrationEstimator {
             lastSample = nil
             lastRejectReason = nil
             lastRejectTimestamp = nil
+            lastTrackedFaceTimestamp = nil
+            lastLivenessFailureReason = nil
+            lastLivenessFailureTimestamp = nil
             lastFrameTimestamp = 0
         }
     }
@@ -84,11 +97,15 @@ final class TrueDepthCalibrationEstimator {
     @discardableResult
     func ingest(frame: ARFrame,
                 bootstrapSampleCount: Int = 2) -> TrueDepthBootstrapStatus {
-        let outcome = Self.makeSampleOutcome(from: frame)
+        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
+        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
+        let outcome = Self.makeSampleOutcome(from: frame,
+                                             faceAnchorResult: faceAnchorResult)
         let timestamp = frame.timestamp
 
         return queue.sync {
             lastFrameTimestamp = timestamp
+            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
             register(outcome: outcome, timestamp: timestamp)
             purgeSamples(referenceTime: timestamp)
             return bootstrapStatusLocked(minRecentSamples: bootstrapSampleCount)
@@ -107,11 +124,15 @@ final class TrueDepthCalibrationEstimator {
                             cropRect: CGRect,
                             orientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-        let outcome = Self.makeSampleOutcome(from: frame)
+        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
+        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
+        let outcome = Self.makeSampleOutcome(from: frame,
+                                             faceAnchorResult: faceAnchorResult)
         let timestamp = frame.timestamp
 
         return queue.sync {
             lastFrameTimestamp = timestamp
+            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
             register(outcome: outcome, timestamp: timestamp)
             purgeSamples(referenceTime: timestamp)
             return Self.makeCalibration(from: samples,
@@ -125,11 +146,15 @@ final class TrueDepthCalibrationEstimator {
                             cropRect: CGRect,
                             orientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-        let outcome = Self.makeSampleOutcome(from: frame)
+        let faceAnchorResult = Self.trackedFaceAnchor(in: frame)
+        let livenessOutcome = Self.makeSensorLivenessOutcome(from: faceAnchorResult)
+        let outcome = Self.makeSampleOutcome(from: frame,
+                                             faceAnchorResult: faceAnchorResult)
         let timestamp = frame.timestamp
 
         return queue.sync {
             lastFrameTimestamp = timestamp
+            register(livenessOutcome: livenessOutcome, timestamp: timestamp)
             register(outcome: outcome, timestamp: timestamp)
             purgeSamples(referenceTime: timestamp)
 
@@ -159,7 +184,8 @@ final class TrueDepthCalibrationEstimator {
                                lastDepthMM: lastSample.map { $0.depthMeters * 1000.0 },
                                lastBaselineError: lastSample?.baselineError,
                                lastRejectReason: lastRejectReason,
-                               lastValidSampleTimestamp: lastSample?.timestamp)
+                               lastValidSampleTimestamp: lastSample?.timestamp,
+                               lastTrackedFaceTimestamp: lastTrackedFaceTimestamp)
         }
     }
 
@@ -218,6 +244,19 @@ final class TrueDepthCalibrationEstimator {
         }
     }
 
+    private func register(livenessOutcome: SensorLivenessOutcome,
+                          timestamp: TimeInterval) {
+        switch livenessOutcome {
+        case .trackedFace:
+            lastTrackedFaceTimestamp = timestamp
+            lastLivenessFailureReason = nil
+            lastLivenessFailureTimestamp = nil
+        case .blocked(let reason):
+            lastLivenessFailureReason = reason
+            lastLivenessFailureTimestamp = timestamp
+        }
+    }
+
     private func store(_ sample: CalibrationSample) {
         guard sample.baselineError.isFinite else {
             Self.debug(120, "Descartando amostra com baseline indefinido")
@@ -256,9 +295,14 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Bootstrap
     private func bootstrapStatusLocked(minRecentSamples: Int) -> TrueDepthBootstrapStatus {
-        let referenceTime = max(lastFrameTimestamp,
-                                lastSample?.timestamp ?? 0,
-                                lastRejectTimestamp ?? 0)
+        let referenceCandidates = [
+            lastFrameTimestamp,
+            lastSample?.timestamp ?? 0,
+            lastRejectTimestamp ?? 0,
+            lastTrackedFaceTimestamp ?? 0,
+            lastLivenessFailureTimestamp ?? 0
+        ]
+        let referenceTime = referenceCandidates.max() ?? 0
 
         guard referenceTime > 0 else {
             return TrueDepthBootstrapStatus(state: .startingSession,
@@ -269,6 +313,14 @@ final class TrueDepthCalibrationEstimator {
         }
 
         let recentSamples = samples.filter { referenceTime - $0.timestamp <= Constants.sampleLifetime }
+        if hasRecentTrackedFaceLocked(referenceTime: referenceTime) {
+            return TrueDepthBootstrapStatus(state: .sensorAlive,
+                                            failureReason: nil,
+                                            recentSampleCount: recentSamples.count,
+                                            lastValidSampleTimestamp: lastSample?.timestamp,
+                                            lastRejectTimestamp: lastRejectTimestamp)
+        }
+
         guard recentSamples.count < minRecentSamples else {
             return TrueDepthBootstrapStatus(state: .sensorAlive,
                                             failureReason: nil,
@@ -288,6 +340,12 @@ final class TrueDepthCalibrationEstimator {
 
     private func currentBootstrapReasonLocked(referenceTime: TimeInterval,
                                               recentSampleCount: Int) -> TrueDepthBlockReason {
+        if let lastLivenessFailureReason,
+           let lastLivenessFailureTimestamp,
+           referenceTime - lastLivenessFailureTimestamp <= Constants.sensorLivenessLifetime {
+            return lastLivenessFailureReason
+        }
+
         if let lastRejectReason,
            let lastRejectTimestamp,
            referenceTime - lastRejectTimestamp <= Constants.sampleLifetime {
@@ -303,6 +361,11 @@ final class TrueDepthCalibrationEstimator {
         }
 
         return .noFaceAnchor
+    }
+
+    private func hasRecentTrackedFaceLocked(referenceTime: TimeInterval) -> Bool {
+        guard let lastTrackedFaceTimestamp else { return false }
+        return referenceTime - lastTrackedFaceTimestamp <= Constants.sensorLivenessLifetime
     }
 
     private func bootstrapState(for reason: TrueDepthBlockReason) -> TrueDepthBootstrapState {
@@ -346,13 +409,22 @@ final class TrueDepthCalibrationEstimator {
     }
 
     // MARK: - Geracao de amostras
-    private static func makeSampleOutcome(from frame: ARFrame) -> SampleOutcome {
+    private static func makeSensorLivenessOutcome(from faceAnchorResult: Result<ARFaceAnchor, TrueDepthBlockReason>) -> SensorLivenessOutcome {
+        switch faceAnchorResult {
+        case .success:
+            return .trackedFace
+        case .failure(let reason):
+            return .blocked(reason)
+        }
+    }
+
+    private static func makeSampleOutcome(from frame: ARFrame,
+                                          faceAnchorResult: Result<ARFaceAnchor, TrueDepthBlockReason>) -> SampleOutcome {
         guard case .normal = frame.camera.trackingState else {
             debug(201, "Tracking state nao normal")
             return .rejected(.faceNotTracked)
         }
 
-        let faceAnchorResult = trackedFaceAnchor(in: frame)
         guard case .success(let faceAnchor) = faceAnchorResult else {
             if case .failure(let reason) = faceAnchorResult {
                 return .rejected(reason)

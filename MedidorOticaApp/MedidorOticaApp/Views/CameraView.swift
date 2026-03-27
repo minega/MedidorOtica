@@ -48,7 +48,7 @@ struct CameraView: View {
     }
 
     private var shouldShowVerificationMenu: Bool {
-        showVerifications && cameraManager.isTrueDepthSensorAlive
+        showVerifications
     }
 
     // MARK: - View

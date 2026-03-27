@@ -111,6 +111,17 @@ struct CaptureReadinessEngineTests {
         #expect(ready.sensorAlive)
     }
 
+    @Test func trueDepthBootstrapCanUnlockBeforeCalibrationSamplesExist() async throws {
+        let status = TrueDepthBootstrapStatus(state: .sensorAlive,
+                                              failureReason: nil,
+                                              recentSampleCount: 0,
+                                              lastValidSampleTimestamp: nil,
+                                              lastRejectTimestamp: 4.0)
+
+        #expect(status.sensorAlive)
+        #expect(status.recentSampleCount == 0)
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,
