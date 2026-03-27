@@ -74,6 +74,10 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var captureState: CameraCaptureState = .idle
     @Published private(set) var captureHint = CameraCaptureBlockReason.preparingSession.shortMessage
     @Published private(set) var captureProgress = 0.0
+    @Published private(set) var trueDepthState: TrueDepthBootstrapState = .startingSession
+    @Published private(set) var trueDepthFailureReason: TrueDepthBlockReason?
+    @Published private(set) var trueDepthRecoveryAttempt = 0
+    @Published private(set) var trueDepthLastValidSampleTimestamp: TimeInterval?
 
     /// Callback invocado a cada novo frame AR.
     var outputDelegate: ((ARFrame) -> Void)?
@@ -95,6 +99,13 @@ final class CameraManager: NSObject, ObservableObject {
     private var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
     var lastFrameTimestamp: TimeInterval = 0
     var lastSuccessfulCalibrationTimestamp: TimeInterval?
+    private let trueDepthRecoveryPolicy = TrueDepthRecoveryPolicy()
+    private var trueDepthBootstrapStartTimestamp: TimeInterval?
+    private var trueDepthLastProgressTimestamp: TimeInterval?
+    private var trueDepthLastRestartTimestamp: TimeInterval?
+    private var trueDepthInternalState: TrueDepthBootstrapState = .startingSession
+    private var trueDepthInternalFailureReason: TrueDepthBlockReason?
+    private var trueDepthInternalRecoveryAttempt = 0
 
     // MARK: - Monitoring
     private var lensMonitorCancellables: Set<AnyCancellable> = []
@@ -143,13 +154,17 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Informa se a calibracao TrueDepth esta pronta para captura e retorna um hint amigavel.
     func calibrationReadiness() -> (ready: Bool, hint: String?) {
-        if let calibration = lastSuccessfulCalibration,
-           calibration.isReliable,
-           hasRecentSuccessfulCalibration {
+        guard cameraPosition == .front, isUsingARSession else {
             return (true, nil)
         }
 
-        guard cameraPosition == .front, isUsingARSession else {
+        guard isTrueDepthSensorAlive else {
+            return (false, trueDepthHint())
+        }
+
+        if let calibration = lastSuccessfulCalibration,
+           calibration.isReliable,
+           hasRecentSuccessfulCalibration {
             return (true, nil)
         }
 
@@ -184,6 +199,11 @@ final class CameraManager: NSObject, ObservableObject {
         hasTrueDepth &&
         isFrontCameraEnabled &&
         arSession != nil
+    }
+
+    /// Informa se o TrueDepth ja provou que esta produzindo dados uteis.
+    var isTrueDepthSensorAlive: Bool {
+        trueDepthInternalState.isSensorAlive
     }
 
     /// Informa se a captura esta liberada pelo pipeline.
@@ -280,6 +300,7 @@ final class CameraManager: NSObject, ObservableObject {
             lastSuccessfulCalibration = nil
             lastSuccessfulCalibrationTimestamp = nil
             lastCalibrationFailure = nil
+            trueDepthLastValidSampleTimestamp = nil
             calibrationEstimator.reset()
         }
     }
@@ -349,6 +370,158 @@ final class CameraManager: NSObject, ObservableObject {
             return .sessionUnavailable
         default:
             return nil
+        }
+    }
+
+    // MARK: - Bootstrap do TrueDepth
+    /// Prepara o bootstrap do sensor antes do inicio das verificacoes.
+    func prepareTrueDepthBootstrap(resetRecoveryAttempt: Bool,
+                                   recoveryReason: TrueDepthBlockReason? = nil) {
+        VerificationManager.shared.setTrueDepthGate(isOpen: false)
+        trueDepthBootstrapStartTimestamp = nil
+        trueDepthLastProgressTimestamp = nil
+        trueDepthInternalFailureReason = recoveryReason
+
+        if resetRecoveryAttempt {
+            trueDepthInternalRecoveryAttempt = 0
+            trueDepthLastRestartTimestamp = nil
+            publishTrueDepthState(.startingSession,
+                                  failureReason: nil,
+                                  lastValidSampleTimestamp: nil)
+            return
+        }
+
+        publishTrueDepthState(.recovering(attempt: max(trueDepthInternalRecoveryAttempt, 1)),
+                              failureReason: recoveryReason,
+                              lastValidSampleTimestamp: nil)
+    }
+
+    /// Retorna um texto curto que explica o bloqueio atual do sensor.
+    func trueDepthHint() -> String {
+        switch trueDepthInternalState {
+        case .startingSession:
+            return "Ativando TrueDepth."
+        case .waitingForFaceAnchor:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Mostre o rosto para ativar o sensor."
+        case .waitingForEyeProjection:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Mostre bem os olhos para a camera."
+        case .waitingForDepthConsistency:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Estabilize o TrueDepth."
+        case .sensorAlive:
+            return "TrueDepth ativo."
+        case .recovering(let attempt):
+            return "Reiniciando TrueDepth (\(attempt))."
+        case .failed(let reason):
+            return reason.shortMessage
+        }
+    }
+
+    /// Atualiza o bootstrap do sensor e decide se o watchdog precisa reiniciar a sessao.
+    func handleTrueDepthBootstrap(status: TrueDepthBootstrapStatus,
+                                  referenceTimestamp: TimeInterval) {
+        let wasSensorAlive = isTrueDepthSensorAlive
+        noteTrueDepthProgress(status: status, referenceTimestamp: referenceTimestamp)
+        VerificationManager.shared.setTrueDepthGate(isOpen: status.sensorAlive)
+
+        if status.sensorAlive {
+            if !wasSensorAlive {
+                resetCaptureStateForReuse()
+            }
+
+            trueDepthInternalRecoveryAttempt = 0
+            trueDepthInternalFailureReason = nil
+            publishTrueDepthState(.sensorAlive,
+                                  failureReason: nil,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+            return
+        }
+
+        if wasSensorAlive {
+            VerificationManager.shared.reset()
+            resetCapturePipeline(resetCalibration: true)
+            setCaptureState(.checking(.calibrationUnavailable),
+                            hint: status.failureReason?.shortMessage ?? trueDepthHint(),
+                            progress: 0)
+        }
+
+        let decision = trueDepthRecoveryPolicy.decision(referenceTimestamp: referenceTimestamp,
+                                                        lastProgressTimestamp: trueDepthLastProgressTimestamp,
+                                                        lastRestartTimestamp: trueDepthLastRestartTimestamp,
+                                                        recoveryAttempt: trueDepthInternalRecoveryAttempt,
+                                                        failureReason: status.failureReason)
+
+        switch decision {
+        case .restart(let reason):
+            recoverTrueDepth(reason: reason, referenceTimestamp: referenceTimestamp)
+        case .showFailure(let reason):
+            publishTrueDepthState(.failed(reason: reason),
+                                  failureReason: reason,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+        case .none:
+            publishTrueDepthState(status.state,
+                                  failureReason: status.failureReason,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+        }
+    }
+
+    private func noteTrueDepthProgress(status: TrueDepthBootstrapStatus,
+                                       referenceTimestamp: TimeInterval) {
+        if trueDepthBootstrapStartTimestamp == nil {
+            trueDepthBootstrapStartTimestamp = referenceTimestamp
+        }
+
+        if status.sensorAlive {
+            trueDepthLastProgressTimestamp = referenceTimestamp
+            return
+        }
+
+        if trueDepthInternalFailureReason != status.failureReason ||
+            trueDepthInternalState != status.state {
+            trueDepthLastProgressTimestamp = referenceTimestamp
+            return
+        }
+
+        if trueDepthLastProgressTimestamp == nil {
+            trueDepthLastProgressTimestamp = trueDepthBootstrapStartTimestamp ?? referenceTimestamp
+        }
+    }
+
+    private func recoverTrueDepth(reason: TrueDepthBlockReason,
+                                  referenceTimestamp: TimeInterval) {
+        trueDepthInternalRecoveryAttempt += 1
+        trueDepthLastRestartTimestamp = referenceTimestamp
+        trueDepthLastProgressTimestamp = referenceTimestamp
+        publishTrueDepthState(.recovering(attempt: trueDepthInternalRecoveryAttempt),
+                              failureReason: reason,
+                              lastValidSampleTimestamp: nil)
+        restartSession(recoveryReason: reason)
+    }
+
+    private func publishTrueDepthState(_ state: TrueDepthBootstrapState,
+                                       failureReason: TrueDepthBlockReason?,
+                                       lastValidSampleTimestamp: TimeInterval?) {
+        trueDepthInternalState = state
+        trueDepthInternalFailureReason = failureReason
+
+        let publish = { [weak self] in
+            guard let self else { return }
+            let publishedAttempt: Int
+            if case .recovering(let attempt) = state {
+                publishedAttempt = attempt
+            } else {
+                publishedAttempt = self.trueDepthInternalRecoveryAttempt
+            }
+
+            self.trueDepthState = state
+            self.trueDepthFailureReason = failureReason
+            self.trueDepthRecoveryAttempt = publishedAttempt
+            self.trueDepthLastValidSampleTimestamp = lastValidSampleTimestamp
+        }
+
+        if Thread.isMainThread {
+            publish()
+        } else {
+            DispatchQueue.main.async(execute: publish)
         }
     }
 
@@ -549,14 +722,24 @@ private final class FrontLensCleanlinessMonitor {
 extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastFrameTimestamp = frame.timestamp
-        outputDelegate?(frame)
+        guard cameraPosition == .front, hasTrueDepth else {
+            outputDelegate?(frame)
+            return
+        }
 
-        guard cameraPosition == .front, hasTrueDepth else { return }
-        calibrationEstimator.ingest(frame: frame)
+        let bootstrapStatus = calibrationEstimator.ingest(frame: frame)
+        handleTrueDepthBootstrap(status: bootstrapStatus,
+                                 referenceTimestamp: frame.timestamp)
+        outputDelegate?(frame)
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
         guard case .normal = camera.trackingState else {
+            prepareTrueDepthBootstrap(resetRecoveryAttempt: true,
+                                      recoveryReason: .faceNotTracked)
+            publishTrueDepthState(.waitingForFaceAnchor,
+                                  failureReason: .faceNotTracked,
+                                  lastValidSampleTimestamp: nil)
             VerificationManager.shared.reset()
             resetCapturePipeline(resetCalibration: true)
             setCaptureState(.checking(.trackingUnavailable),
@@ -577,6 +760,8 @@ extension CameraManager: ARSessionDelegate {
     func sessionWasInterrupted(_ session: ARSession) {
         publishARError("Sessao AR interrompida")
         beginPreparingCapture()
+        prepareTrueDepthBootstrap(resetRecoveryAttempt: false,
+                                  recoveryReason: .noRecentSamples)
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {

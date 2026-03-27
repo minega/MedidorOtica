@@ -171,8 +171,9 @@ extension CameraManager {
         let vertical = diagnostics.lastVerticalMMPerPixel.map { String(format: "%.5f", $0) } ?? "n/d"
         let depth = diagnostics.lastDepthMM.map { String(format: "%.1f", $0) } ?? "n/d"
         let baselineError = diagnostics.lastBaselineError.map { String(format: "%.3f", $0) } ?? "n/d"
+        let rejectReason = diagnostics.lastRejectReason?.shortMessage ?? "n/d"
 
-        print("Diagnostico TrueDepth (\(reason)) -> amostras: \(diagnostics.recentSampleCount)/\(diagnostics.storedSampleCount) mm/pixel: \(horizontal) x \(vertical) profundidade: \(depth)mm erroIPD: \(baselineError)")
+        print("Diagnostico TrueDepth (\(reason)) -> amostras: \(diagnostics.recentSampleCount)/\(diagnostics.storedSampleCount) mm/pixel: \(horizontal) x \(vertical) profundidade: \(depth)mm erroIPD: \(baselineError) rejeicao: \(rejectReason)")
     }
 
     /// Registra mensagem de falha numerada para facilitar depuracao.

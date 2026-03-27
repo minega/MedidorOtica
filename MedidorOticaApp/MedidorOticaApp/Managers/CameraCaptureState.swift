@@ -7,6 +7,135 @@
 
 import Foundation
 
+// MARK: - Motivos de bloqueio do TrueDepth
+/// Motivos que explicam porque o sensor TrueDepth ainda nao esta vivo para medir.
+enum TrueDepthBlockReason: Equatable, Sendable {
+    case noFaceAnchor
+    case faceNotTracked
+    case invalidIntrinsics
+    case invalidEyeDepth
+    case ipdOutOfRange
+    case pixelBaselineTooSmall
+    case scaleOutOfRange
+    case baselineNoiseTooHigh
+    case noRecentSamples
+
+    /// Texto curto para diagnostico e orientacao do usuario.
+    var shortMessage: String {
+        switch self {
+        case .noFaceAnchor:
+            return "Mostre o rosto para ativar o TrueDepth."
+        case .faceNotTracked:
+            return "Rosto rastreado de forma instavel."
+        case .invalidIntrinsics:
+            return "Nao foi possivel iniciar a calibracao da camera."
+        case .invalidEyeDepth:
+            return "Mostre bem os olhos para a camera."
+        case .ipdOutOfRange:
+            return "Ajuste a distancia do rosto."
+        case .pixelBaselineTooSmall:
+            return "Aproxime o rosto para medir os olhos."
+        case .scaleOutOfRange:
+            return "Estabilize a posicao do celular."
+        case .baselineNoiseTooHigh:
+            return "Mantenha o rosto firme para reduzir ruido."
+        case .noRecentSamples:
+            return "Segure firme para estabilizar o TrueDepth."
+        }
+    }
+
+    /// Indica se o watchdog deve tentar reiniciar a sessao automaticamente.
+    var shouldAutoRecover: Bool {
+        switch self {
+        case .noFaceAnchor, .faceNotTracked:
+            return false
+        default:
+            return true
+        }
+    }
+}
+
+// MARK: - Bootstrap do TrueDepth
+/// Estados do bootstrap do sensor antes do inicio das verificacoes.
+enum TrueDepthBootstrapState: Equatable, Sendable {
+    case startingSession
+    case waitingForFaceAnchor
+    case waitingForEyeProjection
+    case waitingForDepthConsistency
+    case sensorAlive
+    case recovering(attempt: Int)
+    case failed(reason: TrueDepthBlockReason)
+
+    /// Informa se o sensor ja destravou o fluxo normal de verificacoes.
+    var isSensorAlive: Bool {
+        if case .sensorAlive = self {
+            return true
+        }
+        return false
+    }
+}
+
+/// Snapshot consolidado do bootstrap do sensor no frame mais recente.
+struct TrueDepthBootstrapStatus: Equatable, Sendable {
+    let state: TrueDepthBootstrapState
+    let failureReason: TrueDepthBlockReason?
+    let recentSampleCount: Int
+    let lastValidSampleTimestamp: TimeInterval?
+    let lastRejectTimestamp: TimeInterval?
+
+    /// Indica se o gate das verificacoes pode ser liberado.
+    var sensorAlive: Bool {
+        state.isSensorAlive
+    }
+}
+
+// MARK: - Politica de recuperacao
+/// Decide quando o deadlock do TrueDepth deve virar reinicio automatico.
+struct TrueDepthRecoveryPolicy: Equatable, Sendable {
+    let progressTimeout: TimeInterval
+    let recoveryCooldown: TimeInterval
+    let persistentFailureThreshold: Int
+
+    init(progressTimeout: TimeInterval = 1.0,
+         recoveryCooldown: TimeInterval = 1.5,
+         persistentFailureThreshold: Int = 3) {
+        self.progressTimeout = progressTimeout
+        self.recoveryCooldown = recoveryCooldown
+        self.persistentFailureThreshold = persistentFailureThreshold
+    }
+
+    /// Avalia o estado atual do sensor e define a proxima acao.
+    func decision(referenceTimestamp: TimeInterval,
+                  lastProgressTimestamp: TimeInterval?,
+                  lastRestartTimestamp: TimeInterval?,
+                  recoveryAttempt: Int,
+                  failureReason: TrueDepthBlockReason?) -> TrueDepthRecoveryDecision {
+        guard let failureReason, failureReason.shouldAutoRecover else {
+            return .none
+        }
+
+        let baseline = lastProgressTimestamp ?? referenceTimestamp
+        guard referenceTimestamp - baseline >= progressTimeout else {
+            return .none
+        }
+
+        if let lastRestartTimestamp,
+           referenceTimestamp - lastRestartTimestamp < recoveryCooldown {
+            return recoveryAttempt >= persistentFailureThreshold ?
+                .showFailure(reason: failureReason) : .none
+        }
+
+        return .restart(reason: failureReason)
+    }
+}
+
+/// Resultado da politica de recuperacao do TrueDepth.
+enum TrueDepthRecoveryDecision: Equatable, Sendable {
+    case none
+    case restart(reason: TrueDepthBlockReason)
+    case showFailure(reason: TrueDepthBlockReason)
+}
+
 // MARK: - Motivos de bloqueio
 /// Motivos que impedem a captura de seguir para a foto final.
 enum CameraCaptureBlockReason: Equatable {

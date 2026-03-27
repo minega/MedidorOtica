@@ -53,6 +53,64 @@ struct CaptureReadinessEngineTests {
         #expect(!engine.isFrameFresh(3.20))
     }
 
+    @Test func trueDepthRecoveryDoesNotRestartWithoutFace() async throws {
+        let policy = TrueDepthRecoveryPolicy(progressTimeout: 1.0,
+                                             recoveryCooldown: 1.5,
+                                             persistentFailureThreshold: 3)
+
+        let decision = policy.decision(referenceTimestamp: 2.0,
+                                       lastProgressTimestamp: 0.5,
+                                       lastRestartTimestamp: nil,
+                                       recoveryAttempt: 0,
+                                       failureReason: .noFaceAnchor)
+
+        #expect(decision == .none)
+    }
+
+    @Test func trueDepthRecoveryRestartsAfterPersistentNoProgress() async throws {
+        let policy = TrueDepthRecoveryPolicy(progressTimeout: 1.0,
+                                             recoveryCooldown: 1.5,
+                                             persistentFailureThreshold: 3)
+
+        let decision = policy.decision(referenceTimestamp: 2.1,
+                                       lastProgressTimestamp: 1.0,
+                                       lastRestartTimestamp: nil,
+                                       recoveryAttempt: 1,
+                                       failureReason: .invalidEyeDepth)
+
+        #expect(decision == .restart(reason: .invalidEyeDepth))
+    }
+
+    @Test func trueDepthRecoveryShowsFailureDuringCooldownAfterRepeatedRestarts() async throws {
+        let policy = TrueDepthRecoveryPolicy(progressTimeout: 1.0,
+                                             recoveryCooldown: 1.5,
+                                             persistentFailureThreshold: 3)
+
+        let decision = policy.decision(referenceTimestamp: 8.0,
+                                       lastProgressTimestamp: 6.0,
+                                       lastRestartTimestamp: 7.0,
+                                       recoveryAttempt: 3,
+                                       failureReason: .baselineNoiseTooHigh)
+
+        #expect(decision == .showFailure(reason: .baselineNoiseTooHigh))
+    }
+
+    @Test func trueDepthBootstrapGateUnlocksOnlyForSensorAlive() async throws {
+        let blocked = TrueDepthBootstrapStatus(state: .waitingForFaceAnchor,
+                                               failureReason: .noFaceAnchor,
+                                               recentSampleCount: 0,
+                                               lastValidSampleTimestamp: nil,
+                                               lastRejectTimestamp: 1.0)
+        let ready = TrueDepthBootstrapStatus(state: .sensorAlive,
+                                             failureReason: nil,
+                                             recentSampleCount: 2,
+                                             lastValidSampleTimestamp: 2.0,
+                                             lastRejectTimestamp: nil)
+
+        #expect(!blocked.sensorAlive)
+        #expect(ready.sensorAlive)
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,

@@ -47,6 +47,7 @@ final class VerificationManager: ObservableObject {
                                                 qos: .userInitiated)
     private let processingGateQueue = DispatchQueue(label: "com.oticaManzolli.verification.gate")
     private var isProcessingFrame = false
+    private var trueDepthGateOpen = false
     private var lastFrameTime = Date.distantPast
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
@@ -62,12 +63,14 @@ final class VerificationManager: ObservableObject {
     // MARK: - Estado composto
     /// Verifica se todas as verificacoes obrigatorias estao corretas.
     var allVerificationsChecked: Bool {
+        guard activeSensor != .trueDepth || trueDepthGateOpen else { return false }
         faceDetected && distanceCorrect && faceAligned && headAligned
     }
 
     // MARK: - Processamento de frame
     /// Processa um `ARFrame` realizando todas as verificacoes sequenciais.
     func processARFrame(_ frame: ARFrame) {
+        guard canProcessCurrentSensorFrame() else { return }
         guard reserveProcessingSlot(at: Date()) else { return }
 
         if case .limited = frame.camera.trackingState {
@@ -107,7 +110,20 @@ final class VerificationManager: ObservableObject {
 
     /// Reavalia um frame especifico de forma sincrona para validar a captura final.
     func evaluationForCapture(_ frame: ARFrame) -> VerificationFrameEvaluation {
+        guard canProcessCurrentSensorFrame() else { return .empty }
         makeEvaluation(from: frame)
+    }
+
+    /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
+    func setTrueDepthGate(isOpen: Bool) {
+        let shouldReset = processingGateQueue.sync {
+            guard trueDepthGateOpen != isOpen else { return false }
+            trueDepthGateOpen = isOpen
+            return !isOpen
+        }
+
+        guard shouldReset else { return }
+        reset()
     }
 
     // MARK: - Gerenciamento de sensores
@@ -309,6 +325,12 @@ final class VerificationManager: ObservableObject {
         }
     }
 
+    private func canProcessCurrentSensorFrame() -> Bool {
+        processingGateQueue.sync {
+            activeSensor != .trueDepth || trueDepthGateOpen
+        }
+    }
+
     // MARK: - Estado derivado
     private func resetAllVerifications() {
         faceDetected = false
@@ -368,6 +390,9 @@ final class VerificationManager: ObservableObject {
     }
 
     private func clearSensorDependentState() {
+        processingGateQueue.sync {
+            trueDepthGateOpen = false
+        }
         resetAllVerifications()
         currentStep = .faceDetection
         updateVerificationStatus(throttled: false)

@@ -47,6 +47,10 @@ struct CameraView: View {
         cameraManager.isCaptureReady && cameraInitialized && !isProcessing
     }
 
+    private var shouldShowVerificationMenu: Bool {
+        showVerifications && cameraManager.isTrueDepthSensorAlive
+    }
+
     // MARK: - View
     var body: some View {
         ZStack {
@@ -141,7 +145,7 @@ struct CameraView: View {
         VStack {
             topBar
 
-            if showVerifications {
+            if shouldShowVerificationMenu {
                 VerificationMenu(verificationManager: verificationManager)
             }
 
@@ -443,6 +447,10 @@ struct CameraView: View {
     private func manualCaptureBlockMessage() -> String {
         if !cameraInitialized {
             return "A camera ainda esta iniciando."
+        }
+
+        if !cameraManager.isTrueDepthSensorAlive {
+            return cameraManager.trueDepthHint()
         }
 
         if !verificationManager.faceDetected {

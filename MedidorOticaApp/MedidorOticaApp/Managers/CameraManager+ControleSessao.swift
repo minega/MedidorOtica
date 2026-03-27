@@ -28,6 +28,7 @@ extension CameraManager {
         isUsingARSession = true
         isSessionRunning = true
         clearError()
+        prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
 
         let configuration = createMeasurementConfiguration()
         newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
@@ -70,13 +71,14 @@ extension CameraManager {
         isSessionRunning = false
         isUsingARSession = false
         resetCapturePipeline(resetCalibration: true)
+        prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
         setCaptureState(.idle, hint: "Camera parada.", progress: 0)
         VerificationManager.shared.reset()
         updateLensMonitoring(for: cameraPosition)
     }
 
     /// Reinicia a sessao atual apos interrupcoes ou falhas do ARKit.
-    func restartSession() {
+    func restartSession(recoveryReason: TrueDepthBlockReason? = nil) {
         guard cameraPosition == .front, hasTrueDepth else {
             stop()
             return
@@ -88,6 +90,8 @@ extension CameraManager {
         }
 
         beginPreparingCapture()
+        prepareTrueDepthBootstrap(resetRecoveryAttempt: recoveryReason == nil,
+                                  recoveryReason: recoveryReason)
         arSession.run(createMeasurementConfiguration(),
                       options: [.resetTracking, .removeExistingAnchors])
         isUsingARSession = true

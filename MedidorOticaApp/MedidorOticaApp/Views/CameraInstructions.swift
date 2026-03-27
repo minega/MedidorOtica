@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+// MARK: - Instrucoes da camera
 struct CameraInstructions: View {
     /// Observa alteracoes do `VerificationManager` para atualizar as instrucoes.
     @ObservedObject var verificationManager: VerificationManager
@@ -19,29 +20,58 @@ struct CameraInstructions: View {
 
     // MARK: - Texto principal
     private func currentInstruction() -> String {
+        if shouldShowTrueDepthBootstrap {
+            return trueDepthInstruction()
+        }
+
         switch cameraManager.captureState {
         case .preparing:
-            return "📱⏳ Preparando camera"
+            return "📱 ⏳ Preparando camera"
         case .countdown:
-            return "🙂⏱️ Mantenha a posicao"
+            return "🙂 ⏱️ Mantenha a posicao"
         case .capturing:
-            return "📱📸 Capturando"
+            return "📱 📸 Capturando"
         case .captured:
-            return "🙂✅ Foto concluida"
+            return "🙂 ✅ Foto concluida"
         case .error(let reason):
             return instruction(for: reason)
         case .checking(let reason):
             return instruction(for: reason)
         case .stableReady:
-            return "🙂✅ Pronto para capturar"
+            return "🙂 ✅ Pronto para capturar"
         case .idle:
             return fallbackInstruction()
         }
     }
 
+    private var shouldShowTrueDepthBootstrap: Bool {
+        cameraManager.isUsingARSession &&
+        cameraManager.cameraPosition == .front &&
+        !cameraManager.isTrueDepthSensorAlive
+    }
+
+    private func trueDepthInstruction() -> String {
+        switch cameraManager.trueDepthState {
+        case .startingSession:
+            return "📱 ⏳ Ativando TrueDepth"
+        case .waitingForFaceAnchor:
+            return "🙂 👀 Mostre o rosto"
+        case .waitingForEyeProjection:
+            return "🙂 👀 Mostre bem os olhos"
+        case .waitingForDepthConsistency:
+            return instruction(for: cameraManager.trueDepthFailureReason ?? .noRecentSamples)
+        case .sensorAlive:
+            return "🙂 ✅ Sensor pronto"
+        case .recovering:
+            return "📱 🔄 Reiniciando TrueDepth"
+        case .failed(let reason):
+            return instruction(for: reason)
+        }
+    }
+
     private func fallbackInstruction() -> String {
         if !verificationManager.faceDetected {
-            return "📱↔️ Centralize o rosto"
+            return "🙂 👀 Mostre o rosto"
         }
 
         if !verificationManager.distanceCorrect {
@@ -56,19 +86,19 @@ struct CameraInstructions: View {
             return headAlignmentInstruction()
         }
 
-        return "📱⏳ \(cameraManager.captureHint)"
+        return "📱 ⏳ \(cameraManager.captureHint)"
     }
 
     private func instruction(for reason: CameraCaptureBlockReason) -> String {
         switch reason {
         case .preparingSession:
-            return "📱⏳ Preparando camera"
+            return "📱 ⏳ Preparando camera"
         case .sessionUnavailable:
-            return "📱⏳ Reiniciando sessao"
+            return "📱 🔄 Reiniciando sessao"
         case .trackingUnavailable:
-            return "🙂🔄 Reenquadre o rosto"
+            return "🙂 👀 Reenquadre o rosto"
         case .faceNotDetected:
-            return "📱↔️ Centralize o rosto"
+            return "🙂 👀 Mostre o rosto"
         case .distanceOutOfRange:
             return distanceInstruction()
         case .faceNotCentered:
@@ -76,7 +106,22 @@ struct CameraInstructions: View {
         case .headNotAligned:
             return headAlignmentInstruction()
         case .calibrationUnavailable, .unstableFrame, .staleFrame:
-            return "📱⏳ \(cameraManager.captureHint)"
+            return "📱 ⏳ \(cameraManager.captureHint)"
+        }
+    }
+
+    private func instruction(for reason: TrueDepthBlockReason) -> String {
+        switch reason {
+        case .noFaceAnchor, .faceNotTracked:
+            return "🙂 👀 Mostre o rosto"
+        case .invalidIntrinsics:
+            return "📱 🔄 Reiniciando sensor"
+        case .invalidEyeDepth:
+            return "🙂 👀 Mostre bem os olhos"
+        case .ipdOutOfRange, .pixelBaselineTooSmall:
+            return "🙂 ↔️ Ajuste a distancia"
+        case .scaleOutOfRange, .baselineNoiseTooHigh, .noRecentSamples:
+            return "📱 ⏳ Estabilize o celular"
         }
     }
 
@@ -98,16 +143,16 @@ struct CameraInstructions: View {
         let currentDistance = verificationManager.lastMeasuredDistance
 
         if currentDistance <= 0 {
-            return "🙂↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
+            return "🙂 ↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
         }
 
         if currentDistance < minDistance {
             let diff = max(1, Int(round(minDistance - currentDistance)))
-            return "🙂⬅️ Afaste \(diff) cm"
+            return "🙂 ↔️ Afaste \(diff) cm"
         }
 
         let diff = max(1, Int(round(currentDistance - maxDistance)))
-        return "🙂➡️ Aproxime \(diff) cm"
+        return "🙂 ↔️ Aproxime \(diff) cm"
     }
 
     // MARK: - Centralizacao
@@ -118,23 +163,23 @@ struct CameraInstructions: View {
 
         if abs(xPos) >= abs(yPos) {
             if xPos > 0.5 {
-                return "📱⬇️ Baixe \(format(abs(xPos))) cm"
+                return "📱 ⬇️ Baixe \(format(abs(xPos))) cm"
             }
 
             if xPos < -0.5 {
-                return "📱⬆️ Levante \(format(abs(xPos))) cm"
+                return "📱 ⬆️ Levante \(format(abs(xPos))) cm"
             }
         } else {
             if yPos > 0.5 {
-                return "📱➡️ Mova \(format(abs(yPos))) cm"
+                return "📱 ➡️ Mova \(format(abs(yPos))) cm"
             }
 
             if yPos < -0.5 {
-                return "📱⬅️ Mova \(format(abs(yPos))) cm"
+                return "📱 ⬅️ Mova \(format(abs(yPos))) cm"
             }
         }
 
-        return "📱⏳ Mantenha o celular alinhado"
+        return "📱 ⏳ Mantenha o celular alinhado"
     }
 
     // MARK: - Cabeca
@@ -146,20 +191,20 @@ struct CameraInstructions: View {
 
         if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > tolerance {
             let magnitude = format(abs(roll), digits: 0)
-            return roll > 0 ? "🙂↩️ Incline \(magnitude)°" : "🙂↪️ Incline \(magnitude)°"
+            return roll > 0 ? "🙂 ↩️ Incline \(magnitude)°" : "🙂 ↪️ Incline \(magnitude)°"
         }
 
         if abs(yaw) > abs(pitch), abs(yaw) > tolerance {
             let magnitude = format(abs(yaw), digits: 0)
-            return yaw > 0 ? "🙂➡️ Vire \(magnitude)°" : "🙂⬅️ Vire \(magnitude)°"
+            return yaw > 0 ? "🙂 ➡️ Vire \(magnitude)°" : "🙂 ⬅️ Vire \(magnitude)°"
         }
 
         if abs(pitch) > tolerance {
             let magnitude = format(abs(pitch), digits: 0)
-            return pitch > 0 ? "🙂⬆️ Queixo \(magnitude)°" : "🙂⬇️ Queixo \(magnitude)°"
+            return pitch > 0 ? "🙂 ⬆️ Queixo \(magnitude)°" : "🙂 ⬇️ Queixo \(magnitude)°"
         }
 
-        return "🙂⏳ Mantenha a cabeca reta"
+        return "🙂 ⏳ Mantenha a cabeca reta"
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {
@@ -218,19 +263,26 @@ struct VerificationMenu: View {
     }
 
     private func simplifyVerificationText(_ text: String) -> String {
-        switch text.lowercased() {
-        case let value where value.contains("rosto detectado"):
-            return "👤 Rosto"
-        case let value where value.contains("distancia") || value.contains("distância"):
-            return "📍 Distancia"
-        case let value where value.contains("centraliz"):
-            return "⬜ Centro"
-        case let value where value.contains("alinha"):
-            return "🕯️ Alinhado"
-        case let value where value.contains("cabeca") || value.contains("cabeça"):
-            return "🧠 Cabeca"
-        default:
-            return text.count > 10 ? String(text.prefix(10)) + "..." : text
+        let value = text.lowercased()
+
+        if value.contains("rosto detectado") {
+            return "Rosto"
         }
+
+        if value.contains("distancia") || value.contains("distância") {
+            return "Distancia"
+        }
+
+        if value.contains("centraliz") {
+            return "Centro"
+        }
+
+        if value.contains("alinha") ||
+            value.contains("cabeca") ||
+            value.contains("cabeça") {
+            return "Cabeca"
+        }
+
+        return text.count > 12 ? String(text.prefix(12)) + "..." : text
     }
 }

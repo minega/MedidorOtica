@@ -2,18 +2,16 @@
 //  ARStatusIndicator.swift
 //  MedidorOticaApp
 //
-//  Indicador visual de status da sessão AR e detecção de rosto.
-//  Exibe duas bolinhas: ARSession e rosto detectado.
+//  Indicador visual rapido de sessao AR, bootstrap do TrueDepth e deteccao de rosto.
 //
+
 import SwiftUI
 
-/// Exibe o status da sessão AR e da detecção de rosto.
-/// A ordem das bolinhas é: ARSession e rosto detectado.
+/// Exibe o status resumido da sessao AR, do sensor TrueDepth e da deteccao de rosto.
 struct ARStatusIndicator: View {
     @ObservedObject var cameraManager: CameraManager
     @ObservedObject var verificationManager: VerificationManager
 
-    // MARK: - View
     var body: some View {
         HStack(spacing: 4) {
             Circle()
@@ -21,12 +19,24 @@ struct ARStatusIndicator: View {
                 .frame(width: 12, height: 12)
 
             Circle()
-                // Verde quando o rosto é detectado, vermelho caso contrário
-                .fill(verificationManager.faceDetected ? Color.green : Color.red)
+                .fill(sensorColor)
                 .frame(width: 12, height: 12)
 
+            Circle()
+                .fill(verificationManager.faceDetected ? Color.green : Color.red)
+                .frame(width: 12, height: 12)
         }
         .padding(.horizontal, 4)
     }
-}
 
+    private var sensorColor: Color {
+        switch cameraManager.trueDepthState {
+        case .sensorAlive:
+            return .green
+        case .recovering, .failed:
+            return .orange
+        default:
+            return .red
+        }
+    }
+}
