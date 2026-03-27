@@ -59,7 +59,7 @@ enum CameraError: Error, LocalizedError {
 // MARK: - CameraManager
 /// Classe responsavel por gerenciar a camera e delegar atualizacoes da sessao AR.
 final class CameraManager: NSObject, ObservableObject {
-    @MainActor static let shared = CameraManager()
+    static let shared = CameraManager()
 
     // MARK: - Published Properties
     @Published private(set) var error: CameraError?
