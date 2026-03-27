@@ -401,7 +401,7 @@ final class TrueDepthCalibrationEstimator {
             return .rejected(.invalidEyeDepth)
         }
 
-        let pixelDeltaX = abs(rightPixelX - leftPixelX)
+        let pixelDeltaX = Swift.abs(rightPixelX - leftPixelX)
         guard pixelDeltaX >= Constants.minimumHorizontalPixels,
               pixelDeltaX.isFinite else {
             debug(207, "Delta de pixels insuficiente \(pixelDeltaX)")
@@ -430,8 +430,8 @@ final class TrueDepthCalibrationEstimator {
         }
 
         let averageDepth = max(0.12, (leftDepth + rightDepth) * 0.5)
-        let depthSkew = abs(leftDepth - rightDepth) / max(averageDepth, 0.0001)
-        let scaleSkew = abs(mmPerPixelY - baselineHorizontal) / max(baselineHorizontal, 0.0001)
+        let depthSkew = Swift.abs(leftDepth - rightDepth) / max(averageDepth, 0.0001)
+        let scaleSkew = Swift.abs(mmPerPixelY - baselineHorizontal) / max(baselineHorizontal, 0.0001)
         let qualityError = max(depthSkew, scaleSkew)
         guard qualityError <= Constants.maximumBaselineErrorDiscard else {
             debug(213, "Ruido excessivo na baseline \(qualityError)")

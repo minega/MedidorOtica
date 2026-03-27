@@ -9,7 +9,7 @@ import Foundation
 
 // MARK: - Motivos de bloqueio do TrueDepth
 /// Motivos que explicam porque o sensor TrueDepth ainda nao esta vivo para medir.
-enum TrueDepthBlockReason: Equatable, Sendable {
+enum TrueDepthBlockReason: Error, Equatable, Sendable {
     case noFaceAnchor
     case faceNotTracked
     case invalidIntrinsics
