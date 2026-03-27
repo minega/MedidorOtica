@@ -2,30 +2,17 @@ name: iOS CI
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/ios-ci.yml"
-      - "MedidorOticaApp/**"
   push:
     branches:
       - main
-      - "codex/**"
-    paths:
-      - ".github/workflows/ios-ci.yml"
-      - "MedidorOticaApp/**"
+      - codex/**
   workflow_dispatch:
-
-concurrency:
-  group: ios-ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-and-test:
     name: Build e testes no simulador
-    runs-on: macos-latest
-    env:
-      PROJECT_PATH: MedidorOticaApp/MedidorOticaApp.xcodeproj
-      SCHEME: MedidorOticaApp
-      DERIVED_DATA: ${{ github.workspace }}/.build/ios-ci
+    runs-on: macos-15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -39,42 +26,18 @@ jobs:
       - name: Exibir versão do Xcode
         run: xcodebuild -version
 
-      - name: Selecionar simulador disponível
-        id: simulator
+      - name: Exibir simuladores disponíveis
         shell: bash
         run: |
-          SIMULATOR_ID=$(
-            xcrun simctl list -j devices available | python3 -c '
-import json
-import sys
-
-payload = json.load(sys.stdin)["devices"]
-
-for runtime_name in sorted(payload.keys(), reverse=True):
-    devices = payload[runtime_name]
-    iphones = [device for device in devices if device.get("isAvailable") and device["name"].startswith("iPhone")]
-    if iphones:
-        print(iphones[0]["udid"])
-        break
-'
-          )
-
-          if [ -z "$SIMULATOR_ID" ]; then
-            echo "::error::Nenhum simulador de iPhone disponível no runner."
-            exit 1
-          fi
-
-          echo "id=$SIMULATOR_ID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices
 
       - name: Build e testes
         shell: bash
         run: |
           xcodebuild \
-            -project "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
+            -project "MedidorOticaApp/MedidorOticaApp.xcodeproj" \
+            -scheme "MedidorOticaApp" \
             -configuration Debug \
-            -destination "id=${{ steps.simulator.outputs.id }}" \
-            -derivedDataPath "$DERIVED_DATA" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
             CODE_SIGNING_ALLOWED=NO \
             clean test
-
