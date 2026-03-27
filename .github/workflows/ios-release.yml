@@ -21,6 +21,8 @@ jobs:
       PROJECT_PATH: MedidorOticaApp/MedidorOticaApp.xcodeproj
       SCHEME: MedidorOticaApp
       CONFIGURATION: Release
+      APP_STORE_CONNECT_KEY_ID: G5V2B335RL
+      APP_STORE_CONNECT_ISSUER_ID: c585729a-639d-41fa-b8d8-bfeb29e17f71
       APPLE_TEAM_ID: 9T7N4J79TW
       ARCHIVE_PATH: ${{ github.workspace }}/.build/ios-release/MedidorOticaApp.xcarchive
       EXPORT_PATH: ${{ github.workspace }}/.build/ios-release/export
@@ -29,30 +31,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Selecionar Xcode estável
+      - name: Selecionar Xcode estavel
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
-      - name: Validar segredos da App Store Connect
+      - name: Validar chave da App Store Connect
         env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         shell: bash
         run: |
-          for variable_name in ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64; do
-            if [ -z "${!variable_name}" ]; then
-              echo "::error::Segredo obrigatório ausente: ${variable_name}"
-              exit 1
-            fi
-          done
+          if [ -z "$ASC_API_KEY_BASE64" ]; then
+            echo "::error::Segredo obrigatorio ausente: APP_STORE_CONNECT_API_KEY_BASE64"
+            exit 1
+          fi
 
       - name: Criar chave da App Store Connect
         env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
-          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ env.APP_STORE_CONNECT_KEY_ID }}.p8
         shell: bash
         run: |
           python3 - <<'PY'
@@ -96,8 +93,8 @@ jobs:
 
       - name: Archive assinado
         env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
         shell: bash
         run: |
           xcodebuild \
@@ -114,8 +111,8 @@ jobs:
 
       - name: Exportar IPA
         env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
         shell: bash
         run: |
           xcodebuild \
@@ -139,8 +136,8 @@ jobs:
       - name: Enviar para o TestFlight
         if: ${{ inputs.upload_to_testflight }}
         env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.APP_STORE_CONNECT_ISSUER_ID }}
         shell: bash
         run: |
           IPA_PATH=$(find "$EXPORT_PATH" -name "*.ipa" -print -quit)
