@@ -24,7 +24,7 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: G5V2B335RL
       APP_STORE_CONNECT_ISSUER_ID: c585729a-639d-41fa-b8d8-bfeb29e17f71
       APPLE_TEAM_ID: 9T7N4J79TW
-      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER: ${{ github.run_id }}
       ARCHIVE_PATH: ${{ github.workspace }}/.build/ios-release/MedidorOticaApp.xcarchive
       EXPORT_PATH: ${{ github.workspace }}/.build/ios-release/export
 
