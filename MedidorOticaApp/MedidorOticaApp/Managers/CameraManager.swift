@@ -366,6 +366,10 @@ final class CameraManager: NSObject, ObservableObject {
     }
 }
 
+// MARK: - Concurrency
+/// O gerenciamento interno ja usa filas dedicadas; esta conformidade evita falsos positivos do Swift 6.
+extension CameraManager: @unchecked Sendable {}
+
 // MARK: - Controle Manual da Camera Frontal
 extension CameraManager {
     /// Define manualmente se a camera frontal pode ser utilizada pelo aplicativo.

@@ -391,6 +391,10 @@ final class VerificationManager: ObservableObject {
     }
 }
 
+// MARK: - Concurrency
+/// As leituras e publicacoes sao serializadas internamente pelas filas do manager.
+extension VerificationManager: @unchecked Sendable {}
+
 private extension ARCamera {
     /// Facilita a leitura do estado normal de rastreamento.
     var isTrackingNormal: Bool {

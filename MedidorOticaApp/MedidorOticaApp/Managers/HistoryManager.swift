@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Combine
+@preconcurrency import Combine
 import os.log
 import UIKit
 
@@ -70,11 +70,6 @@ final class HistoryManager: ObservableObject {
         
         // Configura observadores
         setupObservers()
-    }
-    
-    deinit {
-        saveTask?.cancel()
-        cancellables.forEach { $0.cancel() }
     }
     
     // MARK: - Public Methods

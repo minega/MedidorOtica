@@ -356,6 +356,10 @@ final class TrueDepthCalibrationEstimator {
     }
 }
 
+// MARK: - Concurrency
+/// O acesso as amostras fica protegido pela fila privada do estimador.
+extension TrueDepthCalibrationEstimator: @unchecked Sendable {}
+
 // MARK: - Estatística Robusta
 private enum Statistics {
     static func robustMean(_ values: [Double]) -> Double? {

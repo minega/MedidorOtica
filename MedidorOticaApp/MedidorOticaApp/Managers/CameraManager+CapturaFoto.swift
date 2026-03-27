@@ -13,7 +13,7 @@ import ImageIO
 extension CameraManager {
     // MARK: - Captura de foto
     /// Captura uma foto somente quando o pipeline estiver realmente pronto.
-    func capturePhoto(completion: @escaping (CapturedPhoto?) -> Void) {
+    func capturePhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
         clearError()
 
         guard isMeasurementSessionReady else {
@@ -185,7 +185,7 @@ extension CameraManager {
 
     /// Encapsula o fluxo comum de falha da captura.
     private func failCapture(with error: CameraError,
-                             completion: @escaping (CapturedPhoto?) -> Void) {
+                             completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
         publishError(error)
         DispatchQueue.main.async {
             completion(nil)
