@@ -295,7 +295,7 @@ final class TrueDepthCalibrationEstimator {
 
     // MARK: - Bootstrap
     private func bootstrapStatusLocked(minRecentSamples: Int) -> TrueDepthBootstrapStatus {
-        let referenceCandidates = [
+        let referenceCandidates: [TimeInterval] = [
             lastFrameTimestamp,
             lastSample?.timestamp ?? 0,
             lastRejectTimestamp ?? 0,
