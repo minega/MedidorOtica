@@ -422,6 +422,7 @@
 				DEVELOPMENT_TEAM = 9T7N4J79TW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "necessario para tirar medidas";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "usado para alinhar o rosto";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -454,6 +455,7 @@
 				DEVELOPMENT_TEAM = 9T7N4J79TW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "necessario para tirar medidas";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "usado para alinhar o rosto";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
