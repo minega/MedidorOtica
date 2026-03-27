@@ -140,7 +140,6 @@ jobs:
         run: |
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           cp "$ASC_KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
-
       - name: Enviar para o TestFlight
         if: ${{ inputs.upload_to_testflight }}
         env:
