@@ -24,6 +24,7 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: G5V2B335RL
       APP_STORE_CONNECT_ISSUER_ID: c585729a-639d-41fa-b8d8-bfeb29e17f71
       APPLE_TEAM_ID: 9T7N4J79TW
+      BUILD_NUMBER: ${{ github.run_number }}
       ARCHIVE_PATH: ${{ github.workspace }}/.build/ios-release/MedidorOticaApp.xcarchive
       EXPORT_PATH: ${{ github.workspace }}/.build/ios-release/export
 
@@ -91,6 +92,11 @@ jobs:
           </plist>
           EOF
 
+      - name: Definir build do release
+        shell: bash
+        run: |
+          echo "Build number: $BUILD_NUMBER"
+
       - name: Archive assinado
         env:
           ASC_KEY_ID: ${{ env.APP_STORE_CONNECT_KEY_ID }}
@@ -107,6 +113,7 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             clean archive
 
       - name: Exportar IPA
