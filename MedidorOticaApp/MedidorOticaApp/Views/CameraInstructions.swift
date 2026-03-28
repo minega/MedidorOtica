@@ -26,17 +26,17 @@ struct CameraInstructions: View {
         var instruction: String {
             switch self {
             case .rollLeft(let degrees):
-                return "🙂 ↩️ Incline a cabeca cerca de \(degreesText(degrees))° para a sua esquerda"
+                return "🙂 ↩️ Incline a cabeca cerca de \(Self.degreesText(degrees))° para a sua esquerda"
             case .rollRight(let degrees):
-                return "🙂 ↪️ Incline a cabeca cerca de \(degreesText(degrees))° para a sua direita"
+                return "🙂 ↪️ Incline a cabeca cerca de \(Self.degreesText(degrees))° para a sua direita"
             case .yawLeft(let degrees):
-                return "🙂 ⬅️ Vire o rosto cerca de \(degreesText(degrees))° para a sua esquerda"
+                return "🙂 ⬅️ Vire o rosto cerca de \(Self.degreesText(degrees))° para a sua esquerda"
             case .yawRight(let degrees):
-                return "🙂 ➡️ Vire o rosto cerca de \(degreesText(degrees))° para a sua direita"
+                return "🙂 ➡️ Vire o rosto cerca de \(Self.degreesText(degrees))° para a sua direita"
             case .pitchUp(let degrees):
-                return "🙂 ⬆️ Levante o queixo cerca de \(degreesText(degrees))°"
+                return "🙂 ⬆️ Levante o queixo cerca de \(Self.degreesText(degrees))°"
             case .pitchDown(let degrees):
-                return "🙂 ⬇️ Abaixe o queixo cerca de \(degreesText(degrees))°"
+                return "🙂 ⬇️ Abaixe o queixo cerca de \(Self.degreesText(degrees))°"
             }
         }
 
