@@ -108,7 +108,9 @@ final class VerificationManager: ObservableObject {
         if Thread.isMainThread {
             work()
         } else {
-            DispatchQueue.main.async(execute: work)
+            DispatchQueue.main.async {
+                work()
+            }
         }
     }
 
@@ -235,7 +237,9 @@ final class VerificationManager: ObservableObject {
         if Thread.isMainThread {
             publishWork()
         } else {
-            DispatchQueue.main.async(execute: publishWork)
+            DispatchQueue.main.async {
+                publishWork()
+            }
         }
     }
 

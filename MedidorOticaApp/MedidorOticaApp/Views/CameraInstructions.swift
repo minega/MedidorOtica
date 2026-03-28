@@ -298,7 +298,13 @@ struct CameraInstructions: View {
             return "📱 ↕️ Ajuste a altura do celular ate o nariz ficar entre os olhos"
         }
 
-        return "🙂 ⏳ Segure a cabeca reta e o celular sem girar"
+        if let detail = diagnostics.failureDetail,
+           detail.blockingReason == .headNotAligned,
+           !detail.directionHint.isEmpty {
+            return "🙂 ⏳ \(detail.directionHint)"
+        }
+
+        return "🙂 ⏳ Reajustando alinhamento do rosto"
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {

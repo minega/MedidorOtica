@@ -77,9 +77,15 @@ struct CameraView: View {
         }
         .onAppear(perform: handleAppear)
         .onDisappear(perform: handleDisappear)
-        .onChange(of: isAutoCaptureEnabled, perform: handleAutoCaptureChange)
-        .onChange(of: cameraManager.captureState, perform: handleCaptureStateChange)
-        .onChange(of: showingResultView, perform: handleResultPresentationChange)
+        .onChange(of: isAutoCaptureEnabled) { _, isEnabled in
+            handleAutoCaptureChange(isEnabled)
+        }
+        .onChange(of: cameraManager.captureState) { _, state in
+            handleCaptureStateChange(state)
+        }
+        .onChange(of: showingResultView) { _, isShowing in
+            handleResultPresentationChange(isShowing)
+        }
     }
 
     // MARK: - Preview
@@ -332,7 +338,9 @@ struct CameraView: View {
                                                            object: nil,
                                                            queue: .main) { notification in
             guard let error = notification.userInfo?["error"] as? CameraError else { return }
-            handleCameraError(error)
+            Task { @MainActor in
+                handleCameraError(error)
+            }
         }
         notificationObservers.append(token)
     }
@@ -341,13 +349,15 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["error"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "Falha ao configurar ARSession."
+            Task { @MainActor in
+                if let message = notification.userInfo?["error"] as? String {
+                    alertMessage = message
+                } else {
+                    alertMessage = "Falha ao configurar ARSession."
+                }
+                cameraManager.stop()
+                showingAlert = true
             }
-            cameraManager.stop()
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -356,12 +366,14 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["message"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "A sessao de AR apresentou um erro."
+            Task { @MainActor in
+                if let message = notification.userInfo?["message"] as? String {
+                    alertMessage = message
+                } else {
+                    alertMessage = "A sessao de AR apresentou um erro."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -370,19 +382,21 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let reason = notification.userInfo?["reason"] as? String {
-                alertMessage = "Dispositivo nao compativel: \(reason)"
-            } else if let sensor = notification.userInfo?["sensor"] as? String {
-                alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
-            } else {
-                alertMessage = "Dispositivo nao compativel com as medicoes."
+            Task { @MainActor in
+                if let reason = notification.userInfo?["reason"] as? String {
+                    alertMessage = "Dispositivo nao compativel: \(reason)"
+                } else if let sensor = notification.userInfo?["sensor"] as? String {
+                    alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
+                } else {
+                    alertMessage = "Dispositivo nao compativel com as medicoes."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
 
-    private func checkCameraPermissions(completion: @escaping (Bool) -> Void) {
+    private func checkCameraPermissions(completion: @MainActor @escaping (Bool) -> Void) {
         let cameraAuthStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
         switch cameraAuthStatus {
@@ -390,7 +404,7 @@ struct CameraView: View {
             completion(true)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     if granted {
                         completion(true)
                     } else {
@@ -441,7 +455,7 @@ struct CameraView: View {
         showFlash = true
 
         cameraManager.capturePhoto { photo in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 isProcessing = false
 
                 if let photo {
@@ -517,15 +531,17 @@ struct CameraView: View {
 
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
                                               repeats: true) { timer in
-            if countdownValue > 1 {
-                countdownValue -= 1
-                return
-            }
+            Task { @MainActor in
+                if countdownValue > 1 {
+                    countdownValue -= 1
+                    return
+                }
 
-            timer.invalidate()
-            countdownTimer = nil
-            countdownValue = 0
-            capturePhoto()
+                timer.invalidate()
+                countdownTimer = nil
+                countdownValue = 0
+                capturePhoto()
+            }
         }
     }
 

@@ -421,7 +421,9 @@ final class CameraManager: NSObject, ObservableObject {
         if Thread.isMainThread {
             publish()
         } else {
-            DispatchQueue.main.async(execute: publish)
+            DispatchQueue.main.async {
+                publish()
+            }
         }
     }
 
@@ -445,14 +447,12 @@ final class CameraManager: NSObject, ObservableObject {
                                                   stableSampleCount: lastReadinessStatus.stableSampleCount,
                                                   requiredStableSampleCount: lastReadinessStatus.requiredStableSampleCount)
 
-        let publish = { [weak self] in
-            self?.captureDiagnostics = snapshot
-        }
-
         if Thread.isMainThread {
-            publish()
+            captureDiagnostics = snapshot
         } else {
-            DispatchQueue.main.async(execute: publish)
+            DispatchQueue.main.async { [weak self] in
+                self?.captureDiagnostics = snapshot
+            }
         }
 
         diagnosticsRecorder.record(snapshot: snapshot)
@@ -647,7 +647,9 @@ final class CameraManager: NSObject, ObservableObject {
         if Thread.isMainThread {
             publish()
         } else {
-            DispatchQueue.main.async(execute: publish)
+            DispatchQueue.main.async {
+                publish()
+            }
         }
     }
 
