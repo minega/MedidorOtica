@@ -25,13 +25,13 @@ struct CaptureReadinessEngineTests {
         #expect(VerificationType.faceDetection.menuTitle == "Rosto")
         #expect(VerificationType.distance.menuTitle == "28-45 cm")
         #expect(VerificationType.centering.menuTitle == "Nariz")
-        #expect(VerificationType.headAlignment.menuTitle == "Olhos")
+        #expect(VerificationType.headAlignment.menuTitle == "Cabeca")
     }
 
     @Test func verificationDescriptionsMatchDetailedCaptureChecks() async throws {
         #expect(VerificationType.faceDetection.description == "Rosto inteiro dentro do oval")
         #expect(VerificationType.centering.description == "Nariz alinhado ao centro do oval")
-        #expect(VerificationType.headAlignment.description == "Olhos na mesma altura e cabeca reta")
+        #expect(VerificationType.headAlignment.description == "Rosto reto em roll, yaw e pitch")
     }
 
     @Test func requiresConsecutiveStableFramesBeforeReady() async throws {

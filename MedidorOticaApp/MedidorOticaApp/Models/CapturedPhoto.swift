@@ -18,15 +18,19 @@ struct CapturedPhoto {
     let frameTimestamp: TimeInterval
     /// Orientação aplicada ao frame final entregue para o pós-captura.
     let orientation: CGImagePropertyOrientation
+    /// Aviso opcional exibido no pós-captura quando a foto exige revisão extra.
+    let captureWarning: String?
 
     /// Inicializa a captura preservando metadados úteis para auditoria futura.
     init(image: UIImage,
          calibration: PostCaptureCalibration,
          frameTimestamp: TimeInterval = 0,
-         orientation: CGImagePropertyOrientation = .up) {
+         orientation: CGImagePropertyOrientation = .up,
+         captureWarning: String? = nil) {
         self.image = image
         self.calibration = calibration
         self.frameTimestamp = frameTimestamp
         self.orientation = orientation
+        self.captureWarning = captureWarning
     }
 }

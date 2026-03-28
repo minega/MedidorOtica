@@ -91,6 +91,8 @@ struct PostCaptureFlowView: View {
                     Spacer(minLength: 12)
 
                     VStack(spacing: 20) {
+                        captureWarningBanner
+
                         Text(viewModel.stageInstructions)
                             .font(.body)
                             .foregroundColor(.white)
@@ -218,11 +220,41 @@ struct PostCaptureFlowView: View {
         if viewModel.isOnSummary {
             summaryContent
         } else {
-            Text(viewModel.stageInstructions)
-                .font(.body)
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 12) {
+                captureWarningBanner
+
+                Text(viewModel.stageInstructions)
+                    .font(.body)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    /// Exibe um alerta curto quando a captura nao confirmou olhar direto para a camera.
+    @ViewBuilder
+    private var captureWarningBanner: some View {
+        if let warning = viewModel.captureWarning, !warning.isEmpty, !viewModel.isOnSummary {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.yellow)
+                    .font(.headline)
+
+                Text(warning)
+                    .font(.footnote)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color.yellow.opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.yellow.opacity(0.5), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 

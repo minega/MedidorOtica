@@ -19,8 +19,10 @@ extension VerificationManager {
         /// Limite usado para ignorar leituras de pose claramente inconsistentes.
         static let maxPlausiblePoseDegrees: Float = 35.0
         /// Diferença máxima permitida entre a profundidade dos olhos.
+        /// Nesta fase ela fica apenas como diagnóstico complementar.
         static let maxEyeDepthDeltaMM: Float = 8.0
         /// Inclinação máxima permitida da linha interpupilar.
+        /// Nesta fase ela fica apenas como diagnóstico complementar.
         static let maxEyeLineTiltDegrees: Float = 2.5
         /// Distância mínima projetada entre os olhos para considerar a leitura válida.
         static let minProjectedEyeDeltaPoints: Float = 12.0
@@ -194,26 +196,15 @@ extension VerificationManager {
     }
 
     /// Avalia se as métricas atuais já estão boas o bastante para a captura.
+    /// A captura só depende do alinhamento da cabeça nos 3 eixos.
     private func headIsAligned(using metrics: HeadAlignmentMetrics) -> Bool {
         let isRollAligned = abs(metrics.rollDegrees) <= HeadAlignmentConstants.toleranceDegrees
         let isYawAligned = abs(metrics.yawDegrees) <= HeadAlignmentConstants.toleranceDegrees
         let isPitchAligned = abs(metrics.pitchDegrees) <= HeadAlignmentConstants.toleranceDegrees
-        let isEyeDepthBalanced = metrics.eyeDepthDeltaMM.map {
-            abs($0) <= HeadAlignmentConstants.maxEyeDepthDeltaMM
-        } ?? true
-        let isEyeLineLevel = metrics.eyeLineTiltDegrees.map {
-            abs($0) <= HeadAlignmentConstants.maxEyeLineTiltDegrees
-        } ?? true
-        let hasExpectedNoseDepth = metrics.noseDepthLeadMM.map {
-            HeadAlignmentConstants.noseDepthLeadRangeMM.contains($0)
-        } ?? true
 
         return isRollAligned &&
                isYawAligned &&
-               isPitchAligned &&
-               isEyeDepthBalanced &&
-               isEyeLineLevel &&
-               hasExpectedNoseDepth
+               isPitchAligned
     }
 
     /// Publica as métricas usadas pela UI e pelo overlay de depuração.

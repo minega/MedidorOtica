@@ -166,7 +166,7 @@ enum CameraCaptureBlockReason: Equatable {
         case .faceNotCentered:
             return "Ajuste o celular ate o nariz ficar no centro."
         case .headNotAligned:
-            return "Nivele os olhos e mantenha a cabeca reta."
+            return "Alinhe o rosto nos 3 eixos."
         case .calibrationUnavailable:
             return "Aguardando a malha facial e a calibracao do sensor."
         case .unstableFrame:

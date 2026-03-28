@@ -34,7 +34,7 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .centering:
             return "Nariz no centro"
         case .headAlignment:
-            return "Olhos nivelados"
+            return "Cabeca nos 3 eixos"
         }
     }
 
@@ -48,7 +48,7 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .centering:
             return "Nariz alinhado ao centro do oval"
         case .headAlignment:
-            return "Olhos na mesma altura e cabeca reta"
+            return "Rosto reto em roll, yaw e pitch"
         }
     }
 
@@ -62,7 +62,7 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .centering:
             return "Nariz"
         case .headAlignment:
-            return "Olhos"
+            return "Cabeca"
         }
     }
 }

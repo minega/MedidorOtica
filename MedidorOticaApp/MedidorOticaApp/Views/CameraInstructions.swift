@@ -211,19 +211,15 @@ struct CameraInstructions: View {
     }
 
     // MARK: - Cabeca
+    /// Regra do fluxo: toda instrucao de alinhamento precisa dizer o que mover.
     private func headAlignmentInstruction() -> String {
         guard let roll = verificationManager.alignmentData["roll"],
               let yaw = verificationManager.alignmentData["yaw"],
               let pitch = verificationManager.alignmentData["pitch"] else {
-            return "🙂 ↔️ Deixe o rosto de frente, com olhos na mesma altura e queixo neutro"
+            return "🙂 ↔️ Deixe o rosto de frente no oval ate o app medir os 3 eixos"
         }
 
-        let eyeLineTilt = verificationManager.alignmentData["eyeLineTiltDegrees"] ?? 0
-        let eyeDepthDelta = verificationManager.alignmentData["eyeDepthDeltaMM"] ?? 0
-        let noseDepthLead = verificationManager.alignmentData["noseDepthLeadMM"] ?? 18
         let angleTolerance: Float = 2
-        let eyeLineTolerance: Float = 2.5
-        let eyeDepthTolerance: Float = 8
 
         if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > angleTolerance {
             guard isPlausiblePoseAngle(roll) else {
@@ -264,25 +260,7 @@ struct CameraInstructions: View {
             return "🙂 ⬇️ Abaixe cerca de \(correction)° o queixo ate a camera ficar na altura das pupilas"
         }
 
-        if abs(eyeLineTilt) > eyeLineTolerance {
-            let correction = formatAngleCorrection(eyeLineTilt, tolerance: eyeLineTolerance)
-            if eyeLineTilt > 0 {
-                return "📱 ↩️ Gire cerca de \(correction)° o celular para deixar os olhos na mesma altura"
-            }
-
-            return "📱 ↪️ Gire cerca de \(correction)° o celular para deixar os olhos na mesma altura"
-        }
-
-        if abs(eyeDepthDelta) > eyeDepthTolerance {
-            let delta = format(max(abs(eyeDepthDelta), 0.5))
-            return "🙂 ↔️ Desvire um pouco o rosto. Diferenca entre os olhos: \(delta) mm"
-        }
-
-        if noseDepthLead < 4 || noseDepthLead > 35 {
-            return "📱 ↕️ Ajuste a altura do celular ate a camera ficar no meio do nariz e na altura das pupilas"
-        }
-
-        return "🙂 ⏳ Mantenha o rosto reto nos 3 eixos e os olhos na mesma altura"
+        return "🙂 ↔️ Traga o nariz para frente e deixe o queixo neutro ate zerar os 3 eixos"
     }
 
     private func formatAngleCorrection(_ angle: Float,

@@ -11,6 +11,11 @@ import ARKit
 import ImageIO
 
 extension CameraManager {
+    private enum CaptureWarningConstants {
+        /// Coeficiente acima do qual o olhar parece desviado da camera.
+        static let gazeDeviationThreshold: Float = 0.35
+    }
+
     // MARK: - Captura de foto
     /// Captura uma foto somente quando o pipeline estiver realmente pronto.
     func capturePhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
@@ -43,7 +48,9 @@ extension CameraManager {
             return
         }
 
-        guard frame.anchors.contains(where: { ($0 as? ARFaceAnchor)?.isTracked == true }) else {
+        guard let trackedFaceAnchor = frame.anchors
+            .compactMap({ $0 as? ARFaceAnchor })
+            .first(where: { $0.isTracked }) else {
             failCapture(with: .sessionNotReady, completion: completion)
             return
         }
@@ -90,7 +97,8 @@ extension CameraManager {
         let photo = CapturedPhoto(image: image,
                                   calibration: calibration,
                                   frameTimestamp: frame.timestamp,
-                                  orientation: cgOrientation)
+                                  orientation: cgOrientation,
+                                  captureWarning: makeCaptureWarning(from: trackedFaceAnchor))
 
         DispatchQueue.main.async {
             self.markCaptureCompleted()
@@ -196,5 +204,34 @@ extension CameraManager {
         DispatchQueue.main.async {
             completion(nil)
         }
+    }
+
+    // MARK: - Avisos de captura
+    /// Gera um aviso opcional quando o olhar parece nao estar voltado para a camera.
+    private func makeCaptureWarning(from faceAnchor: ARFaceAnchor) -> String? {
+        let strongestDeviation = strongestGazeDeviation(in: faceAnchor.blendShapes)
+        guard strongestDeviation >= CaptureWarningConstants.gazeDeviationThreshold else {
+            return nil
+        }
+
+        return "Aviso: o olhar nao pareceu direto para a camera. Revise a pupila com mais cuidado."
+    }
+
+    /// Mede o maior deslocamento estimado do olhar com base nos blendshapes do TrueDepth.
+    private func strongestGazeDeviation(in blendShapes: [ARFaceAnchor.BlendShapeLocation: NSNumber]) -> Float {
+        let monitoredLocations: [ARFaceAnchor.BlendShapeLocation] = [
+            .eyeLookInLeft,
+            .eyeLookOutLeft,
+            .eyeLookUpLeft,
+            .eyeLookDownLeft,
+            .eyeLookInRight,
+            .eyeLookOutRight,
+            .eyeLookUpRight,
+            .eyeLookDownRight
+        ]
+
+        return monitoredLocations
+            .map { blendShapes[$0]?.floatValue ?? 0 }
+            .max() ?? 0
     }
 }
