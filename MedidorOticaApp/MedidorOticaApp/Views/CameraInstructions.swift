@@ -19,10 +19,6 @@ struct CameraInstructions: View {
     /// Observa o estado real do pipeline de captura.
     @ObservedObject var cameraManager: CameraManager
 
-    private var diagnostics: CaptureDiagnosticsSnapshot {
-        cameraManager.captureDiagnostics
-    }
-
     var body: some View {
         instructionView(text: currentInstruction())
     }
@@ -79,14 +75,6 @@ struct CameraInstructions: View {
     }
 
     private func fallbackInstruction() -> String {
-        if let detail = diagnostics.failureDetail, !detail.blockingHint.isEmpty {
-            return detail.blockingHint
-        }
-
-        if !diagnostics.blockingHint.isEmpty {
-            return diagnostics.blockingHint
-        }
-
         if !verificationManager.faceDetected {
             return "🙂 👀 Encaixe o rosto inteiro no oval olhando para a tela"
         }
@@ -107,12 +95,6 @@ struct CameraInstructions: View {
     }
 
     private func instruction(for reason: CameraCaptureBlockReason) -> String {
-        if let detail = diagnostics.failureDetail,
-           detail.blockingReason == reason,
-           !detail.blockingHint.isEmpty {
-            return detail.blockingHint
-        }
-
         switch reason {
         case .preparingSession:
             return "📱 ⏳ Aguarde a camera abrir e estabilizar"
@@ -127,7 +109,7 @@ struct CameraInstructions: View {
         case .faceNotCentered:
             return centeringInstruction()
         case .headNotAligned:
-            return diagnostics.blockingHint.isEmpty ? "🙂 ⏳ Reajustando alinhamento do rosto" : diagnostics.blockingHint
+            return headAlignmentInstruction()
         case .calibrationUnavailable:
             return calibrationInstruction()
         case .unstableFrame:
@@ -230,12 +212,6 @@ struct CameraInstructions: View {
 
     // MARK: - Cabeca
     private func headAlignmentInstruction() -> String {
-        if let detail = diagnostics.failureDetail,
-           detail.blockingReason == .headNotAligned,
-           !detail.blockingHint.isEmpty {
-            return detail.blockingHint
-        }
-
         let roll = verificationManager.alignmentData["roll"] ?? 0
         let yaw = verificationManager.alignmentData["yaw"] ?? 0
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
@@ -298,13 +274,7 @@ struct CameraInstructions: View {
             return "📱 ↕️ Ajuste a altura do celular ate o nariz ficar entre os olhos"
         }
 
-        if let detail = diagnostics.failureDetail,
-           detail.blockingReason == .headNotAligned,
-           !detail.directionHint.isEmpty {
-            return "🙂 ⏳ \(detail.directionHint)"
-        }
-
-        return "🙂 ⏳ Reajustando alinhamento do rosto"
+        return "🙂 ⏳ Segure a cabeca reta e o celular sem girar"
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {

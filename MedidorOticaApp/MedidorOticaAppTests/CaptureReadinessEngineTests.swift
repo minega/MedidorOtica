@@ -55,10 +55,9 @@ struct CaptureReadinessEngineTests {
                                             maximumCaptureAge: 0.15)
 
         _ = engine.evaluate(input: readyInput(timestamp: 2.00))
-        let blocked = engine.evaluate(input: CaptureReadinessInput(verificationResult: readyResult(timestamp: 2.05),
+        let blocked = engine.evaluate(input: CaptureReadinessInput(evaluation: readyEvaluation(timestamp: 2.05),
                                                                    sessionReady: true,
-                                                                   calibrationReady: false,
-                                                                   calibrationHint: "Calibracao pendente"))
+                                                                   calibrationReady: false))
         let recovered = engine.evaluate(input: readyInput(timestamp: 2.10))
 
         #expect(blocked.blockReason == .calibrationUnavailable)
@@ -148,19 +147,9 @@ struct CaptureReadinessEngineTests {
     }
 
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
-        CaptureReadinessInput(verificationResult: readyResult(timestamp: timestamp),
+        CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,
-                              calibrationReady: true,
-                              calibrationHint: nil)
-    }
-
-    private func readyResult(timestamp: TimeInterval) -> VerificationFrameResult {
-        VerificationFrameResult(evaluation: readyEvaluation(timestamp: timestamp),
-                                overallStep: .completed,
-                                blockingReason: nil,
-                                blockingHint: "",
-                                failureDetail: nil,
-                                headAlignmentDiagnostic: nil)
+                              calibrationReady: true)
     }
 
     private func readyEvaluation(timestamp: TimeInterval) -> VerificationFrameEvaluation {

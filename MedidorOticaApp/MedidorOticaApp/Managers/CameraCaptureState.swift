@@ -138,7 +138,7 @@ enum TrueDepthRecoveryDecision: Equatable, Sendable {
 
 // MARK: - Motivos de bloqueio
 /// Motivos que impedem a captura de seguir para a foto final.
-enum CameraCaptureBlockReason: Equatable, Sendable {
+enum CameraCaptureBlockReason: Equatable {
     case preparingSession
     case sessionUnavailable
     case trackingUnavailable
@@ -179,7 +179,7 @@ enum CameraCaptureBlockReason: Equatable, Sendable {
 
 // MARK: - Estado da captura
 /// Estados principais do ciclo de captura.
-enum CameraCaptureState: Equatable, Sendable {
+enum CameraCaptureState: Equatable {
     case idle
     case preparing
     case checking(CameraCaptureBlockReason)
@@ -224,21 +224,14 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
 // MARK: - Entrada e saida do motor de prontidao
 /// Dados consumidos pelo motor de estabilidade da captura.
 struct CaptureReadinessInput: Equatable, Sendable {
-    let verificationResult: VerificationFrameResult
+    let evaluation: VerificationFrameEvaluation
     let sessionReady: Bool
     let calibrationReady: Bool
-    let calibrationHint: String?
-
-    /// Acesso rapido ao resumo booleano usado pelo motor de estabilidade.
-    var evaluation: VerificationFrameEvaluation {
-        verificationResult.evaluation
-    }
 }
 
 /// Resultado gerado pelo motor de estabilidade da captura.
 struct CaptureReadinessStatus: Equatable, Sendable {
     let blockReason: CameraCaptureBlockReason?
-    let failureDetail: VerificationFailureDetail?
     let stableSampleCount: Int
     let requiredStableSampleCount: Int
 

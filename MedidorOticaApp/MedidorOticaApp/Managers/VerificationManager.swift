@@ -31,12 +31,9 @@ final class VerificationManager: ObservableObject {
     @Published var facePosition: [String: Float] = [:]
     @Published private(set) var activeSensor: SensorType = .none
     @Published private(set) var latestEvaluation: VerificationFrameEvaluation = .empty
-    @Published private(set) var latestFrameResult: VerificationFrameResult = .empty
-    @Published private(set) var currentFailureDetail: VerificationFailureDetail?
-    @Published private(set) var headAlignmentDiagnostic: HeadAlignmentDiagnostic?
 
     /// Callback disparado sempre que uma nova avaliacao consistente e aplicada.
-    var evaluationHandler: ((VerificationFrameResult) -> Void)?
+    var evaluationHandler: ((VerificationFrameEvaluation) -> Void)?
 
     // MARK: - Sensor
     /// Representa o sensor ativo para as verificacoes AR.
@@ -87,9 +84,9 @@ final class VerificationManager: ObservableObject {
             guard let self else { return }
             defer { self.releaseProcessingSlot() }
 
-            let result = self.makeFrameResult(from: frame)
+            let evaluation = self.makeEvaluation(from: frame)
             DispatchQueue.main.async { [weak self] in
-                self?.apply(result: result)
+                self?.apply(evaluation: evaluation)
             }
         }
     }
@@ -99,18 +96,13 @@ final class VerificationManager: ObservableObject {
         let work = { [self] in
             resetAllVerifications()
             latestEvaluation = .empty
-            latestFrameResult = .empty
-            currentFailureDetail = nil
-            headAlignmentDiagnostic = nil
             updateVerificationStatus(throttled: false)
         }
 
         if Thread.isMainThread {
             work()
         } else {
-            DispatchQueue.main.async {
-                work()
-            }
+            DispatchQueue.main.async(execute: work)
         }
     }
 
@@ -120,9 +112,9 @@ final class VerificationManager: ObservableObject {
     }
 
     /// Reavalia um frame especifico de forma sincrona para validar a captura final.
-    func resultForCapture(_ frame: ARFrame) -> VerificationFrameResult {
+    func evaluationForCapture(_ frame: ARFrame) -> VerificationFrameEvaluation {
         guard canProcessCurrentSensorFrame() else { return .empty }
-        return makeFrameResult(from: frame)
+        return makeEvaluation(from: frame)
     }
 
     /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
@@ -237,9 +229,7 @@ final class VerificationManager: ObservableObject {
         if Thread.isMainThread {
             publishWork()
         } else {
-            DispatchQueue.main.async {
-                publishWork()
-            }
+            DispatchQueue.main.async(execute: publishWork)
         }
     }
 
@@ -254,90 +244,60 @@ final class VerificationManager: ObservableObject {
     }
 
     // MARK: - Avaliacao por frame
-    private func makeFrameResult(from frame: ARFrame) -> VerificationFrameResult {
+    private func makeEvaluation(from frame: ARFrame) -> VerificationFrameEvaluation {
         let trackingIsNormal = frame.camera.isTrackingNormal
         let faceAnchor = frame.anchors.compactMap { $0 as? ARFaceAnchor }.first
         let hasTrackedFaceAnchor = faceAnchor?.isTracked == true
 
         let faceDetected = checkFaceDetection(using: frame)
         guard faceDetected else {
-            let evaluation = VerificationFrameEvaluation(timestamp: frame.timestamp,
-                                                         trackingIsNormal: trackingIsNormal,
-                                                         hasTrackedFaceAnchor: hasTrackedFaceAnchor,
-                                                         faceDetected: false,
-                                                         distanceCorrect: false,
-                                                         faceAligned: false,
-                                                         headAligned: false)
-            return buildFrameResult(evaluation: evaluation,
-                                    step: .faceDetection,
-                                    blockingReason: .faceNotDetected,
-                                    failureDetail: faceDetectionFailureDetail())
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: trackingIsNormal,
+                                               hasTrackedFaceAnchor: hasTrackedFaceAnchor,
+                                               faceDetected: false,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headAligned: false)
         }
 
         let distanceCorrect = checkDistance(using: frame, faceAnchor: faceAnchor)
         guard distanceCorrect else {
-            let evaluation = VerificationFrameEvaluation(timestamp: frame.timestamp,
-                                                         trackingIsNormal: trackingIsNormal,
-                                                         hasTrackedFaceAnchor: hasTrackedFaceAnchor,
-                                                         faceDetected: true,
-                                                         distanceCorrect: false,
-                                                         faceAligned: false,
-                                                         headAligned: false)
-            return buildFrameResult(evaluation: evaluation,
-                                    step: .distance,
-                                    blockingReason: .distanceOutOfRange,
-                                    failureDetail: distanceFailureDetail())
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: trackingIsNormal,
+                                               hasTrackedFaceAnchor: hasTrackedFaceAnchor,
+                                               faceDetected: true,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headAligned: false)
         }
 
         let faceAligned = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
         guard faceAligned else {
-            let evaluation = VerificationFrameEvaluation(timestamp: frame.timestamp,
-                                                         trackingIsNormal: trackingIsNormal,
-                                                         hasTrackedFaceAnchor: hasTrackedFaceAnchor,
-                                                         faceDetected: true,
-                                                         distanceCorrect: true,
-                                                         faceAligned: false,
-                                                         headAligned: false)
-            return buildFrameResult(evaluation: evaluation,
-                                    step: .centering,
-                                    blockingReason: .faceNotCentered,
-                                    failureDetail: centeringFailureDetail())
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: trackingIsNormal,
+                                               hasTrackedFaceAnchor: hasTrackedFaceAnchor,
+                                               faceDetected: true,
+                                               distanceCorrect: true,
+                                               faceAligned: false,
+                                               headAligned: false)
         }
 
-        let alignmentOutcome = headAlignmentOutcome(using: frame, faceAnchor: faceAnchor)
-        let evaluation = VerificationFrameEvaluation(timestamp: frame.timestamp,
-                                                     trackingIsNormal: trackingIsNormal,
-                                                     hasTrackedFaceAnchor: hasTrackedFaceAnchor,
-                                                     faceDetected: true,
-                                                     distanceCorrect: true,
-                                                     faceAligned: true,
-                                                     headAligned: alignmentOutcome.isAligned)
-
-        if alignmentOutcome.isAligned {
-            return buildFrameResult(evaluation: evaluation,
-                                    step: .completed,
-                                    blockingReason: nil,
-                                    failureDetail: nil,
-                                    headAlignmentDiagnostic: alignmentOutcome.diagnostic)
-        }
-
-        return buildFrameResult(evaluation: evaluation,
-                                step: .headAlignment,
-                                blockingReason: .headNotAligned,
-                                failureDetail: headAlignmentFailureDetail(from: alignmentOutcome.diagnostic),
-                                headAlignmentDiagnostic: alignmentOutcome.diagnostic)
+        let headAligned = checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
+        return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                           trackingIsNormal: trackingIsNormal,
+                                           hasTrackedFaceAnchor: hasTrackedFaceAnchor,
+                                           faceDetected: true,
+                                           distanceCorrect: true,
+                                           faceAligned: true,
+                                           headAligned: headAligned)
     }
 
-    private func apply(result: VerificationFrameResult) {
-        let evaluation = result.evaluation
+    private func apply(evaluation: VerificationFrameEvaluation) {
         faceDetected = evaluation.faceDetected
         distanceCorrect = evaluation.distanceCorrect
         faceAligned = evaluation.faceAligned
         headAligned = evaluation.headAligned
         latestEvaluation = evaluation
-        latestFrameResult = result
-        currentFailureDetail = result.failureDetail
-        headAlignmentDiagnostic = result.headAlignmentDiagnostic
 
         if !evaluation.faceDetected {
             lastMeasuredDistance = 0
@@ -348,24 +308,10 @@ final class VerificationManager: ObservableObject {
             facePosition = [:]
         } else if !evaluation.faceAligned {
             alignmentData = [:]
-            headAlignmentDiagnostic = nil
         }
 
         updateVerificationStatus(throttled: true)
-        evaluationHandler?(result)
-    }
-
-    private func buildFrameResult(evaluation: VerificationFrameEvaluation,
-                                  step: VerificationStep,
-                                  blockingReason: CameraCaptureBlockReason?,
-                                  failureDetail: VerificationFailureDetail?,
-                                  headAlignmentDiagnostic: HeadAlignmentDiagnostic? = nil) -> VerificationFrameResult {
-        VerificationFrameResult(evaluation: evaluation,
-                                overallStep: step,
-                                blockingReason: blockingReason,
-                                blockingHint: failureDetail?.blockingHint ?? "",
-                                failureDetail: failureDetail,
-                                headAlignmentDiagnostic: headAlignmentDiagnostic)
+        evaluationHandler?(evaluation)
     }
 
     // MARK: - Gate de processamento
@@ -403,9 +349,6 @@ final class VerificationManager: ObservableObject {
         projectedFaceHeightRatio = 0
         alignmentData = [:]
         facePosition = [:]
-        currentFailureDetail = nil
-        headAlignmentDiagnostic = nil
-        latestFrameResult = .empty
 
         var updated = verifications
         for index in updated.indices {

@@ -33,7 +33,6 @@ struct CameraView: View {
 
     private let showDistanceOverlay = true
     private let showARStatusIndicator = true
-    private let showCaptureDiagnostics = true
 
 #if DEBUG
     private let showAlignmentDebugOverlay = true
@@ -77,15 +76,9 @@ struct CameraView: View {
         }
         .onAppear(perform: handleAppear)
         .onDisappear(perform: handleDisappear)
-        .onChange(of: isAutoCaptureEnabled) { _, isEnabled in
-            handleAutoCaptureChange(isEnabled)
-        }
-        .onChange(of: cameraManager.captureState) { _, state in
-            handleCaptureStateChange(state)
-        }
-        .onChange(of: showingResultView) { _, isShowing in
-            handleResultPresentationChange(isShowing)
-        }
+        .onChange(of: isAutoCaptureEnabled, perform: handleAutoCaptureChange)
+        .onChange(of: cameraManager.captureState, perform: handleCaptureStateChange)
+        .onChange(of: showingResultView, perform: handleResultPresentationChange)
     }
 
     // MARK: - Preview
@@ -139,20 +132,10 @@ struct CameraView: View {
 
     @ViewBuilder
     private var debugOverlay: some View {
-        if showCaptureDiagnostics {
-            CaptureDiagnosticsOverlay(cameraManager: cameraManager)
-                .padding(.horizontal, 12)
-                .padding(.top, 82)
-                .frame(maxWidth: .infinity,
-                       maxHeight: .infinity,
-                       alignment: .topLeading)
-        }
-
 #if DEBUG
         if showAlignmentDebugOverlay {
             HeadAlignmentDebugOverlay(verificationManager: verificationManager)
                 .padding(12)
-                .padding(.top, 220)
                 .frame(maxWidth: .infinity,
                        maxHeight: .infinity,
                        alignment: .topLeading)
@@ -338,17 +321,7 @@ struct CameraView: View {
                                                            object: nil,
                                                            queue: .main) { notification in
             guard let error = notification.userInfo?["error"] as? CameraError else { return }
-            let shouldAppendCalibrationHint: Bool
-            if case .missingTrueDepthData = error {
-                shouldAppendCalibrationHint = true
-            } else {
-                shouldAppendCalibrationHint = false
-            }
-            let baseMessage = error.localizedDescription
-            Task { @MainActor in
-                presentCameraErrorMessage(baseMessage,
-                                          includeCalibrationHint: shouldAppendCalibrationHint)
-            }
+            handleCameraError(error)
         }
         notificationObservers.append(token)
     }
@@ -357,10 +330,13 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            let message = notification.userInfo?["error"] as? String ?? "Falha ao configurar ARSession."
-            Task { @MainActor in
-                presentAlert(message, stopCamera: true)
+            if let message = notification.userInfo?["error"] as? String {
+                alertMessage = message
+            } else {
+                alertMessage = "Falha ao configurar ARSession."
             }
+            cameraManager.stop()
+            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -369,10 +345,12 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
-            let message = notification.userInfo?["message"] as? String ?? "A sessao de AR apresentou um erro."
-            Task { @MainActor in
-                presentAlert(message)
+            if let message = notification.userInfo?["message"] as? String {
+                alertMessage = message
+            } else {
+                alertMessage = "A sessao de AR apresentou um erro."
             }
+            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -381,24 +359,19 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            let reason = notification.userInfo?["reason"] as? String
-            let sensor = notification.userInfo?["sensor"] as? String
-            let message: String
-            if let reason {
-                message = "Dispositivo nao compativel: \(reason)"
-            } else if let sensor {
-                message = "Dispositivo nao possui o sensor \(sensor) necessario."
+            if let reason = notification.userInfo?["reason"] as? String {
+                alertMessage = "Dispositivo nao compativel: \(reason)"
+            } else if let sensor = notification.userInfo?["sensor"] as? String {
+                alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
             } else {
-                message = "Dispositivo nao compativel com as medicoes."
+                alertMessage = "Dispositivo nao compativel com as medicoes."
             }
-            Task { @MainActor in
-                presentAlert(message)
-            }
+            showingAlert = true
         }
         notificationObservers.append(token)
     }
 
-    private func checkCameraPermissions(completion: @MainActor @escaping (Bool) -> Void) {
+    private func checkCameraPermissions(completion: @escaping (Bool) -> Void) {
         let cameraAuthStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
         switch cameraAuthStatus {
@@ -406,7 +379,7 @@ struct CameraView: View {
             completion(true)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
-                Task { @MainActor in
+                DispatchQueue.main.async {
                     if granted {
                         completion(true)
                     } else {
@@ -425,7 +398,20 @@ struct CameraView: View {
     }
 
     private func showPermissionDeniedAlert() {
-        presentAlert("O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo.")
+        alertMessage = "O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo."
+        showingAlert = true
+    }
+
+    private func handleCameraError(_ error: CameraError) {
+        if case .missingTrueDepthData = error,
+           let hint = cameraManager.latestCalibrationFailureHint() {
+            alertMessage = "\(error.localizedDescription)\n\(hint)"
+        } else {
+            alertMessage = error.localizedDescription
+        }
+
+        showingAlert = true
+        isProcessing = false
     }
 
     // MARK: - Captura
@@ -444,7 +430,7 @@ struct CameraView: View {
         showFlash = true
 
         cameraManager.capturePhoto { photo in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 isProcessing = false
 
                 if let photo {
@@ -463,15 +449,6 @@ struct CameraView: View {
     }
 
     private func manualCaptureBlockMessage() -> String {
-        if let detail = cameraManager.captureDiagnostics.failureDetail,
-           !detail.blockingHint.isEmpty {
-            return detail.blockingHint
-        }
-
-        if !cameraManager.captureDiagnostics.blockingHint.isEmpty {
-            return cameraManager.captureDiagnostics.blockingHint
-        }
-
         if !cameraInitialized {
             return "A camera ainda esta iniciando. Aguarde o preview estabilizar."
         }
@@ -519,49 +496,17 @@ struct CameraView: View {
         cameraManager.setCountdownActive(true)
 
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
-                                              repeats: true) { _ in
-            Task { @MainActor in
-                handleCountdownTick()
+                                              repeats: true) { timer in
+            if countdownValue > 1 {
+                countdownValue -= 1
+                return
             }
+
+            timer.invalidate()
+            countdownTimer = nil
+            countdownValue = 0
+            capturePhoto()
         }
-    }
-
-    @MainActor
-    private func presentCameraErrorMessage(_ baseMessage: String,
-                                           includeCalibrationHint: Bool) {
-        let fullMessage: String
-        if includeCalibrationHint,
-           let hint = cameraManager.latestCalibrationFailureHint() {
-            fullMessage = "\(baseMessage)\n\(hint)"
-        } else {
-            fullMessage = baseMessage
-        }
-
-        presentAlert(fullMessage)
-        isProcessing = false
-    }
-
-    @MainActor
-    private func presentAlert(_ message: String,
-                              stopCamera: Bool = false) {
-        alertMessage = message
-        if stopCamera {
-            cameraManager.stop()
-        }
-        showingAlert = true
-    }
-
-    @MainActor
-    private func handleCountdownTick() {
-        if countdownValue > 1 {
-            countdownValue -= 1
-            return
-        }
-
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        countdownValue = 0
-        capturePhoto()
     }
 
     private func cancelCountdown(refreshState: Bool = true) {
@@ -614,100 +559,6 @@ struct HeadAlignmentDebugOverlay: View {
     }
 }
 #endif
-
-// MARK: - Diagnostico da captura
-/// Painel temporario exibido no TestFlight para acelerar a depuracao em hardware real.
-struct CaptureDiagnosticsOverlay: View {
-    @ObservedObject var cameraManager: CameraManager
-
-    private var snapshot: CaptureDiagnosticsSnapshot {
-        cameraManager.captureDiagnostics
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Diagnostico da Captura")
-                .font(.caption2.weight(.bold))
-                .foregroundColor(.white)
-
-            line("Etapa", value: snapshot.overallStep == .idle ? "Inicializando" : title(for: snapshot.overallStep))
-            line("Motivo", value: snapshot.failureDetail?.diagnosticLabel ?? snapshot.blockingReason?.shortMessage ?? "Pronto")
-            line("Instrucao", value: snapshot.blockingHint.isEmpty ? "Aguardando frame valido" : snapshot.blockingHint)
-            line("TrueDepth", value: title(for: snapshot.trueDepthState))
-            line("Calibracao", value: snapshot.calibrationReady ? "OK" : (snapshot.calibrationHint ?? "Pendente"))
-            line("Estabilidade", value: "\(snapshot.stableSampleCount)/\(snapshot.requiredStableSampleCount)")
-
-            if let headDiagnostic = snapshot.headAlignmentDiagnostic,
-               let primary = headDiagnostic.primaryFailure {
-                line("Subchecagem", value: primary.title)
-                line("Valor", value: formattedMetric(primary))
-                line("Faixa", value: formattedRange(primary))
-            }
-        }
-        .padding(10)
-        .background(Color.black.opacity(0.72))
-        .cornerRadius(10)
-        .frame(maxWidth: 320, alignment: .leading)
-        .accessibilityLabel("Painel de diagnostico detalhado da captura")
-    }
-
-    private func line(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.65))
-            Text(value)
-                .font(.caption)
-                .foregroundColor(.white)
-        }
-    }
-
-    private func formattedMetric(_ metric: VerificationMetricDiagnostic) -> String {
-        guard let value = metric.currentValue else { return "Sem leitura confiavel" }
-        return "\(String(format: "%.1f", value))\(metric.unit)"
-    }
-
-    private func formattedRange(_ metric: VerificationMetricDiagnostic) -> String {
-        guard let range = metric.targetRange else { return "Sem faixa definida" }
-        return "\(String(format: "%.1f", range.lowerBound)) a \(String(format: "%.1f", range.upperBound))\(metric.unit)"
-    }
-
-    private func title(for step: VerificationStep) -> String {
-        switch step {
-        case .idle:
-            return "Inicializando"
-        case .faceDetection:
-            return "Rosto"
-        case .distance:
-            return "Distancia"
-        case .centering:
-            return "Centralizacao"
-        case .headAlignment:
-            return "Alinhamento"
-        case .completed:
-            return "Pronto"
-        }
-    }
-
-    private func title(for state: TrueDepthBootstrapState) -> String {
-        switch state {
-        case .startingSession:
-            return "Iniciando"
-        case .waitingForFaceAnchor:
-            return "Aguardando rosto"
-        case .waitingForEyeProjection:
-            return "Aguardando olhos"
-        case .waitingForDepthConsistency:
-            return "Aguardando malha"
-        case .sensorAlive:
-            return "Sensor vivo"
-        case .recovering(let attempt):
-            return "Recuperando (\(attempt))"
-        case .failed(let reason):
-            return "Falhou: \(reason.shortMessage)"
-        }
-    }
-}
 
 // MARK: - Preview Provider
 struct CameraView_Previews: PreviewProvider {

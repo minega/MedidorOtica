@@ -80,7 +80,6 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var trueDepthFailureReason: TrueDepthBlockReason?
     @Published private(set) var trueDepthRecoveryAttempt = 0
     @Published private(set) var trueDepthLastValidSampleTimestamp: TimeInterval?
-    @Published private(set) var captureDiagnostics: CaptureDiagnosticsSnapshot = .empty
 
     /// Callback invocado a cada novo frame AR.
     var outputDelegate: ((ARFrame) -> Void)?
@@ -100,11 +99,6 @@ final class CameraManager: NSObject, ObservableObject {
     var lastSuccessfulCalibration: PostCaptureCalibration?
     var lastCalibrationFailure: (code: Int, message: String)?
     private var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
-    private var lastVerificationResult: VerificationFrameResult = .empty
-    private var lastReadinessStatus = CaptureReadinessStatus(blockReason: .preparingSession,
-                                                             failureDetail: nil,
-                                                             stableSampleCount: 0,
-                                                             requiredStableSampleCount: CaptureReadinessEngine.defaultStableSampleCount)
     var lastFrameTimestamp: TimeInterval = 0
     var lastSuccessfulCalibrationTimestamp: TimeInterval?
     private let trueDepthRecoveryPolicy = TrueDepthRecoveryPolicy()
@@ -118,7 +112,6 @@ final class CameraManager: NSObject, ObservableObject {
     // MARK: - Monitoring
     private var lensMonitorCancellables: Set<AnyCancellable> = []
     private let frontLensMonitor = FrontLensCleanlinessMonitor()
-    private let diagnosticsRecorder = CaptureDiagnosticsRecorder()
 
     // MARK: - Initialization
     private override init() {
@@ -134,10 +127,6 @@ final class CameraManager: NSObject, ObservableObject {
             guard let self else { return }
             self.error = error
             if let blockReason = self.blockReason(for: error) {
-                self.lastReadinessStatus = CaptureReadinessStatus(blockReason: blockReason,
-                                                                  failureDetail: nil,
-                                                                  stableSampleCount: 0,
-                                                                  requiredStableSampleCount: CaptureReadinessEngine.defaultStableSampleCount)
                 self.setCaptureState(.error(blockReason),
                                      hint: blockReason.shortMessage,
                                      progress: 0)
@@ -230,7 +219,6 @@ final class CameraManager: NSObject, ObservableObject {
         setCaptureState(.preparing,
                         hint: CameraCaptureBlockReason.preparingSession.shortMessage,
                         progress: 0)
-        refreshCaptureDiagnostics(calibrationReady: false, calibrationHint: nil)
     }
 
     /// Atualiza o estado de contagem regressiva da captura automatica.
@@ -241,8 +229,6 @@ final class CameraManager: NSObject, ObservableObject {
             setCaptureState(.countdown,
                             hint: "Mantenha a posicao.",
                             progress: 1)
-            refreshCaptureDiagnostics(calibrationReady: calibrationReadiness().ready,
-                                      calibrationHint: calibrationReadiness().hint)
         } else {
             updateCaptureReadiness()
         }
@@ -251,16 +237,11 @@ final class CameraManager: NSObject, ObservableObject {
     /// Marca o inicio da captura real da foto.
     func markCaptureStarted() {
         setCaptureState(.capturing, hint: "Capturando foto.", progress: 1)
-        diagnosticsRecorder.recordCaptureAttempt(snapshot: captureDiagnostics)
-        refreshCaptureDiagnostics(calibrationReady: calibrationReadiness().ready,
-                                  calibrationHint: calibrationReadiness().hint)
     }
 
     /// Marca a captura como concluida.
     func markCaptureCompleted() {
         setCaptureState(.captured, hint: "Foto capturada.", progress: 1)
-        refreshCaptureDiagnostics(calibrationReady: calibrationReadiness().ready,
-                                  calibrationHint: calibrationReadiness().hint)
     }
 
     /// Reinicia apenas o estado de captura mantendo a sessao aberta.
@@ -272,22 +253,15 @@ final class CameraManager: NSObject, ObservableObject {
 
         captureReadinessEngine.reset()
         lastVerificationEvaluation = .empty
-        lastVerificationResult = .empty
-        lastReadinessStatus = CaptureReadinessStatus(blockReason: .preparingSession,
-                                                     failureDetail: nil,
-                                                     stableSampleCount: 0,
-                                                     requiredStableSampleCount: CaptureReadinessEngine.defaultStableSampleCount)
         setCaptureState(.preparing,
                         hint: CameraCaptureBlockReason.preparingSession.shortMessage,
                         progress: 0)
-        refreshCaptureDiagnostics(calibrationReady: false, calibrationHint: nil)
     }
 
     /// Atualiza o pipeline com a avaliacao mais recente das verificacoes.
-    func handleVerificationResult(_ result: VerificationFrameResult) {
+    func handleVerificationEvaluation(_ evaluation: VerificationFrameEvaluation) {
         guard isSessionRunning || captureState == .preparing else { return }
-        lastVerificationEvaluation = result.evaluation
-        lastVerificationResult = result
+        lastVerificationEvaluation = evaluation
         updateCaptureReadiness()
     }
 
@@ -296,13 +270,11 @@ final class CameraManager: NSObject, ObservableObject {
         guard captureState != .capturing, captureState != .captured else { return }
 
         let readiness = calibrationReadiness()
-        let input = CaptureReadinessInput(verificationResult: lastVerificationResult,
+        let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
                                           sessionReady: isMeasurementSessionReady,
-                                          calibrationReady: readiness.ready,
-                                          calibrationHint: readiness.hint)
+                                          calibrationReady: readiness.ready)
         let status = captureReadinessEngine.evaluate(input: input)
-        lastReadinessStatus = status
-        applyReadiness(status, calibrationReady: readiness.ready, calibrationHint: readiness.hint)
+        applyReadiness(status, calibrationHint: readiness.hint)
     }
 
     /// Informa se ainda existe um frame estavel e recente o suficiente para capturar.
@@ -317,11 +289,6 @@ final class CameraManager: NSObject, ObservableObject {
     func resetCapturePipeline(resetCalibration: Bool) {
         captureReadinessEngine.reset()
         lastVerificationEvaluation = .empty
-        lastVerificationResult = .empty
-        lastReadinessStatus = CaptureReadinessStatus(blockReason: .preparingSession,
-                                                     failureDetail: nil,
-                                                     stableSampleCount: 0,
-                                                     requiredStableSampleCount: CaptureReadinessEngine.defaultStableSampleCount)
         lastFrameTimestamp = 0
         if Thread.isMainThread {
             captureProgress = 0
@@ -338,8 +305,6 @@ final class CameraManager: NSObject, ObservableObject {
             trueDepthLastValidSampleTimestamp = nil
             calibrationEstimator.reset()
         }
-
-        refreshCaptureDiagnostics(calibrationReady: false, calibrationHint: nil)
     }
 
     // MARK: - Helpers de estado
@@ -365,40 +330,30 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     private func applyReadiness(_ status: CaptureReadinessStatus,
-                                calibrationReady: Bool,
                                 calibrationHint: String?) {
         if status.isStableReady {
             let nextState: CameraCaptureState = captureState == .countdown ? .countdown : .stableReady
             setCaptureState(nextState,
                             hint: "Continue olhando para a tela. Na contagem, olhe para a camera.",
                             progress: 1)
-            refreshCaptureDiagnostics(calibrationReady: calibrationReady,
-                                      calibrationHint: calibrationHint)
             return
         }
 
         let reason = status.blockReason ?? .unstableFrame
         let hint = guidance(for: reason,
-                            status: status,
+                            progress: status.progress,
                             calibrationHint: calibrationHint)
         setCaptureState(.checking(reason), hint: hint, progress: status.progress)
-        refreshCaptureDiagnostics(calibrationReady: calibrationReady,
-                                  calibrationHint: calibrationHint)
     }
 
     private func guidance(for reason: CameraCaptureBlockReason,
-                          status: CaptureReadinessStatus,
+                          progress: Double,
                           calibrationHint: String?) -> String {
-        if let failureDetail = status.failureDetail,
-           !failureDetail.blockingHint.isEmpty {
-            return failureDetail.blockingHint
-        }
-
         switch reason {
         case .calibrationUnavailable:
             return calibrationHint ?? reason.shortMessage
         case .unstableFrame:
-            let percent = max(Int((status.progress * 100).rounded()), 1)
+            let percent = max(Int((progress * 100).rounded()), 1)
             return "Mantenha a posicao (\(percent)% )."
         default:
             return reason.shortMessage
@@ -413,72 +368,13 @@ final class CameraManager: NSObject, ObservableObject {
             self.captureState = state
             self.captureHint = hint
             self.captureProgress = min(max(progress, 0), 1)
-            let readiness = self.calibrationReadiness()
-            self.refreshCaptureDiagnostics(calibrationReady: readiness.ready,
-                                           calibrationHint: readiness.hint)
         }
 
         if Thread.isMainThread {
             publish()
         } else {
-            DispatchQueue.main.async {
-                publish()
-            }
+            DispatchQueue.main.async(execute: publish)
         }
-    }
-
-    private func refreshCaptureDiagnostics(calibrationReady: Bool,
-                                           calibrationHint: String?) {
-        let bootstrapBlockingReason = isUsingARSession && cameraPosition == .front && !isTrueDepthSensorAlive ?
-            CameraCaptureBlockReason.calibrationUnavailable : nil
-        let snapshot = CaptureDiagnosticsSnapshot(overallStep: bootstrapBlockingReason == nil ? lastVerificationResult.overallStep : .faceDetection,
-                                                  blockingReason: bootstrapBlockingReason ?? lastReadinessStatus.blockReason ?? lastVerificationResult.blockingReason,
-                                                  blockingHint: resolvedBlockingHint(calibrationHint: calibrationHint,
-                                                                                     bootstrapBlockingReason: bootstrapBlockingReason),
-                                                  failureDetail: bootstrapBlockingReason == nil ?
-                                                    (lastReadinessStatus.failureDetail ?? lastVerificationResult.failureDetail) : nil,
-                                                  headAlignmentDiagnostic: lastVerificationResult.headAlignmentDiagnostic,
-                                                  trueDepthState: trueDepthInternalState,
-                                                  trueDepthFailureReason: trueDepthInternalFailureReason,
-                                                  calibrationReady: calibrationReady,
-                                                  calibrationHint: calibrationHint,
-                                                  captureState: captureState,
-                                                  captureProgress: captureProgress,
-                                                  stableSampleCount: lastReadinessStatus.stableSampleCount,
-                                                  requiredStableSampleCount: lastReadinessStatus.requiredStableSampleCount)
-
-        if Thread.isMainThread {
-            captureDiagnostics = snapshot
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.captureDiagnostics = snapshot
-            }
-        }
-
-        diagnosticsRecorder.record(snapshot: snapshot)
-    }
-
-    private func resolvedBlockingHint(calibrationHint: String?,
-                                      bootstrapBlockingReason: CameraCaptureBlockReason?) -> String {
-        if bootstrapBlockingReason == .calibrationUnavailable {
-            return trueDepthHint()
-        }
-
-        if let failureDetail = lastReadinessStatus.failureDetail,
-           !failureDetail.blockingHint.isEmpty {
-            return failureDetail.blockingHint
-        }
-
-        if let failureDetail = lastVerificationResult.failureDetail,
-           !failureDetail.blockingHint.isEmpty {
-            return failureDetail.blockingHint
-        }
-
-        if lastReadinessStatus.blockReason == .calibrationUnavailable {
-            return calibrationHint ?? CameraCaptureBlockReason.calibrationUnavailable.shortMessage
-        }
-
-        return captureHint
     }
 
     private func blockReason(for error: CameraError) -> CameraCaptureBlockReason? {
@@ -639,17 +535,12 @@ final class CameraManager: NSObject, ObservableObject {
             self.trueDepthFailureReason = failureReason
             self.trueDepthRecoveryAttempt = publishedAttempt
             self.trueDepthLastValidSampleTimestamp = lastValidSampleTimestamp
-            let readiness = self.calibrationReadiness()
-            self.refreshCaptureDiagnostics(calibrationReady: readiness.ready,
-                                           calibrationHint: readiness.hint)
         }
 
         if Thread.isMainThread {
             publish()
         } else {
-            DispatchQueue.main.async {
-                publish()
-            }
+            DispatchQueue.main.async(execute: publish)
         }
     }
 
@@ -759,12 +650,11 @@ extension CameraManager {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let verificationManager = VerificationManager.shared
-            verificationManager.evaluationHandler = { [weak self] result in
-                self?.handleVerificationResult(result)
+            verificationManager.evaluationHandler = { [weak self] evaluation in
+                self?.handleVerificationEvaluation(evaluation)
             }
             self.configureLensMonitoring(using: verificationManager)
             verificationManager.updateActiveSensor(using: self)
-            self.refreshCaptureDiagnostics(calibrationReady: false, calibrationHint: nil)
         }
     }
 

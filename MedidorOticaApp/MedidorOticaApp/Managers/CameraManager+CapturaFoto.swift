@@ -53,10 +53,9 @@ extension CameraManager {
             return
         }
 
-        let captureResult = VerificationManager.shared.resultForCapture(frame)
-        handleVerificationResult(captureResult)
-        guard captureResult.blockingReason == nil,
-              captureResult.evaluation.allChecksPassed else {
+        let captureEvaluation = VerificationManager.shared.evaluationForCapture(frame)
+        handleVerificationEvaluation(captureEvaluation)
+        guard captureEvaluation.allChecksPassed else {
             failCapture(with: .sessionNotReady, completion: completion)
             return
         }
