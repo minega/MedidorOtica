@@ -14,6 +14,37 @@ struct CameraInstructions: View {
         static let maxPlausiblePoseDegrees: Float = 35
     }
 
+    private enum HeadAxisAdjustment {
+        case rollLeft(Float)
+        case rollRight(Float)
+        case yawLeft(Float)
+        case yawRight(Float)
+        case pitchUp(Float)
+        case pitchDown(Float)
+
+        /// Texto curto e objetivo para corrigir um eixo por vez.
+        var instruction: String {
+            switch self {
+            case .rollLeft(let degrees):
+                return "🙂 ↩️ Incline a cabeca cerca de \(degreesText(degrees))° para a sua esquerda"
+            case .rollRight(let degrees):
+                return "🙂 ↪️ Incline a cabeca cerca de \(degreesText(degrees))° para a sua direita"
+            case .yawLeft(let degrees):
+                return "🙂 ⬅️ Vire o rosto cerca de \(degreesText(degrees))° para a sua esquerda"
+            case .yawRight(let degrees):
+                return "🙂 ➡️ Vire o rosto cerca de \(degreesText(degrees))° para a sua direita"
+            case .pitchUp(let degrees):
+                return "🙂 ⬆️ Levante o queixo cerca de \(degreesText(degrees))°"
+            case .pitchDown(let degrees):
+                return "🙂 ⬇️ Abaixe o queixo cerca de \(degreesText(degrees))°"
+            }
+        }
+
+        private static func degreesText(_ value: Float) -> String {
+            String(format: "%.1f", value)
+        }
+    }
+
     /// Observa as verificacoes do enquadramento.
     @ObservedObject var verificationManager: VerificationManager
     /// Observa o estado real do pipeline de captura.
@@ -213,59 +244,50 @@ struct CameraInstructions: View {
     // MARK: - Cabeca
     /// Regra do fluxo: toda instrucao de alinhamento precisa dizer o que mover.
     private func headAlignmentInstruction() -> String {
+        if let adjustment = dominantHeadAxisAdjustment() {
+            return adjustment.instruction
+        }
+
+        return "🙂 ↔️ Traga o rosto para frente, sem inclinar, sem virar e com o queixo neutro"
+    }
+
+    /// Escolhe sempre o eixo dominante para a UI orientar um ajuste por vez.
+    private func dominantHeadAxisAdjustment() -> HeadAxisAdjustment? {
         guard let roll = verificationManager.alignmentData["roll"],
               let yaw = verificationManager.alignmentData["yaw"],
               let pitch = verificationManager.alignmentData["pitch"] else {
-            return "🙂 ↔️ Deixe o rosto de frente no oval ate o app medir os 3 eixos"
+            return nil
         }
 
         let angleTolerance: Float = 2
+        let candidates: [(axis: String, value: Float)] = [
+            ("roll", roll),
+            ("yaw", yaw),
+            ("pitch", pitch)
+        ]
 
-        if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > angleTolerance {
-            guard isPlausiblePoseAngle(roll) else {
-                return "🙂 ↔️ Reposicione o rosto de frente sem inclinar a cabeca"
-            }
-
-            let correction = formatAngleCorrection(roll, tolerance: angleTolerance)
-            if roll > 0 {
-                return "🙂 ↩️ Incline cerca de \(correction)° para a esquerda ate os olhos ficarem na mesma altura"
-            }
-
-            return "🙂 ↪️ Incline cerca de \(correction)° para a direita ate os olhos ficarem na mesma altura"
+        guard let dominant = candidates
+            .filter({ abs($0.value) > angleTolerance && isPlausiblePoseAngle($0.value) })
+            .max(by: { abs($0.value) < abs($1.value) }) else {
+            return nil
         }
 
-        if abs(yaw) > abs(pitch), abs(yaw) > angleTolerance {
-            guard isPlausiblePoseAngle(yaw) else {
-                return "🙂 ↔️ Volte o rosto para frente sem sair do oval"
-            }
-
-            let correction = formatAngleCorrection(yaw, tolerance: angleTolerance)
-            if yaw > 0 {
-                return "🙂 ➡️ Vire cerca de \(correction)° para a direita ate o nariz apontar reto para o celular"
-            }
-
-            return "🙂 ⬅️ Vire cerca de \(correction)° para a esquerda ate o nariz apontar reto para o celular"
+        let correction = correctedDegrees(from: dominant.value, tolerance: angleTolerance)
+        switch dominant.axis {
+        case "roll":
+            return dominant.value > 0 ? .rollLeft(correction) : .rollRight(correction)
+        case "yaw":
+            return dominant.value > 0 ? .yawRight(correction) : .yawLeft(correction)
+        case "pitch":
+            return dominant.value > 0 ? .pitchUp(correction) : .pitchDown(correction)
+        default:
+            return nil
         }
-
-        if abs(pitch) > angleTolerance {
-            guard isPlausiblePoseAngle(pitch) else {
-                return "🙂 ↔️ Volte o rosto ao centro mantendo o queixo neutro"
-            }
-
-            let correction = formatAngleCorrection(pitch, tolerance: angleTolerance)
-            if pitch > 0 {
-                return "🙂 ⬆️ Levante cerca de \(correction)° o queixo ate a camera ficar na altura das pupilas"
-            }
-
-            return "🙂 ⬇️ Abaixe cerca de \(correction)° o queixo ate a camera ficar na altura das pupilas"
-        }
-
-        return "🙂 ↔️ Traga o nariz para frente e deixe o queixo neutro ate zerar os 3 eixos"
     }
 
-    private func formatAngleCorrection(_ angle: Float,
-                                       tolerance: Float) -> String {
-        format(max(abs(angle) - tolerance, 0.5))
+    private func correctedDegrees(from angle: Float,
+                                  tolerance: Float) -> Float {
+        max(abs(angle) - tolerance, 0.5)
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {

@@ -30,6 +30,8 @@ extension VerificationManager {
         static let maxPlausibleEyeLineTiltDegrees: Float = 20.0
         /// Faixa anatômica esperada entre a profundidade média dos olhos e o nariz.
         static let noseDepthLeadRangeMM: ClosedRange<Float> = 4.0...35.0
+        /// Permite reaproveitar por poucos frames a ultima leitura confiavel.
+        static let reusableMetricsWindow: TimeInterval = 0.35
 
         struct FaceIndices {
             static let noseTip = 9
@@ -39,7 +41,17 @@ extension VerificationManager {
     /// Limpa as metricas quando a pose atual nao pode ser usada com seguranca.
     private func publishUnavailableAlignmentMetrics(reason: String) {
         DispatchQueue.main.async {
+            let now = Date().timeIntervalSince1970
+            let hasRecentMetrics = !self.alignmentData.isEmpty &&
+                (now - self.lastAlignmentMetricsTimestamp) <= HeadAlignmentConstants.reusableMetricsWindow
+
+            if hasRecentMetrics {
+                print("Alinhamento da cabeca indisponivel neste frame; reutilizando ultima leitura valida: \(reason)")
+                return
+            }
+
             self.alignmentData = [:]
+            self.lastAlignmentMetricsTimestamp = 0
             print("Alinhamento da cabeca indisponivel: \(reason)")
         }
     }
@@ -226,6 +238,7 @@ extension VerificationManager {
                 debugData["noseDepthLeadMM"] = noseDepthLeadMM
             }
             self.alignmentData = debugData
+            self.lastAlignmentMetricsTimestamp = Date().timeIntervalSince1970
 
             print("Alinhamento da cabeça: Roll=\(metrics.rollDegrees)°, Yaw=\(metrics.yawDegrees)°, Pitch=\(metrics.pitchDegrees)°, DeltaOlhos=\(String(format: "%.1f", metrics.eyeDepthDeltaMM ?? 0))mm, LinhaOlhos=\(String(format: "%.1f", metrics.eyeLineTiltDegrees ?? 0))°, Nariz=\(String(format: "%.1f", metrics.noseDepthLeadMM ?? 0))mm, Alinhado=\(isHeadAligned)")
         }

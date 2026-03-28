@@ -28,6 +28,7 @@ final class VerificationManager: ObservableObject {
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
     @Published var alignmentData: [String: Float] = [:]
+    @Published private(set) var lastAlignmentMetricsTimestamp: TimeInterval = 0
     @Published var facePosition: [String: Float] = [:]
     @Published private(set) var activeSensor: SensorType = .none
     @Published private(set) var latestEvaluation: VerificationFrameEvaluation = .empty
@@ -305,9 +306,11 @@ final class VerificationManager: ObservableObject {
             projectedFaceWidthRatio = 0
             projectedFaceHeightRatio = 0
             alignmentData = [:]
+            lastAlignmentMetricsTimestamp = 0
             facePosition = [:]
         } else if !evaluation.faceAligned {
             alignmentData = [:]
+            lastAlignmentMetricsTimestamp = 0
         }
 
         updateVerificationStatus(throttled: true)
@@ -348,6 +351,7 @@ final class VerificationManager: ObservableObject {
         projectedFaceWidthRatio = 0
         projectedFaceHeightRatio = 0
         alignmentData = [:]
+        lastAlignmentMetricsTimestamp = 0
         facePosition = [:]
 
         var updated = verifications
