@@ -242,11 +242,10 @@ struct CameraInstructions: View {
         }
 
         if abs(eyeLineTilt) > eyeLineTolerance {
-            let magnitude = format(abs(eyeLineTilt), digits: 1)
             if eyeLineTilt > 0 {
-                return "📱 ↩️ Gire o celular \(magnitude)° ate os dois olhos ficarem na mesma altura"
+                return "📱 ↩️ Gire levemente o celular para nivelar os dois olhos na horizontal"
             }
-            return "📱 ↪️ Gire o celular \(magnitude)° ate os dois olhos ficarem na mesma altura"
+            return "📱 ↪️ Gire levemente o celular para nivelar os dois olhos na horizontal"
         }
 
         if abs(eyeDepthDelta) > eyeDepthTolerance {

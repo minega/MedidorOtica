@@ -9,6 +9,7 @@
 import ARKit
 import Vision
 import simd
+import CoreGraphics
 
 // Extensão para verificação de alinhamento da cabeça
 extension VerificationManager {
@@ -19,6 +20,10 @@ extension VerificationManager {
         static let maxEyeDepthDeltaMM: Float = 8.0
         /// Inclinação máxima permitida da linha interpupilar.
         static let maxEyeLineTiltDegrees: Float = 2.5
+        /// Distância mínima projetada entre os olhos para considerar a leitura válida.
+        static let minProjectedEyeDeltaPoints: Float = 12.0
+        /// Limite usado para descartar leituras absurdas causadas por projeção inconsistente.
+        static let maxPlausibleEyeLineTiltDegrees: Float = 20.0
         /// Faixa anatômica esperada entre a profundidade média dos olhos e o nariz.
         static let noseDepthLeadRangeMM: ClosedRange<Float> = 4.0...35.0
 
@@ -90,9 +95,7 @@ extension VerificationManager {
         let rightEyePosition = translation(from: rightEyeTransform)
         let eyeDepthDeltaMM = (abs(leftEyePosition.z) - abs(rightEyePosition.z)) * 1000
 
-        let eyeVector = rightEyePosition - leftEyePosition
-        let eyeLineTiltDegrees = radiansToDegrees(atan2(eyeVector.y,
-                                                        max(abs(eyeVector.x), Float.ulpOfOne)))
+        let eyeLineTiltDegrees = projectedEyeLineTiltDegrees(faceAnchor: faceAnchor, frame: frame)
 
         let noseDepthLeadMM = noseDepthLead(faceAnchor: faceAnchor,
                                             faceInCamera: faceInCamera,
@@ -105,6 +108,47 @@ extension VerificationManager {
                                     eyeDepthDeltaMM: eyeDepthDeltaMM,
                                     eyeLineTiltDegrees: eyeLineTiltDegrees,
                                     noseDepthLeadMM: noseDepthLeadMM)
+    }
+
+    /// Mede o desnivel dos olhos no espaço do preview para validar se estão na mesma altura.
+    private func projectedEyeLineTiltDegrees(faceAnchor: ARFaceAnchor,
+                                             frame: ARFrame) -> Float? {
+        let viewport = orientedHeadAlignmentViewportSize(for: frame.camera.imageResolution,
+                                                         orientation: currentCGOrientation())
+        let uiOrientation = currentUIOrientation()
+
+        let leftEyeWorldTransform = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
+        let rightEyeWorldTransform = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
+        let leftEyeWorldPosition = translation(from: leftEyeWorldTransform)
+        let rightEyeWorldPosition = translation(from: rightEyeWorldTransform)
+
+        let projectedLeft = frame.camera.projectPoint(leftEyeWorldPosition,
+                                                      orientation: uiOrientation,
+                                                      viewportSize: viewport)
+        let projectedRight = frame.camera.projectPoint(rightEyeWorldPosition,
+                                                       orientation: uiOrientation,
+                                                       viewportSize: viewport)
+
+        guard projectedLeft.x.isFinite,
+              projectedLeft.y.isFinite,
+              projectedRight.x.isFinite,
+              projectedRight.y.isFinite else {
+            return nil
+        }
+
+        let deltaX = Float(projectedRight.x - projectedLeft.x)
+        let deltaY = Float(projectedRight.y - projectedLeft.y)
+        guard abs(deltaX) >= HeadAlignmentConstants.minProjectedEyeDeltaPoints else {
+            return nil
+        }
+
+        let tiltDegrees = radiansToDegrees(atan2(deltaY,
+                                                 max(abs(deltaX), Float.ulpOfOne)))
+        guard abs(tiltDegrees) <= HeadAlignmentConstants.maxPlausibleEyeLineTiltDegrees else {
+            return nil
+        }
+
+        return tiltDegrees
     }
 
     /// Calcula o avanço do nariz em relação ao plano médio dos olhos.
@@ -274,6 +318,14 @@ extension VerificationManager {
 
 // MARK: - Helpers geométricos
 private extension VerificationManager {
+    /// Ajusta o viewport conforme a orientação usada no preview.
+    func orientedHeadAlignmentViewportSize(for resolution: CGSize,
+                                           orientation: CGImagePropertyOrientation) -> CGSize {
+        orientation.isPortrait ?
+            CGSize(width: resolution.height, height: resolution.width) :
+            resolution
+    }
+
     /// Extrai o ponto 3D a partir de um vetor homogêneo.
     func positionFromHomogeneous(_ vector: simd_float4) -> SIMD3<Float>? {
         guard vector.w.isFinite, abs(vector.w) > Float.ulpOfOne else { return nil }
