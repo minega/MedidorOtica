@@ -187,24 +187,24 @@ struct CameraInstructions: View {
 
         if abs(xPos) >= abs(yPos) {
             if xPos > 0 {
-                return "📱 ⬇️ Baixe \(format(max(abs(xPos), 0.1))) cm ate o nariz ficar no centro"
+                return "📱 ⬇️ Baixe \(format(max(abs(xPos), 0.1))) cm ate a camera ficar no meio do nariz e na altura das pupilas"
             }
 
             if xPos < 0 {
-                return "📱 ⬆️ Levante \(format(max(abs(xPos), 0.1))) cm ate o nariz ficar no centro"
+                return "📱 ⬆️ Levante \(format(max(abs(xPos), 0.1))) cm ate a camera ficar no meio do nariz e na altura das pupilas"
             }
         } else {
             if yPos > 0 {
-                return "📱 ➡️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a direita"
+                return "📱 ➡️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a direita ate a camera ficar no meio do nariz"
             }
 
             if yPos < 0 {
-                return "📱 ⬅️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a esquerda"
+                return "📱 ⬅️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a esquerda ate a camera ficar no meio do nariz"
             }
         }
 
         if dominantOffset > 0.05 {
-            return "📱 ↔️ Faca um ajuste fino ate o nariz ficar exatamente no meio"
+            return "📱 ↔️ Faca um ajuste fino ate a camera ficar no meio do nariz e na altura das pupilas"
         }
 
         return "📱 ⏳ Segure o celular reto sem girar"
@@ -212,9 +212,12 @@ struct CameraInstructions: View {
 
     // MARK: - Cabeca
     private func headAlignmentInstruction() -> String {
-        let roll = verificationManager.alignmentData["roll"] ?? 0
-        let yaw = verificationManager.alignmentData["yaw"] ?? 0
-        let pitch = verificationManager.alignmentData["pitch"] ?? 0
+        guard let roll = verificationManager.alignmentData["roll"],
+              let yaw = verificationManager.alignmentData["yaw"],
+              let pitch = verificationManager.alignmentData["pitch"] else {
+            return "🙂 ↔️ Deixe o rosto de frente, com olhos na mesma altura e queixo neutro"
+        }
+
         let eyeLineTilt = verificationManager.alignmentData["eyeLineTiltDegrees"] ?? 0
         let eyeDepthDelta = verificationManager.alignmentData["eyeDepthDeltaMM"] ?? 0
         let noseDepthLead = verificationManager.alignmentData["noseDepthLeadMM"] ?? 18
@@ -227,11 +230,12 @@ struct CameraInstructions: View {
                 return "🙂 ↔️ Reposicione o rosto de frente sem inclinar a cabeca"
             }
 
+            let correction = formatAngleCorrection(roll, tolerance: angleTolerance)
             if roll > 0 {
-                return "🙂 ↩️ Incline levemente a cabeca para nivelar os olhos"
+                return "🙂 ↩️ Incline cerca de \(correction)° para a esquerda ate os olhos ficarem na mesma altura"
             }
 
-            return "🙂 ↪️ Incline levemente a cabeca para nivelar os olhos"
+            return "🙂 ↪️ Incline cerca de \(correction)° para a direita ate os olhos ficarem na mesma altura"
         }
 
         if abs(yaw) > abs(pitch), abs(yaw) > angleTolerance {
@@ -239,11 +243,12 @@ struct CameraInstructions: View {
                 return "🙂 ↔️ Volte o rosto para frente sem sair do oval"
             }
 
+            let correction = formatAngleCorrection(yaw, tolerance: angleTolerance)
             if yaw > 0 {
-                return "🙂 ➡️ Vire levemente o rosto para a direita sem sair do oval"
+                return "🙂 ➡️ Vire cerca de \(correction)° para a direita ate o nariz apontar reto para o celular"
             }
 
-            return "🙂 ⬅️ Vire levemente o rosto para a esquerda sem sair do oval"
+            return "🙂 ⬅️ Vire cerca de \(correction)° para a esquerda ate o nariz apontar reto para o celular"
         }
 
         if abs(pitch) > angleTolerance {
@@ -251,30 +256,38 @@ struct CameraInstructions: View {
                 return "🙂 ↔️ Volte o rosto ao centro mantendo o queixo neutro"
             }
 
+            let correction = formatAngleCorrection(pitch, tolerance: angleTolerance)
             if pitch > 0 {
-                return "🙂 ⬆️ Levante levemente o queixo mantendo o nariz no centro"
+                return "🙂 ⬆️ Levante cerca de \(correction)° o queixo ate a camera ficar na altura das pupilas"
             }
 
-            return "🙂 ⬇️ Abaixe levemente o queixo mantendo o nariz no centro"
+            return "🙂 ⬇️ Abaixe cerca de \(correction)° o queixo ate a camera ficar na altura das pupilas"
         }
 
         if abs(eyeLineTilt) > eyeLineTolerance {
+            let correction = formatAngleCorrection(eyeLineTilt, tolerance: eyeLineTolerance)
             if eyeLineTilt > 0 {
-                return "📱 ↩️ Gire levemente o celular para nivelar os dois olhos na horizontal"
+                return "📱 ↩️ Gire cerca de \(correction)° o celular para deixar os olhos na mesma altura"
             }
 
-            return "📱 ↪️ Gire levemente o celular para nivelar os dois olhos na horizontal"
+            return "📱 ↪️ Gire cerca de \(correction)° o celular para deixar os olhos na mesma altura"
         }
 
         if abs(eyeDepthDelta) > eyeDepthTolerance {
-            return "🙂 ↔️ Desvire o rosto ate os dois olhos ficarem na mesma distancia"
+            let delta = format(max(abs(eyeDepthDelta), 0.5))
+            return "🙂 ↔️ Desvire um pouco o rosto. Diferenca entre os olhos: \(delta) mm"
         }
 
         if noseDepthLead < 4 || noseDepthLead > 35 {
-            return "📱 ↕️ Ajuste a altura do celular ate o nariz ficar entre os olhos"
+            return "📱 ↕️ Ajuste a altura do celular ate a camera ficar no meio do nariz e na altura das pupilas"
         }
 
-        return "🙂 ⏳ Segure a cabeca reta e o celular sem girar"
+        return "🙂 ⏳ Mantenha o rosto reto nos 3 eixos e os olhos na mesma altura"
+    }
+
+    private func formatAngleCorrection(_ angle: Float,
+                                       tolerance: Float) -> String {
+        format(max(abs(angle) - tolerance, 0.5))
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {

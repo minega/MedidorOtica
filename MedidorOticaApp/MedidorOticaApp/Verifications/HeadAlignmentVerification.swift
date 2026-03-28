@@ -34,6 +34,14 @@ extension VerificationManager {
         }
     }
 
+    /// Limpa as metricas quando a pose atual nao pode ser usada com seguranca.
+    private func publishUnavailableAlignmentMetrics(reason: String) {
+        DispatchQueue.main.async {
+            self.alignmentData = [:]
+            print("Alinhamento da cabeca indisponivel: \(reason)")
+        }
+    }
+
     /// Métricas consolidadas de alinhamento da cabeça.
     private struct HeadAlignmentMetrics: Sendable {
         let rollDegrees: Float
@@ -52,7 +60,10 @@ extension VerificationManager {
 
         let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
-        guard !sensors.isEmpty else { return false }
+        guard !sensors.isEmpty else {
+            publishUnavailableAlignmentMetrics(reason: "Nenhum sensor conseguiu medir o alinhamento da cabeca.")
+            return false
+        }
 
         for sensor in sensors {
             switch sensor {
@@ -74,7 +85,10 @@ extension VerificationManager {
             }
         }
 
-        guard let metrics else { return false }
+        guard let metrics else {
+            publishUnavailableAlignmentMetrics(reason: "A pose da cabeca nao ficou confiavel neste frame.")
+            return false
+        }
         let isHeadAligned = headIsAligned(using: metrics)
         publishAlignmentMetrics(metrics, isHeadAligned: isHeadAligned)
         return isHeadAligned
