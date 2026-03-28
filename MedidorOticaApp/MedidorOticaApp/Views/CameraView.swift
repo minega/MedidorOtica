@@ -33,6 +33,7 @@ struct CameraView: View {
 
     private let showDistanceOverlay = true
     private let showARStatusIndicator = true
+    private let showCaptureDiagnostics = true
 
 #if DEBUG
     private let showAlignmentDebugOverlay = true
@@ -132,10 +133,20 @@ struct CameraView: View {
 
     @ViewBuilder
     private var debugOverlay: some View {
+        if showCaptureDiagnostics {
+            CaptureDiagnosticsOverlay(cameraManager: cameraManager)
+                .padding(.horizontal, 12)
+                .padding(.top, 82)
+                .frame(maxWidth: .infinity,
+                       maxHeight: .infinity,
+                       alignment: .topLeading)
+        }
+
 #if DEBUG
         if showAlignmentDebugOverlay {
             HeadAlignmentDebugOverlay(verificationManager: verificationManager)
                 .padding(12)
+                .padding(.top, 220)
                 .frame(maxWidth: .infinity,
                        maxHeight: .infinity,
                        alignment: .topLeading)
@@ -449,6 +460,15 @@ struct CameraView: View {
     }
 
     private func manualCaptureBlockMessage() -> String {
+        if let detail = cameraManager.captureDiagnostics.failureDetail,
+           !detail.blockingHint.isEmpty {
+            return detail.blockingHint
+        }
+
+        if !cameraManager.captureDiagnostics.blockingHint.isEmpty {
+            return cameraManager.captureDiagnostics.blockingHint
+        }
+
         if !cameraInitialized {
             return "A camera ainda esta iniciando. Aguarde o preview estabilizar."
         }
@@ -559,6 +579,100 @@ struct HeadAlignmentDebugOverlay: View {
     }
 }
 #endif
+
+// MARK: - Diagnostico da captura
+/// Painel temporario exibido no TestFlight para acelerar a depuracao em hardware real.
+struct CaptureDiagnosticsOverlay: View {
+    @ObservedObject var cameraManager: CameraManager
+
+    private var snapshot: CaptureDiagnosticsSnapshot {
+        cameraManager.captureDiagnostics
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Diagnostico da Captura")
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.white)
+
+            line("Etapa", value: snapshot.overallStep == .idle ? "Inicializando" : title(for: snapshot.overallStep))
+            line("Motivo", value: snapshot.failureDetail?.diagnosticLabel ?? snapshot.blockingReason?.shortMessage ?? "Pronto")
+            line("Instrucao", value: snapshot.blockingHint.isEmpty ? "Aguardando frame valido" : snapshot.blockingHint)
+            line("TrueDepth", value: title(for: snapshot.trueDepthState))
+            line("Calibracao", value: snapshot.calibrationReady ? "OK" : (snapshot.calibrationHint ?? "Pendente"))
+            line("Estabilidade", value: "\(snapshot.stableSampleCount)/\(snapshot.requiredStableSampleCount)")
+
+            if let headDiagnostic = snapshot.headAlignmentDiagnostic,
+               let primary = headDiagnostic.primaryFailure {
+                line("Subchecagem", value: primary.title)
+                line("Valor", value: formattedMetric(primary))
+                line("Faixa", value: formattedRange(primary))
+            }
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.72))
+        .cornerRadius(10)
+        .frame(maxWidth: 320, alignment: .leading)
+        .accessibilityLabel("Painel de diagnostico detalhado da captura")
+    }
+
+    private func line(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.65))
+            Text(value)
+                .font(.caption)
+                .foregroundColor(.white)
+        }
+    }
+
+    private func formattedMetric(_ metric: VerificationMetricDiagnostic) -> String {
+        guard let value = metric.currentValue else { return "Sem leitura confiavel" }
+        return "\(String(format: "%.1f", value))\(metric.unit)"
+    }
+
+    private func formattedRange(_ metric: VerificationMetricDiagnostic) -> String {
+        guard let range = metric.targetRange else { return "Sem faixa definida" }
+        return "\(String(format: "%.1f", range.lowerBound)) a \(String(format: "%.1f", range.upperBound))\(metric.unit)"
+    }
+
+    private func title(for step: VerificationStep) -> String {
+        switch step {
+        case .idle:
+            return "Inicializando"
+        case .faceDetection:
+            return "Rosto"
+        case .distance:
+            return "Distancia"
+        case .centering:
+            return "Centralizacao"
+        case .headAlignment:
+            return "Alinhamento"
+        case .completed:
+            return "Pronto"
+        }
+    }
+
+    private func title(for state: TrueDepthBootstrapState) -> String {
+        switch state {
+        case .startingSession:
+            return "Iniciando"
+        case .waitingForFaceAnchor:
+            return "Aguardando rosto"
+        case .waitingForEyeProjection:
+            return "Aguardando olhos"
+        case .waitingForDepthConsistency:
+            return "Aguardando malha"
+        case .sensorAlive:
+            return "Sensor vivo"
+        case .recovering(let attempt):
+            return "Recuperando (\(attempt))"
+        case .failed(let reason):
+            return "Falhou: \(reason.shortMessage)"
+        }
+    }
+}
 
 // MARK: - Preview Provider
 struct CameraView_Previews: PreviewProvider {

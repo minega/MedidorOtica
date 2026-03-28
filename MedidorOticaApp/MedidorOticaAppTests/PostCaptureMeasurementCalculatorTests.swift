@@ -31,6 +31,30 @@ struct PostCaptureMeasurementCalculatorTests {
         #expect(leftEye.temporalBarX >= leftEye.nasalBarX)
     }
 
+    @Test func geometryDiagnosticFlagsBarsWhenTheyCrossCentralPoint() async throws {
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let rightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.38, y: 0.52),
+                                          nasalBarX: 0.52,
+                                          temporalBarX: 0.70,
+                                          inferiorBarY: 0.72,
+                                          superiorBarY: 0.36)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.64, y: 0.51),
+                                         nasalBarX: 0.48,
+                                         temporalBarX: 0.32,
+                                         inferiorBarY: 0.70,
+                                         superiorBarY: 0.34)
+        let configuration = PostCaptureConfiguration(centralPoint: center,
+                                                     rightEye: rightEye,
+                                                     leftEye: leftEye,
+                                                     faceBounds: NormalizedRect())
+
+        let diagnostic = PostCaptureMeasurementValidator(configuration: configuration,
+                                                         centralPoint: center)
+            .diagnostic(calibrationReliable: true)
+
+        #expect(diagnostic.summaryMessage.contains("invertidas"))
+    }
+
     // MARK: - Cenário padrão com calibração conhecida
     @Test func convertsNormalizedDistancesUsingCalibration() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)

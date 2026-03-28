@@ -44,40 +44,62 @@ extension VerificationManager {
         let noseDepthLeadMM: Float?
     }
 
+    /// Resultado estruturado do alinhamento da cabeca.
+    struct HeadAlignmentOutcome: Sendable {
+        let isAligned: Bool
+        let diagnostic: HeadAlignmentDiagnostic
+    }
+
     // MARK: - Verificação 4: Alinhamento da Cabeça
     /// Verifica se a cabeça está alinhada em todos os eixos
     
     func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        var metrics: HeadAlignmentMetrics?
+        headAlignmentOutcome(using: frame, faceAnchor: faceAnchor).isAligned
+    }
+
+    /// Avalia o alinhamento da cabeca retornando diagnostico estruturado.
+    func headAlignmentOutcome(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> HeadAlignmentOutcome {
+        var diagnostic = unavailableAlignmentDiagnostic(reason: "Nenhuma metrica de alinhamento foi gerada para o sensor atual.")
 
         let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
-        guard !sensors.isEmpty else { return false }
+        guard !sensors.isEmpty else {
+            publishAlignmentDiagnostic(diagnostic)
+            return HeadAlignmentOutcome(isAligned: false, diagnostic: diagnostic)
+        }
 
         for sensor in sensors {
             switch sensor {
             case .trueDepth:
-                guard let anchor = faceAnchor else { continue }
-                metrics = makeTrueDepthHeadAlignmentMetrics(faceAnchor: anchor, frame: frame)
-                break
+                guard let anchor = faceAnchor else {
+                    diagnostic = unavailableAlignmentDiagnostic(reason: "O ARFaceAnchor nao ficou disponivel neste frame.")
+                    continue
+                }
+                diagnostic = makeTrueDepthHeadAlignmentDiagnostic(faceAnchor: anchor, frame: frame)
+                publishAlignmentDiagnostic(diagnostic)
+                return HeadAlignmentOutcome(isAligned: diagnostic.primaryFailure == nil,
+                                            diagnostic: diagnostic)
             case .liDAR:
-                guard let angles = headAnglesWithVision(from: frame) else { continue }
-                metrics = HeadAlignmentMetrics(rollDegrees: angles.roll,
-                                               yawDegrees: angles.yaw,
-                                               pitchDegrees: angles.pitch,
-                                               eyeDepthDeltaMM: nil,
-                                               eyeLineTiltDegrees: nil,
-                                               noseDepthLeadMM: nil)
-                break
+                guard let angles = headAnglesWithVision(from: frame) else {
+                    diagnostic = unavailableAlignmentDiagnostic(reason: "O Vision nao conseguiu medir a pose do rosto neste frame.")
+                    continue
+                }
+                diagnostic = makeHeadAlignmentDiagnostic(from: HeadAlignmentMetrics(rollDegrees: angles.roll,
+                                                                                    yawDegrees: angles.yaw,
+                                                                                    pitchDegrees: angles.pitch,
+                                                                                    eyeDepthDeltaMM: nil,
+                                                                                    eyeLineTiltDegrees: nil,
+                                                                                    noseDepthLeadMM: nil))
+                publishAlignmentDiagnostic(diagnostic)
+                return HeadAlignmentOutcome(isAligned: diagnostic.primaryFailure == nil,
+                                            diagnostic: diagnostic)
             case .none:
                 continue
             }
         }
 
-        guard let metrics else { return false }
-        let isHeadAligned = headIsAligned(using: metrics)
-        publishAlignmentMetrics(metrics, isHeadAligned: isHeadAligned)
-        return isHeadAligned
+        publishAlignmentDiagnostic(diagnostic)
+        return HeadAlignmentOutcome(isAligned: false, diagnostic: diagnostic)
     }
 
     /// Calcula métricas de alinhamento usando a geometria 3D do TrueDepth.
@@ -116,6 +138,16 @@ extension VerificationManager {
                                     eyeDepthDeltaMM: eyeDepthDeltaMM,
                                     eyeLineTiltDegrees: eyeLineTiltDegrees,
                                     noseDepthLeadMM: noseDepthLeadMM)
+    }
+
+    /// Monta um diagnostico completo do alinhamento usando as subchecagens explicitas.
+    private func makeTrueDepthHeadAlignmentDiagnostic(faceAnchor: ARFaceAnchor,
+                                                      frame: ARFrame) -> HeadAlignmentDiagnostic {
+        guard let metrics = makeTrueDepthHeadAlignmentMetrics(faceAnchor: faceAnchor, frame: frame) else {
+            return invalidPoseDiagnostic()
+        }
+
+        return makeHeadAlignmentDiagnostic(from: metrics)
     }
 
     /// Mede o desnivel dos olhos no espaço do preview para validar se estão na mesma altura.
@@ -179,50 +211,242 @@ extension VerificationManager {
         return (averageEyeDepth - abs(nosePosition.z)) * 1000
     }
 
-    /// Avalia se as métricas atuais já estão boas o bastante para a captura.
-    private func headIsAligned(using metrics: HeadAlignmentMetrics) -> Bool {
-        let isRollAligned = abs(metrics.rollDegrees) <= HeadAlignmentConstants.toleranceDegrees
-        let isYawAligned = abs(metrics.yawDegrees) <= HeadAlignmentConstants.toleranceDegrees
-        let isPitchAligned = abs(metrics.pitchDegrees) <= HeadAlignmentConstants.toleranceDegrees
-        let isEyeDepthBalanced = metrics.eyeDepthDeltaMM.map {
-            abs($0) <= HeadAlignmentConstants.maxEyeDepthDeltaMM
-        } ?? true
-        let isEyeLineLevel = metrics.eyeLineTiltDegrees.map {
-            abs($0) <= HeadAlignmentConstants.maxEyeLineTiltDegrees
-        } ?? true
-        let hasExpectedNoseDepth = metrics.noseDepthLeadMM.map {
-            HeadAlignmentConstants.noseDepthLeadRangeMM.contains($0)
-        } ?? true
-
-        return isRollAligned &&
-               isYawAligned &&
-               isPitchAligned &&
-               isEyeDepthBalanced &&
-               isEyeLineLevel &&
-               hasExpectedNoseDepth
-    }
-
     /// Publica as métricas usadas pela UI e pelo overlay de depuração.
-    private func publishAlignmentMetrics(_ metrics: HeadAlignmentMetrics,
-                                         isHeadAligned: Bool) {
+    private func publishAlignmentDiagnostic(_ diagnostic: HeadAlignmentDiagnostic) {
         DispatchQueue.main.async {
             var debugData: [String: Float] = [
-                "roll": metrics.rollDegrees,
-                "yaw": metrics.yawDegrees,
-                "pitch": metrics.pitchDegrees
+                "roll": diagnostic.metricValue(for: "roll"),
+                "yaw": diagnostic.metricValue(for: "yaw"),
+                "pitch": diagnostic.metricValue(for: "pitch")
             ]
-            if let eyeDepthDeltaMM = metrics.eyeDepthDeltaMM {
+            if let eyeDepthDeltaMM = diagnostic.metricValueOptional(for: "eyeDepthSymmetry") {
                 debugData["eyeDepthDeltaMM"] = eyeDepthDeltaMM
             }
-            if let eyeLineTiltDegrees = metrics.eyeLineTiltDegrees {
+            if let eyeLineTiltDegrees = diagnostic.metricValueOptional(for: "eyeLineLevel") {
                 debugData["eyeLineTiltDegrees"] = eyeLineTiltDegrees
             }
-            if let noseDepthLeadMM = metrics.noseDepthLeadMM {
+            if let noseDepthLeadMM = diagnostic.metricValueOptional(for: "noseDepthLead") {
                 debugData["noseDepthLeadMM"] = noseDepthLeadMM
             }
             self.alignmentData = debugData
 
-            print("Alinhamento da cabeça: Roll=\(metrics.rollDegrees)°, Yaw=\(metrics.yawDegrees)°, Pitch=\(metrics.pitchDegrees)°, DeltaOlhos=\(String(format: "%.1f", metrics.eyeDepthDeltaMM ?? 0))mm, LinhaOlhos=\(String(format: "%.1f", metrics.eyeLineTiltDegrees ?? 0))°, Nariz=\(String(format: "%.1f", metrics.noseDepthLeadMM ?? 0))mm, Alinhado=\(isHeadAligned)")
+            print("Alinhamento da cabeca -> bloqueio=\(diagnostic.primaryFailure?.title ?? "nenhum") detalhe=\(diagnostic.technicalReason)")
+        }
+    }
+
+    /// Monta o diagnostico final respeitando a ordem estrita de prioridade.
+    private func makeHeadAlignmentDiagnostic(from metrics: HeadAlignmentMetrics) -> HeadAlignmentDiagnostic {
+        let diagnostics = [
+            poseDiagnostic(id: "roll",
+                           title: "Roll",
+                           value: metrics.rollDegrees,
+                           tolerance: HeadAlignmentConstants.toleranceDegrees,
+                           positiveDirection: .counterclockwise,
+                           negativeDirection: .clockwise),
+            poseDiagnostic(id: "yaw",
+                           title: "Yaw",
+                           value: metrics.yawDegrees,
+                           tolerance: HeadAlignmentConstants.toleranceDegrees,
+                           positiveDirection: .right,
+                           negativeDirection: .left),
+            poseDiagnostic(id: "pitch",
+                           title: "Pitch",
+                           value: metrics.pitchDegrees,
+                           tolerance: HeadAlignmentConstants.toleranceDegrees,
+                           positiveDirection: .up,
+                           negativeDirection: .down),
+            eyeLineDiagnostic(from: metrics.eyeLineTiltDegrees),
+            eyeDepthDiagnostic(from: metrics.eyeDepthDeltaMM),
+            noseDepthDiagnostic(from: metrics.noseDepthLeadMM)
+        ]
+
+        let primaryFailure = diagnostics.first(where: { !$0.isPassing })
+        return HeadAlignmentDiagnostic(metrics: diagnostics,
+                                       primaryFailureKind: primaryFailure.flatMap(headAlignmentKind(from:)),
+                                       primaryFailure: primaryFailure,
+                                       blockingHint: blockingHint(for: primaryFailure),
+                                       technicalReason: primaryFailure?.detail ?? "Alinhamento validado.",
+                                       confidence: primaryFailure?.confidence ?? 1)
+    }
+
+    /// Cria um diagnostico quando a pose retornada pelo TrueDepth ficou incoerente.
+    private func invalidPoseDiagnostic() -> HeadAlignmentDiagnostic {
+        let metric = VerificationMetricDiagnostic(id: "invalidPose",
+                                                  title: "Pose invalida",
+                                                  currentValue: nil,
+                                                  targetRange: nil,
+                                                  unit: "",
+                                                  direction: .center,
+                                                  confidence: 0.2,
+                                                  isPassing: false,
+                                                  detail: "O TrueDepth gerou uma pose incoerente para este frame.")
+        return HeadAlignmentDiagnostic(metrics: [metric],
+                                       primaryFailureKind: .invalidPose,
+                                       primaryFailure: metric,
+                                       blockingHint: "🙂 ↔️ Reajustando alinhamento do rosto",
+                                       technicalReason: metric.detail,
+                                       confidence: metric.confidence)
+    }
+
+    /// Cria um diagnostico indisponivel quando o frame nao gerou dados suficientes.
+    private func unavailableAlignmentDiagnostic(reason: String) -> HeadAlignmentDiagnostic {
+        let metric = VerificationMetricDiagnostic(id: "invalidPose",
+                                                  title: "Leitura indisponivel",
+                                                  currentValue: nil,
+                                                  targetRange: nil,
+                                                  unit: "",
+                                                  direction: .hold,
+                                                  confidence: 0.1,
+                                                  isPassing: false,
+                                                  detail: reason)
+        return HeadAlignmentDiagnostic(metrics: [metric],
+                                       primaryFailureKind: .invalidPose,
+                                       primaryFailure: metric,
+                                       blockingHint: "🙂 ⏳ Reajustando alinhamento do rosto",
+                                       technicalReason: reason,
+                                       confidence: metric.confidence)
+    }
+
+    private func poseDiagnostic(id: String,
+                                title: String,
+                                value: Float,
+                                tolerance: Float,
+                                positiveDirection: VerificationDiagnosticDirection,
+                                negativeDirection: VerificationDiagnosticDirection) -> VerificationMetricDiagnostic {
+        let direction = value >= 0 ? positiveDirection : negativeDirection
+        let isPassing = abs(value) <= tolerance
+        let detail = "\(title) medido em \(String(format: "%.1f", value))°; alvo entre -\(String(format: "%.1f", tolerance))° e +\(String(format: "%.1f", tolerance))°."
+        return VerificationMetricDiagnostic(id: id,
+                                            title: title,
+                                            currentValue: value,
+                                            targetRange: (-tolerance)...tolerance,
+                                            unit: "°",
+                                            direction: direction,
+                                            confidence: 0.98,
+                                            isPassing: isPassing,
+                                            detail: detail)
+    }
+
+    private func eyeLineDiagnostic(from value: Float?) -> VerificationMetricDiagnostic {
+        guard let value else {
+            return missingDiagnostic(id: "eyeLineLevel",
+                                     title: "Olhos na horizontal",
+                                     detail: "Nao foi possivel medir se os olhos ficaram na mesma altura no preview.")
+        }
+
+        let tolerance = HeadAlignmentConstants.maxEyeLineTiltDegrees
+        return VerificationMetricDiagnostic(id: "eyeLineLevel",
+                                            title: "Olhos na horizontal",
+                                            currentValue: value,
+                                            targetRange: (-tolerance)...tolerance,
+                                            unit: "°",
+                                            direction: value >= 0 ? .counterclockwise : .clockwise,
+                                            confidence: 0.9,
+                                            isPassing: abs(value) <= tolerance,
+                                            detail: "Linha dos olhos em \(String(format: "%.1f", value))°; alvo entre -\(String(format: "%.1f", tolerance))° e +\(String(format: "%.1f", tolerance))°.")
+    }
+
+    private func eyeDepthDiagnostic(from value: Float?) -> VerificationMetricDiagnostic {
+        guard let value else {
+            return missingDiagnostic(id: "eyeDepthSymmetry",
+                                     title: "Profundidade dos olhos",
+                                     detail: "Nao foi possivel comparar a profundidade dos dois olhos neste frame.")
+        }
+
+        let tolerance = HeadAlignmentConstants.maxEyeDepthDeltaMM
+        return VerificationMetricDiagnostic(id: "eyeDepthSymmetry",
+                                            title: "Profundidade dos olhos",
+                                            currentValue: value,
+                                            targetRange: (-tolerance)...tolerance,
+                                            unit: "mm",
+                                            direction: .center,
+                                            confidence: 0.88,
+                                            isPassing: abs(value) <= tolerance,
+                                            detail: "Diferenca de profundidade entre olhos em \(String(format: "%.1f", value)) mm; alvo entre -\(String(format: "%.1f", tolerance)) e +\(String(format: "%.1f", tolerance)) mm.")
+    }
+
+    private func noseDepthDiagnostic(from value: Float?) -> VerificationMetricDiagnostic {
+        guard let value else {
+            return missingDiagnostic(id: "noseDepthLead",
+                                     title: "Profundidade do nariz",
+                                     detail: "Nao foi possivel medir o avanco do nariz em relacao aos olhos.")
+        }
+
+        let range = HeadAlignmentConstants.noseDepthLeadRangeMM
+        return VerificationMetricDiagnostic(id: "noseDepthLead",
+                                            title: "Profundidade do nariz",
+                                            currentValue: value,
+                                            targetRange: range,
+                                            unit: "mm",
+                                            direction: .hold,
+                                            confidence: 0.85,
+                                            isPassing: range.contains(value),
+                                            detail: "Avanco do nariz em \(String(format: "%.1f", value)) mm; alvo entre \(String(format: "%.1f", range.lowerBound)) e \(String(format: "%.1f", range.upperBound)) mm.")
+    }
+
+    private func missingDiagnostic(id: String,
+                                   title: String,
+                                   detail: String) -> VerificationMetricDiagnostic {
+        VerificationMetricDiagnostic(id: id,
+                                     title: title,
+                                     currentValue: nil,
+                                     targetRange: nil,
+                                     unit: "",
+                                     direction: .hold,
+                                     confidence: 0.3,
+                                     isPassing: false,
+                                     detail: detail)
+    }
+
+    private func headAlignmentKind(from metric: VerificationMetricDiagnostic) -> HeadAlignmentCheckKind? {
+        switch metric.id {
+        case "roll":
+            return .roll
+        case "yaw":
+            return .yaw
+        case "pitch":
+            return .pitch
+        case "eyeLineLevel":
+            return .eyeLineLevel
+        case "eyeDepthSymmetry":
+            return .eyeDepthSymmetry
+        case "noseDepthLead":
+            return .noseDepthLead
+        case "invalidPose":
+            return .invalidPose
+        default:
+            return nil
+        }
+    }
+
+    private func blockingHint(for metric: VerificationMetricDiagnostic?) -> String {
+        guard let metric else {
+            return "🙂 ✅ Cabeca alinhada"
+        }
+
+        switch metric.id {
+        case "roll":
+            return metric.direction == .counterclockwise ?
+                "🙂 ↩️ Incline levemente a cabeca para nivelar os olhos" :
+                "🙂 ↪️ Incline levemente a cabeca para nivelar os olhos"
+        case "yaw":
+            return metric.direction == .right ?
+                "🙂 ➡️ Vire levemente o rosto para a direita sem sair do oval" :
+                "🙂 ⬅️ Vire levemente o rosto para a esquerda sem sair do oval"
+        case "pitch":
+            return metric.direction == .up ?
+                "🙂 ⬆️ Levante levemente o queixo mantendo o nariz no centro" :
+                "🙂 ⬇️ Abaixe levemente o queixo mantendo o nariz no centro"
+        case "eyeLineLevel":
+            return metric.direction == .counterclockwise ?
+                "📱 ↩️ Gire levemente o celular para nivelar os dois olhos na horizontal" :
+                "📱 ↪️ Gire levemente o celular para nivelar os dois olhos na horizontal"
+        case "eyeDepthSymmetry":
+            return "🙂 ↔️ Desvire o rosto ate os dois olhos ficarem na mesma distancia"
+        case "noseDepthLead":
+            return "📱 ↕️ Ajuste a altura do celular ate o nariz ficar entre os olhos"
+        default:
+            return "🙂 ⏳ Reajustando alinhamento do rosto"
         }
     }
     
@@ -353,5 +577,18 @@ private extension VerificationManager {
     func translation(from transform: simd_float4x4) -> SIMD3<Float> {
         let translation = transform.columns.3
         return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+}
+
+// MARK: - Helpers do diagnostico
+private extension HeadAlignmentDiagnostic {
+    /// Retorna o valor atual da metrica ou zero quando ausente.
+    func metricValue(for id: String) -> Float {
+        metricValueOptional(for: id) ?? 0
+    }
+
+    /// Retorna o valor atual da metrica quando disponivel.
+    func metricValueOptional(for id: String) -> Float? {
+        metrics.first(where: { $0.id == id })?.currentValue
     }
 }

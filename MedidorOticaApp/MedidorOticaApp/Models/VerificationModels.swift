@@ -83,7 +83,7 @@ struct Verification: Identifiable {
 }
 
 // MARK: - Passo atual
-enum VerificationStep: Int {
+enum VerificationStep: Int, Sendable {
     case idle = 0
     case faceDetection
     case distance

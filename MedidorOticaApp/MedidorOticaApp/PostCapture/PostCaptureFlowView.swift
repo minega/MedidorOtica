@@ -96,6 +96,7 @@ struct PostCaptureFlowView: View {
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
 
+                        PostCaptureDiagnosticsPanel(viewModel: viewModel)
                         confirmationActions
                     }
                     .padding(.horizontal, 24)
@@ -218,11 +219,15 @@ struct PostCaptureFlowView: View {
         if viewModel.isOnSummary {
             summaryContent
         } else {
-            Text(viewModel.stageInstructions)
-                .font(.body)
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 16) {
+                Text(viewModel.stageInstructions)
+                    .font(.body)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+
+                PostCaptureDiagnosticsPanel(viewModel: viewModel)
+            }
         }
     }
 
@@ -474,6 +479,47 @@ private struct SummaryValueChip: View {
                             .stroke(Color.white.opacity(0.2), lineWidth: 1)
                     )
             )
+    }
+}
+
+/// Painel temporario que resume a coerencia geometrica das marcacoes atuais.
+private struct PostCaptureDiagnosticsPanel: View {
+    @ObservedObject var viewModel: PostCaptureViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Diagnostico da Geometria")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.white)
+
+            diagnosticLine("Resumo", viewModel.geometryDiagnostic.summaryMessage)
+            diagnosticLine("PC", viewModel.geometryDiagnostic.centralPointMessage)
+            diagnosticLine("OD", viewModel.geometryDiagnostic.rightEyeMessage)
+            diagnosticLine("OE", viewModel.geometryDiagnostic.leftEyeMessage)
+            diagnosticLine("Calibracao", viewModel.geometryDiagnostic.calibrationReliable ? "OK" : "Calibracao invalida para medir")
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+    }
+
+    private func diagnosticLine(_ title: String,
+                                _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.6))
+            Text(value)
+                .font(.caption)
+                .foregroundColor(.white)
+        }
     }
 }
 

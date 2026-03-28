@@ -44,18 +44,23 @@ final class CaptureReadinessEngine {
         guard let blockingReason = hardBlockReason(for: input) else {
             guard isTimestampContinuous(input.evaluation.timestamp) else {
                 reset()
-                return makeStatus(blockReason: .staleFrame)
+                return makeStatus(blockReason: .staleFrame,
+                                  failureDetail: input.verificationResult.failureDetail)
             }
 
             registerStableSample(timestamp: input.evaluation.timestamp)
             guard stableSampleCount >= requiredStableSampleCount else {
-                return makeStatus(blockReason: .unstableFrame)
+                return makeStatus(blockReason: .unstableFrame,
+                                  failureDetail: input.verificationResult.failureDetail)
             }
-            return makeStatus(blockReason: nil)
+            return makeStatus(blockReason: nil,
+                              failureDetail: nil)
         }
 
         reset()
-        return makeStatus(blockReason: blockingReason)
+        return makeStatus(blockReason: blockingReason,
+                          failureDetail: resolvedFailureDetail(for: blockingReason,
+                                                               input: input))
     }
 
     /// Verifica se o frame informado ainda e recente o bastante para capturar.
@@ -67,14 +72,31 @@ final class CaptureReadinessEngine {
     // MARK: - Helpers
     private func hardBlockReason(for input: CaptureReadinessInput) -> CameraCaptureBlockReason? {
         guard input.sessionReady else { return .sessionUnavailable }
-        guard input.evaluation.trackingIsNormal else { return .trackingUnavailable }
-        guard input.evaluation.hasTrackedFaceAnchor else { return .trackingUnavailable }
-        guard input.evaluation.faceDetected else { return .faceNotDetected }
-        guard input.evaluation.distanceCorrect else { return .distanceOutOfRange }
-        guard input.evaluation.faceAligned else { return .faceNotCentered }
-        guard input.evaluation.headAligned else { return .headNotAligned }
+        if let blockingReason = input.verificationResult.blockingReason {
+            return blockingReason
+        }
         guard input.calibrationReady else { return .calibrationUnavailable }
         return nil
+    }
+
+    private func resolvedFailureDetail(for reason: CameraCaptureBlockReason,
+                                       input: CaptureReadinessInput) -> VerificationFailureDetail? {
+        if input.verificationResult.blockingReason == reason {
+            return input.verificationResult.failureDetail
+        }
+
+        guard reason == .calibrationUnavailable else {
+            return input.verificationResult.failureDetail
+        }
+
+        let hint = input.calibrationHint ?? reason.shortMessage
+        return VerificationFailureDetail(overallStep: input.verificationResult.overallStep,
+                                         blockingReason: reason,
+                                         blockingHint: hint,
+                                         diagnosticLabel: "Calibracao",
+                                         technicalReason: hint,
+                                         directionHint: hint,
+                                         confidence: 1)
     }
 
     private func isTimestampContinuous(_ timestamp: TimeInterval) -> Bool {
@@ -92,8 +114,10 @@ final class CaptureReadinessEngine {
         lastAcceptedTimestamp = timestamp
     }
 
-    private func makeStatus(blockReason: CameraCaptureBlockReason?) -> CaptureReadinessStatus {
+    private func makeStatus(blockReason: CameraCaptureBlockReason?,
+                            failureDetail: VerificationFailureDetail?) -> CaptureReadinessStatus {
         CaptureReadinessStatus(blockReason: blockReason,
+                               failureDetail: failureDetail,
                                stableSampleCount: stableSampleCount,
                                requiredStableSampleCount: requiredStableSampleCount)
     }

@@ -48,6 +48,11 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var faceBounds: NormalizedRect = NormalizedRect()
     /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
     @Published var previewBounds: NormalizedRect = NormalizedRect()
+    @Published private(set) var geometryDiagnostic = PostCaptureGeometryDiagnostic(calibrationReliable: false,
+                                                                                   centralPointMessage: "Aguardando diagnostico.",
+                                                                                   rightEyeMessage: "Aguardando diagnostico.",
+                                                                                   leftEyeMessage: "Aguardando diagnostico.",
+                                                                                   summaryMessage: "Aguardando diagnostico.")
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -154,6 +159,7 @@ final class PostCaptureViewModel: ObservableObject {
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
                 self.previewBounds = preview.bounds
+                self.refreshGeometryDiagnostic()
                 self.isProcessing = false
             }
         } catch {
@@ -162,6 +168,7 @@ final class PostCaptureViewModel: ObservableObject {
                 self.errorMessage = error.localizedDescription
                 self.configuration = PostCaptureConfiguration()
                 self.previewBounds = NormalizedRect()
+                self.refreshGeometryDiagnostic()
             }
         }
     }
@@ -175,6 +182,7 @@ final class PostCaptureViewModel: ObservableObject {
             self.faceBounds = storedConfiguration.faceBounds
             self.facePreview = preview.image
             self.previewBounds = preview.bounds
+            self.refreshGeometryDiagnostic()
             self.isProcessing = false
             self.errorMessage = nil
         }
@@ -345,6 +353,7 @@ final class PostCaptureViewModel: ObservableObject {
                                                      faceBounds: configuration.faceBounds)
             didMirrorLeftEye = true
         }
+        refreshGeometryDiagnostic()
     }
 
     // MARK: - Cálculo de Métricas
@@ -476,5 +485,12 @@ final class PostCaptureViewModel: ObservableObject {
             return preview
         }
         return faceBounds.clamped()
+    }
+
+    /// Atualiza o diagnostico da geometria com base na configuracao atual.
+    private func refreshGeometryDiagnostic() {
+        let validator = PostCaptureMeasurementValidator(configuration: configuration,
+                                                        centralPoint: configuration.centralPoint)
+        geometryDiagnostic = validator.diagnostic(calibrationReliable: scale.isReliable)
     }
 }
