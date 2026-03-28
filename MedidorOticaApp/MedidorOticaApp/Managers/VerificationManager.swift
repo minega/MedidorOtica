@@ -28,7 +28,7 @@ final class VerificationManager: ObservableObject {
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
     @Published var alignmentData: [String: Float] = [:]
-    @Published fileprivate(set) var lastAlignmentMetricsTimestamp: TimeInterval = 0
+    @Published var lastAlignmentMetricsTimestamp: TimeInterval = 0
     @Published var facePosition: [String: Float] = [:]
     @Published private(set) var activeSensor: SensorType = .none
     @Published private(set) var latestEvaluation: VerificationFrameEvaluation = .empty
