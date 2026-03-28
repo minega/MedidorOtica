@@ -22,9 +22,9 @@ final class VerificationManager: ObservableObject {
     @Published var faceAligned = false
     @Published var headAligned = false
     @Published var lastMeasuredDistance: Float = 0.0
-    @Published private(set) var projectedFaceTooSmall = false
-    @Published private(set) var projectedFaceWidthRatio: Float = 0.0
-    @Published private(set) var projectedFaceHeightRatio: Float = 0.0
+    @Published var projectedFaceTooSmall = false
+    @Published var projectedFaceWidthRatio: Float = 0.0
+    @Published var projectedFaceHeightRatio: Float = 0.0
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
     @Published var alignmentData: [String: Float] = [:]
@@ -438,5 +438,3 @@ private extension ARCamera {
         return false
     }
 }
-
-extension VerificationManager: @unchecked Sendable {}
