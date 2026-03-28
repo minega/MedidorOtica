@@ -24,23 +24,23 @@ enum TrueDepthBlockReason: Error, Equatable, Sendable {
     var shortMessage: String {
         switch self {
         case .noFaceAnchor:
-            return "Mostre o rosto para ativar o TrueDepth."
+            return "Encaixe testa, olhos e queixo dentro do oval."
         case .faceNotTracked:
-            return "Rosto rastreado de forma instavel."
+            return "Mantenha o rosto inteiro visivel no oval."
         case .invalidIntrinsics:
-            return "Nao foi possivel iniciar a calibracao da camera."
+            return "A camera esta reiniciando a calibracao do sensor."
         case .invalidEyeDepth:
-            return "Mostre bem os olhos para a camera."
+            return "Deixe os dois olhos, sobrancelhas e cantos visiveis."
         case .ipdOutOfRange:
-            return "Ajuste a distancia do rosto."
+            return "Aproxime o rosto ate os olhos ocuparem mais o oval."
         case .pixelBaselineTooSmall:
-            return "Aproxime o rosto para medir os olhos."
+            return "Aproxime o rosto para aumentar a leitura dos olhos."
         case .scaleOutOfRange:
-            return "Ajuste a distancia e alinhe o celular."
+            return "Ajuste a distancia e segure o celular reto."
         case .baselineNoiseTooHigh:
-            return "Mantenha o rosto firme para reduzir ruido."
+            return "Segure o celular e o rosto sem girar por um instante."
         case .noRecentSamples:
-            return "Reposicione o rosto para obter a malha facial."
+            return "Aproxime o rosto ate aparecer a malha facial."
         }
     }
 
@@ -154,25 +154,25 @@ enum CameraCaptureBlockReason: Equatable {
     var shortMessage: String {
         switch self {
         case .preparingSession:
-            return "Preparando a camera."
+            return "Aguarde a camera abrir e estabilizar."
         case .sessionUnavailable:
-            return "Sessao indisponivel."
+            return "A camera reiniciou e esta recuperando a sessao."
         case .trackingUnavailable:
-            return "Rastreamento instavel."
+            return "Reenquadre o rosto inteiro dentro do oval."
         case .faceNotDetected:
-            return "Rosto nao detectado."
+            return "Encaixe o rosto inteiro no oval."
         case .distanceOutOfRange:
-            return "Ajuste a distancia."
+            return "Ajuste a distancia do rosto."
         case .faceNotCentered:
-            return "Centralize o rosto."
+            return "Ajuste o celular ate o nariz ficar no centro."
         case .headNotAligned:
-            return "Alinhe a cabeca."
+            return "Nivele os olhos e mantenha a cabeca reta."
         case .calibrationUnavailable:
-            return "Aguardando calibracao."
+            return "Aguardando a malha facial e a calibracao do sensor."
         case .unstableFrame:
-            return "Mantenha a posicao."
+            return "Segure o celular sem girar nem aproximar."
         case .staleFrame:
-            return "Atualizando imagem."
+            return "Aguarde a imagem atualizar."
         }
     }
 }

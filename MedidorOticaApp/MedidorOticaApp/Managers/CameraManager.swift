@@ -333,7 +333,9 @@ final class CameraManager: NSObject, ObservableObject {
                                 calibrationHint: String?) {
         if status.isStableReady {
             let nextState: CameraCaptureState = captureState == .countdown ? .countdown : .stableReady
-            setCaptureState(nextState, hint: "Pronto para capturar.", progress: 1)
+            setCaptureState(nextState,
+                            hint: "Continue olhando para a tela. Na contagem, olhe para a camera.",
+                            progress: 1)
             return
         }
 
@@ -417,17 +419,17 @@ final class CameraManager: NSObject, ObservableObject {
     func trueDepthHint() -> String {
         switch trueDepthInternalState {
         case .startingSession:
-            return "Ativando TrueDepth."
+            return "Aguarde a camera abrir e o TrueDepth iniciar."
         case .waitingForFaceAnchor:
-            return trueDepthInternalFailureReason?.shortMessage ?? "Mostre o rosto para ativar o sensor."
+            return trueDepthInternalFailureReason?.shortMessage ?? "Encaixe testa, olhos e queixo dentro do oval."
         case .waitingForEyeProjection:
-            return trueDepthInternalFailureReason?.shortMessage ?? "Mostre bem os olhos para a camera."
+            return trueDepthInternalFailureReason?.shortMessage ?? "Deixe os dois olhos totalmente visiveis no oval."
         case .waitingForDepthConsistency:
-            return trueDepthInternalFailureReason?.shortMessage ?? "Estabilize o TrueDepth."
+            return trueDepthInternalFailureReason?.shortMessage ?? "Segure o celular reto e parado ate a malha estabilizar."
         case .sensorAlive:
             return "TrueDepth ativo."
         case .recovering(let attempt):
-            return "Reiniciando TrueDepth (\(attempt))."
+            return "Reiniciando o TrueDepth (\(attempt))."
         case .failed(let reason):
             return reason.shortMessage
         }

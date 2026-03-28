@@ -18,7 +18,7 @@ extension VerificationManager {
         /// Diferença máxima permitida entre a profundidade dos olhos.
         static let maxEyeDepthDeltaMM: Float = 8.0
         /// Inclinação máxima permitida da linha interpupilar.
-        static let maxEyeLineTiltDegrees: Float = 1.5
+        static let maxEyeLineTiltDegrees: Float = 2.5
         /// Faixa anatômica esperada entre a profundidade média dos olhos e o nariz.
         static let noseDepthLeadRangeMM: ClosedRange<Float> = 4.0...35.0
 

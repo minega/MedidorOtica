@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - "codex/**"
+  workflow_run:
+    workflows:
+      - "iOS Release"
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       build_number:
@@ -22,6 +27,7 @@ jobs:
   poll-build-status:
     name: Consultar build na Apple
     runs-on: macos-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
 
     env:
       APP_STORE_CONNECT_KEY_ID: G5V2B335RL

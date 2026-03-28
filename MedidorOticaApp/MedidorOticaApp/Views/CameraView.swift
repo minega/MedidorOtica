@@ -114,9 +114,13 @@ struct CameraView: View {
         Group {
             if countdownValue > 0 {
                 VStack(spacing: 16) {
-                    Text("Olhe para a camera")
+                    Text("Agora olhe para a camera")
                         .font(.title2)
                         .foregroundColor(.white)
+
+                    Text("Mantenha o celular parado")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
 
                     Text("\(countdownValue)")
                         .font(.system(size: 72, weight: .bold))
@@ -446,7 +450,7 @@ struct CameraView: View {
 
     private func manualCaptureBlockMessage() -> String {
         if !cameraInitialized {
-            return "A camera ainda esta iniciando."
+            return "A camera ainda esta iniciando. Aguarde o preview estabilizar."
         }
 
         if !cameraManager.isTrueDepthSensorAlive {
@@ -454,23 +458,24 @@ struct CameraView: View {
         }
 
         if !verificationManager.faceDetected {
-            return "Posicione seu rosto para ser detectado."
+            return "Encaixe testa, olhos e queixo dentro do oval."
         }
 
         if !verificationManager.distanceCorrect {
             if verificationManager.projectedFaceTooSmall {
-                return "Aproxime-se da camera."
+                return "Aproxime o rosto ate os olhos ocuparem melhor o oval."
             }
             return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
-                "Aproxime-se da camera." : "Afaste-se da camera."
+                "Afaste um pouco o rosto para entrar na faixa ideal." :
+                "Aproxime um pouco o rosto para entrar na faixa ideal."
         }
 
         if !verificationManager.faceAligned {
-            return "Centralize seu rosto no oval."
+            return "Ajuste o celular ate o nariz ficar exatamente no centro do oval."
         }
 
         if !verificationManager.headAligned {
-            return "Mantenha sua cabeca reta alinhada com a camera."
+            return "Nivele os olhos e mantenha a cabeca reta antes da captura."
         }
 
         return cameraManager.captureHint
