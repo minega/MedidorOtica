@@ -338,8 +338,16 @@ struct CameraView: View {
                                                            object: nil,
                                                            queue: .main) { notification in
             guard let error = notification.userInfo?["error"] as? CameraError else { return }
+            let shouldAppendCalibrationHint: Bool
+            if case .missingTrueDepthData = error {
+                shouldAppendCalibrationHint = true
+            } else {
+                shouldAppendCalibrationHint = false
+            }
+            let baseMessage = error.localizedDescription
             Task { @MainActor in
-                handleCameraError(error)
+                presentCameraErrorMessage(baseMessage,
+                                          includeCalibrationHint: shouldAppendCalibrationHint)
             }
         }
         notificationObservers.append(token)
@@ -349,14 +357,9 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
+            let message = notification.userInfo?["error"] as? String ?? "Falha ao configurar ARSession."
             Task { @MainActor in
-                if let message = notification.userInfo?["error"] as? String {
-                    alertMessage = message
-                } else {
-                    alertMessage = "Falha ao configurar ARSession."
-                }
-                cameraManager.stop()
-                showingAlert = true
+                presentAlert(message, stopCamera: true)
             }
         }
         notificationObservers.append(token)
@@ -366,13 +369,9 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
+            let message = notification.userInfo?["message"] as? String ?? "A sessao de AR apresentou um erro."
             Task { @MainActor in
-                if let message = notification.userInfo?["message"] as? String {
-                    alertMessage = message
-                } else {
-                    alertMessage = "A sessao de AR apresentou um erro."
-                }
-                showingAlert = true
+                presentAlert(message)
             }
         }
         notificationObservers.append(token)
@@ -382,15 +381,18 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
+            let reason = notification.userInfo?["reason"] as? String
+            let sensor = notification.userInfo?["sensor"] as? String
+            let message: String
+            if let reason {
+                message = "Dispositivo nao compativel: \(reason)"
+            } else if let sensor {
+                message = "Dispositivo nao possui o sensor \(sensor) necessario."
+            } else {
+                message = "Dispositivo nao compativel com as medicoes."
+            }
             Task { @MainActor in
-                if let reason = notification.userInfo?["reason"] as? String {
-                    alertMessage = "Dispositivo nao compativel: \(reason)"
-                } else if let sensor = notification.userInfo?["sensor"] as? String {
-                    alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
-                } else {
-                    alertMessage = "Dispositivo nao compativel com as medicoes."
-                }
-                showingAlert = true
+                presentAlert(message)
             }
         }
         notificationObservers.append(token)
@@ -423,20 +425,7 @@ struct CameraView: View {
     }
 
     private func showPermissionDeniedAlert() {
-        alertMessage = "O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo."
-        showingAlert = true
-    }
-
-    private func handleCameraError(_ error: CameraError) {
-        if case .missingTrueDepthData = error,
-           let hint = cameraManager.latestCalibrationFailureHint() {
-            alertMessage = "\(error.localizedDescription)\n\(hint)"
-        } else {
-            alertMessage = error.localizedDescription
-        }
-
-        showingAlert = true
-        isProcessing = false
+        presentAlert("O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo.")
     }
 
     // MARK: - Captura
@@ -530,19 +519,49 @@ struct CameraView: View {
         cameraManager.setCountdownActive(true)
 
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
-                                              repeats: true) { timer in
+                                              repeats: true) { _ in
             Task { @MainActor in
-                if countdownValue > 1 {
-                    countdownValue -= 1
-                    return
-                }
-
-                timer.invalidate()
-                countdownTimer = nil
-                countdownValue = 0
-                capturePhoto()
+                handleCountdownTick()
             }
         }
+    }
+
+    @MainActor
+    private func presentCameraErrorMessage(_ baseMessage: String,
+                                           includeCalibrationHint: Bool) {
+        let fullMessage: String
+        if includeCalibrationHint,
+           let hint = cameraManager.latestCalibrationFailureHint() {
+            fullMessage = "\(baseMessage)\n\(hint)"
+        } else {
+            fullMessage = baseMessage
+        }
+
+        presentAlert(fullMessage)
+        isProcessing = false
+    }
+
+    @MainActor
+    private func presentAlert(_ message: String,
+                              stopCamera: Bool = false) {
+        alertMessage = message
+        if stopCamera {
+            cameraManager.stop()
+        }
+        showingAlert = true
+    }
+
+    @MainActor
+    private func handleCountdownTick() {
+        if countdownValue > 1 {
+            countdownValue -= 1
+            return
+        }
+
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownValue = 0
+        capturePhoto()
     }
 
     private func cancelCountdown(refreshState: Bool = true) {
