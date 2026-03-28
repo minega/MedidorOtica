@@ -16,6 +16,8 @@ extension VerificationManager {
     private enum HeadAlignmentConstants {
         /// Tolerância angular mais rígida para reduzir capturas tortas.
         static let toleranceDegrees: Float = 2.0
+        /// Limite usado para ignorar leituras de pose claramente inconsistentes.
+        static let maxPlausiblePoseDegrees: Float = 35.0
         /// Diferença máxima permitida entre a profundidade dos olhos.
         static let maxEyeDepthDeltaMM: Float = 8.0
         /// Inclinação máxima permitida da linha interpupilar.
@@ -86,6 +88,12 @@ extension VerificationManager {
         let rollDegrees = radiansToDegrees(euler.roll) * sign
         let yawDegrees = radiansToDegrees(euler.yaw) * sign
         let pitchDegrees = radiansToDegrees(euler.pitch)
+
+        guard poseAnglesArePlausible(rollDegrees: rollDegrees,
+                                     yawDegrees: yawDegrees,
+                                     pitchDegrees: pitchDegrees) else {
+            return nil
+        }
 
         let worldToCamera = simd_inverse(frame.camera.transform)
         let faceInCamera = simd_mul(worldToCamera, faceAnchor.transform)
@@ -254,9 +262,16 @@ extension VerificationManager {
     private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor, frame: ARFrame) -> EulerAngles {
         let worldToCamera = simd_inverse(frame.camera.transform)
         let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
-        let orientationMatrix = simd_float4x4(orientationCompensation())
-        let compensatedTransform = simd_mul(orientationMatrix, relativeTransform)
-        return extractEulerAngles(from: compensatedTransform)
+        return extractEulerAngles(from: relativeTransform)
+    }
+
+    /// Valida a pose do TrueDepth antes de publicar instruções absurdas para o usuário.
+    private func poseAnglesArePlausible(rollDegrees: Float,
+                                        yawDegrees: Float,
+                                        pitchDegrees: Float) -> Bool {
+        abs(rollDegrees) <= HeadAlignmentConstants.maxPlausiblePoseDegrees &&
+        abs(yawDegrees) <= HeadAlignmentConstants.maxPlausiblePoseDegrees &&
+        abs(pitchDegrees) <= HeadAlignmentConstants.maxPlausiblePoseDegrees
     }
 
     // MARK: - Compensação de orientação

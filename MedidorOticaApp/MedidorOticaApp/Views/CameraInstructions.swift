@@ -9,6 +9,11 @@ import SwiftUI
 
 // MARK: - Instrucoes da camera
 struct CameraInstructions: View {
+    private enum InstructionLimits {
+        /// Evita instruções absurdas quando a pose chega corrompida.
+        static let maxPlausiblePoseDegrees: Float = 35
+    }
+
     /// Observa as verificacoes do enquadramento.
     @ObservedObject var verificationManager: VerificationManager
     /// Observa o estado real do pipeline de captura.
@@ -218,33 +223,46 @@ struct CameraInstructions: View {
         let eyeDepthTolerance: Float = 8
 
         if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > angleTolerance {
-            let magnitude = format(abs(roll), digits: 0)
-            if roll > 0 {
-                return "🙂 ↩️ Incline a cabeca \(magnitude)° para nivelar os olhos"
+            guard isPlausiblePoseAngle(roll) else {
+                return "🙂 ↔️ Reposicione o rosto de frente sem inclinar a cabeca"
             }
-            return "🙂 ↪️ Incline a cabeca \(magnitude)° para nivelar os olhos"
+
+            if roll > 0 {
+                return "🙂 ↩️ Incline levemente a cabeca para nivelar os olhos"
+            }
+
+            return "🙂 ↪️ Incline levemente a cabeca para nivelar os olhos"
         }
 
         if abs(yaw) > abs(pitch), abs(yaw) > angleTolerance {
-            let magnitude = format(abs(yaw), digits: 0)
-            if yaw > 0 {
-                return "🙂 ➡️ Vire o rosto \(magnitude)° para a direita sem sair do oval"
+            guard isPlausiblePoseAngle(yaw) else {
+                return "🙂 ↔️ Volte o rosto para frente sem sair do oval"
             }
-            return "🙂 ⬅️ Vire o rosto \(magnitude)° para a esquerda sem sair do oval"
+
+            if yaw > 0 {
+                return "🙂 ➡️ Vire levemente o rosto para a direita sem sair do oval"
+            }
+
+            return "🙂 ⬅️ Vire levemente o rosto para a esquerda sem sair do oval"
         }
 
         if abs(pitch) > angleTolerance {
-            let magnitude = format(abs(pitch), digits: 0)
-            if pitch > 0 {
-                return "🙂 ⬆️ Levante o queixo \(magnitude)° mantendo o nariz no centro"
+            guard isPlausiblePoseAngle(pitch) else {
+                return "🙂 ↔️ Volte o rosto ao centro mantendo o queixo neutro"
             }
-            return "🙂 ⬇️ Abaixe o queixo \(magnitude)° mantendo o nariz no centro"
+
+            if pitch > 0 {
+                return "🙂 ⬆️ Levante levemente o queixo mantendo o nariz no centro"
+            }
+
+            return "🙂 ⬇️ Abaixe levemente o queixo mantendo o nariz no centro"
         }
 
         if abs(eyeLineTilt) > eyeLineTolerance {
             if eyeLineTilt > 0 {
                 return "📱 ↩️ Gire levemente o celular para nivelar os dois olhos na horizontal"
             }
+
             return "📱 ↪️ Gire levemente o celular para nivelar os dois olhos na horizontal"
         }
 
@@ -261,6 +279,10 @@ struct CameraInstructions: View {
 
     private func format(_ value: Float, digits: Int = 1) -> String {
         String(format: "%.\(digits)f", value)
+    }
+
+    private func isPlausiblePoseAngle(_ angle: Float) -> Bool {
+        abs(angle) <= InstructionLimits.maxPlausiblePoseDegrees
     }
 }
 
