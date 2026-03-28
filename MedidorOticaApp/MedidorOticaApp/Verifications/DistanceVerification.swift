@@ -10,8 +10,9 @@
 //  - Suportar diferentes sensores (TrueDepth e LiDAR) para máxima precisão
 //
 //  Critérios de Aceitação:
-//  1. Distância ideal entre 25cm e 50cm do dispositivo
-//  2. Feedback visual claro quando fora da faixa ideal
+//  1. Distância ideal entre 28cm e 45cm do dispositivo
+//  2. Face projetada com tamanho suficiente para garantir precisão
+//  3. Feedback visual claro quando fora da faixa ideal
 //  
 //  Sensores Suportados:
 //  - TrueDepth (câmera frontal): Usa ARFaceAnchor para medição precisa
@@ -24,13 +25,14 @@
 
 import ARKit
 import Vision
+import simd
 
 /// Limites globais de distância (centímetros)
 struct DistanceLimits {
     /// Distância mínima permitida
-    static let minCm: Float = 25.0
+    static let minCm: Float = 28.0
     /// Distância máxima permitida
-    static let maxCm: Float = 60.0
+    static let maxCm: Float = 45.0
 }
 
 // MARK: - Extensão para verificação de distância
@@ -45,6 +47,25 @@ extension VerificationManager {
         static let maxDistanceMeters: Float = DistanceLimits.maxCm / 100
         // Limite superior para descartar leituras inválidas
         static let maxValidDepth: Float = 10.0
+        // Tamanho mínimo projetado da face para impedir capturas distantes demais.
+        static let minProjectedFaceWidthRatio: Float = 0.22
+        static let minProjectedFaceHeightRatio: Float = 0.30
+    }
+
+    /// Resultado completo da verificação de distância.
+    private struct DistanceMeasurement {
+        let distance: Float
+        let projectedFaceWidthRatio: Float
+        let projectedFaceHeightRatio: Float
+
+        var projectedFaceTooSmall: Bool {
+            projectedFaceWidthRatio < DistanceConstants.minProjectedFaceWidthRatio ||
+            projectedFaceHeightRatio < DistanceConstants.minProjectedFaceHeightRatio
+        }
+
+        var hasValidDepth: Bool {
+            distance > 0 && distance < DistanceConstants.maxValidDepth
+        }
     }
 
     
@@ -57,24 +78,30 @@ extension VerificationManager {
     /// - Returns: Booleano indicando se a distância está dentro do intervalo aceitável
     func checkDistance(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
         // Verifica a disponibilidade dos sensores
-        guard let (distance, isValid) = getDistanceMeasurement(using: frame, faceAnchor: faceAnchor) else {
+        guard let measurement = getDistanceMeasurement(using: frame, faceAnchor: faceAnchor) else {
             handleDistanceVerificationError(reason: "Sensores de profundidade indisponíveis")
             return false
         }
-        
+
         // Verifica se a distância está dentro do intervalo aceitável
-        let isWithinRange = (DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters).contains(distance)
-        
+        let isWithinRange = (DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters).contains(measurement.distance)
+        let isWithinProjectedRange = !measurement.projectedFaceTooSmall
+        let isValid = measurement.hasValidDepth && isWithinProjectedRange
+
         // Atualiza a interface do usuário com os resultados
-        updateDistanceUI(distance: distance, isValid: isWithinRange)
-        
+        updateDistanceUI(distance: measurement.distance,
+                         isValid: isWithinRange && isValid,
+                         projectedFaceWidthRatio: measurement.projectedFaceWidthRatio,
+                         projectedFaceHeightRatio: measurement.projectedFaceHeightRatio,
+                         projectedFaceTooSmall: measurement.projectedFaceTooSmall)
+
         return isWithinRange && isValid
     }
     
     // MARK: - Medição de Distância
     
     /// Obtém a medição de distância usando o sensor apropriado
-    private func getDistanceMeasurement(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> (distance: Float, isValid: Bool)? {
+    private func getDistanceMeasurement(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> DistanceMeasurement? {
         let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
         guard !sensors.isEmpty else { return nil }
@@ -83,11 +110,12 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: anchor, frame: frame)
-                return (distance, distance > 0)
+                return makeTrueDepthMeasurement(faceAnchor: anchor, frame: frame)
             case .liDAR:
                 let distance = getMeasuredDistanceWithLiDAR(frame: frame)
-                return (distance, distance > 0 && distance < DistanceConstants.maxValidDepth)
+                return DistanceMeasurement(distance: distance,
+                                           projectedFaceWidthRatio: 1,
+                                           projectedFaceHeightRatio: 1)
             case .none:
                 continue
             }
@@ -95,11 +123,26 @@ extension VerificationManager {
 
         return nil
     }
+
+    /// Consolida a distância e o tamanho projetado do rosto para a câmera frontal.
+    private func makeTrueDepthMeasurement(faceAnchor: ARFaceAnchor,
+                                          frame: ARFrame) -> DistanceMeasurement {
+        let distance = getMeasuredDistanceWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
+        let projectedSize = projectedFaceSizeWithTrueDepth(faceAnchor: faceAnchor, frame: frame)
+
+        return DistanceMeasurement(distance: distance,
+                                   projectedFaceWidthRatio: projectedSize?.widthRatio ?? 0,
+                                   projectedFaceHeightRatio: projectedSize?.heightRatio ?? 0)
+    }
     
     // MARK: - Atualização da Interface
     
     /// Atualiza a interface do usuário com os resultados da medição de distância
-    private func updateDistanceUI(distance: Float, isValid: Bool) {
+    private func updateDistanceUI(distance: Float,
+                                  isValid: Bool,
+                                  projectedFaceWidthRatio: Float,
+                                  projectedFaceHeightRatio: Float,
+                                  projectedFaceTooSmall: Bool) {
         let distanceInCm = distance * 100.0
         print("📏 Distância medida: \(String(format: "%.1f", distanceInCm)) cm")
         
@@ -107,10 +150,18 @@ extension VerificationManager {
             guard let self = self else { return }
 
             self.lastMeasuredDistance = Float(distanceInCm)
+            self.projectedFaceTooSmall = projectedFaceTooSmall
+            self.projectedFaceWidthRatio = projectedFaceWidthRatio
+            self.projectedFaceHeightRatio = projectedFaceHeightRatio
 
             // Feedback adicional baseado na distância
             if !isValid {
-                let message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
+                let message: String
+                if projectedFaceTooSmall {
+                    message = "Face ainda pequena no enquadramento"
+                } else {
+                    message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
+                }
                 print("⚠️ \(message): \(String(format: "%.1f", distanceInCm)) cm")
             }
         }
@@ -201,6 +252,36 @@ extension VerificationManager {
             return 0
         }
     }
+
+    /// Mede o tamanho projetado do rosto na tela a partir da malha facial do TrueDepth.
+    private func projectedFaceSizeWithTrueDepth(faceAnchor: ARFaceAnchor,
+                                                frame: ARFrame) -> (widthRatio: Float, heightRatio: Float)? {
+        let orientation = currentCGOrientation()
+        let viewport = orientedViewportSize(for: frame.camera.imageResolution,
+                                            orientation: orientation)
+        let uiOrientation = currentUIOrientation()
+        let projectedPoints = faceAnchor.geometry.vertices.compactMap { vertex -> CGPoint? in
+            let worldPoint = worldPosition(of: vertex, transform: faceAnchor.transform)
+            let projected = frame.camera.projectPoint(worldPoint,
+                                                     orientation: uiOrientation,
+                                                     viewportSize: viewport)
+            guard projected.x.isFinite, projected.y.isFinite else { return nil }
+            return CGPoint(x: CGFloat(projected.x), y: CGFloat(projected.y))
+        }
+
+        guard let minX = projectedPoints.map(\.x).min(),
+              let maxX = projectedPoints.map(\.x).max(),
+              let minY = projectedPoints.map(\.y).min(),
+              let maxY = projectedPoints.map(\.y).max(),
+              viewport.width > 0,
+              viewport.height > 0 else {
+            return nil
+        }
+
+        let widthRatio = Float(max(0, maxX - minX) / viewport.width)
+        let heightRatio = Float(max(0, maxY - minY) / viewport.height)
+        return (widthRatio, heightRatio)
+    }
     
     // MARK: - Tratamento de Erros
     
@@ -218,6 +299,24 @@ extension VerificationManager {
                 ]
             )
         }
+    }
+}
+
+// MARK: - Helpers geométricos
+private extension VerificationManager {
+    /// Converte a resolução da câmera para o viewport efetivo considerando a orientação atual.
+    func orientedViewportSize(for resolution: CGSize,
+                              orientation: CGImagePropertyOrientation) -> CGSize {
+        orientation.isPortrait ?
+            CGSize(width: resolution.height, height: resolution.width) :
+            resolution
+    }
+
+    /// Converte um vértice da malha em ponto 3D no mundo.
+    func worldPosition(of vertex: simd_float3,
+                       transform: simd_float4x4) -> simd_float3 {
+        let position = simd_mul(transform, SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1))
+        return simd_float3(position.x, position.y, position.z)
     }
 }
 

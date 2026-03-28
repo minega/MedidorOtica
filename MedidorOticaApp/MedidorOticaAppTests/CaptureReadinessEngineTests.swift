@@ -10,6 +10,17 @@ import Testing
 @testable import MedidorOticaApp
 
 struct CaptureReadinessEngineTests {
+    @Test func distanceVerificationDescriptionReflectsTighterRange() async throws {
+        #expect(DistanceLimits.minCm == 28.0)
+        #expect(DistanceLimits.maxCm == 45.0)
+        #expect(VerificationType.distance.description.contains("28cm"))
+        #expect(VerificationType.distance.description.contains("45cm"))
+    }
+
+    @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
+        #expect(TrueDepthBlockReason.noRecentSamples.shortMessage == "Reposicione o rosto para obter a malha facial.")
+    }
+
     @Test func requiresConsecutiveStableFramesBeforeReady() async throws {
         let engine = CaptureReadinessEngine(requiredStableSampleCount: 3,
                                             maximumFrameGap: 0.20,

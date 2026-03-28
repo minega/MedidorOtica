@@ -458,6 +458,9 @@ struct CameraView: View {
         }
 
         if !verificationManager.distanceCorrect {
+            if verificationManager.projectedFaceTooSmall {
+                return "Aproxime-se da camera."
+            }
             return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
                 "Aproxime-se da camera." : "Afaste-se da camera."
         }

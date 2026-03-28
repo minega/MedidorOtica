@@ -36,11 +36,11 @@ enum TrueDepthBlockReason: Error, Equatable, Sendable {
         case .pixelBaselineTooSmall:
             return "Aproxime o rosto para medir os olhos."
         case .scaleOutOfRange:
-            return "Estabilize a posicao do celular."
+            return "Ajuste a distancia e alinhe o celular."
         case .baselineNoiseTooHigh:
             return "Mantenha o rosto firme para reduzir ruido."
         case .noRecentSamples:
-            return "Aguardando pontos da malha facial."
+            return "Reposicione o rosto para obter a malha facial."
         }
     }
 

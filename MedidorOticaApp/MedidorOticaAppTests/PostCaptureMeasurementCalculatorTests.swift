@@ -9,6 +9,28 @@ import Testing
 @testable import MedidorOticaApp
 
 struct PostCaptureMeasurementCalculatorTests {
+    @Test func keepsNasalAndTemporalBarsOnCorrectSideOfCentralPoint() async throws {
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+
+        let rightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.38, y: 0.52),
+                                          nasalBarX: 0.64,
+                                          temporalBarX: 0.56,
+                                          inferiorBarY: 0.72,
+                                          superiorBarY: 0.36)
+            .normalized(centralX: center.x)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.63, y: 0.51),
+                                         nasalBarX: 0.36,
+                                         temporalBarX: 0.44,
+                                         inferiorBarY: 0.70,
+                                         superiorBarY: 0.34)
+            .normalized(centralX: center.x)
+
+        #expect(rightEye.nasalBarX <= center.x)
+        #expect(rightEye.temporalBarX <= rightEye.nasalBarX)
+        #expect(leftEye.nasalBarX >= center.x)
+        #expect(leftEye.temporalBarX >= leftEye.nasalBarX)
+    }
+
     // MARK: - Cenário padrão com calibração conhecida
     @Test func convertsNormalizedDistancesUsingCalibration() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)

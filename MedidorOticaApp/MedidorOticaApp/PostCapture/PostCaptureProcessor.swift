@@ -77,29 +77,25 @@ final class PostCaptureProcessor {
                                                  orientation: orientation)
 
         // Localiza pupilas utilizando Vision
-        let rightPupilPoint = landmarks?.rightPupil.flatMap {
-            VisionGeometryHelper.normalizedPoint(from: $0,
-                                                 boundingBox: box,
-                                                 imageWidth: width,
-                                                 imageHeight: height,
-                                                 orientation: orientation)
-        }
-        let leftPupilPoint = landmarks?.leftPupil.flatMap {
-            VisionGeometryHelper.normalizedPoint(from: $0,
-                                                 boundingBox: box,
-                                                 imageWidth: width,
-                                                 imageHeight: height,
-                                                 orientation: orientation)
-        }
+        let rightPupilPoint = resolvedEyePoint(pupilRegion: landmarks?.rightPupil,
+                                               eyeRegion: landmarks?.rightEye,
+                                               boundingBox: box,
+                                               imageWidth: width,
+                                               imageHeight: height,
+                                               orientation: orientation)
+        let leftPupilPoint = resolvedEyePoint(pupilRegion: landmarks?.leftPupil,
+                                              eyeRegion: landmarks?.leftEye,
+                                              boundingBox: box,
+                                              imageWidth: width,
+                                              imageHeight: height,
+                                              orientation: orientation)
 
         // Localiza o dorso do nariz (noseCrest) para definir PC.
-        let nosePoint = landmarks?.noseCrest.flatMap {
-            VisionGeometryHelper.normalizedPoint(from: $0,
-                                                 boundingBox: box,
-                                                 imageWidth: width,
-                                                 imageHeight: height,
-                                                 orientation: orientation)
-        }
+        let nosePoint = resolvedNoseBridgePoint(landmarks: landmarks,
+                                                boundingBox: box,
+                                                imageWidth: width,
+                                                imageHeight: height,
+                                                orientation: orientation)
 
         let averagePupilY = resolvedCentralY(rightPupilPoint: rightPupilPoint,
                                              leftPupilPoint: leftPupilPoint,
@@ -109,13 +105,15 @@ final class PostCaptureProcessor {
                                         leftPupilPoint: leftPupilPoint,
                                         normalizedBounds: normalizedBounds)
         let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
+        let resolvedRightPupil = rightPupilPoint ?? leftPupilPoint.map { mirroredPoint($0, around: centralPoint.x) }
+        let resolvedLeftPupil = leftPupilPoint ?? rightPupilPoint.map { mirroredPoint($0, around: centralPoint.x) }
 
         // Monta dados por olho utilizando offsets padrão
-        let rightEyeData = initialData(for: rightPupilPoint,
+        let rightEyeData = initialData(for: resolvedRightPupil,
                                        isRightEye: true,
                                        centralPoint: centralPoint,
                                        scale: scale)
-        let leftEyeData = initialData(for: leftPupilPoint,
+        let leftEyeData = initialData(for: resolvedLeftPupil,
                                       isRightEye: false,
                                       centralPoint: centralPoint,
                                       scale: scale,
@@ -145,6 +143,54 @@ final class PostCaptureProcessor {
         }
 
         return normalizedBounds.x + (normalizedBounds.width / 2)
+    }
+
+    private func resolvedEyePoint(pupilRegion: VNFaceLandmarkRegion2D?,
+                                  eyeRegion: VNFaceLandmarkRegion2D?,
+                                  boundingBox: CGRect,
+                                  imageWidth: Int,
+                                  imageHeight: Int,
+                                  orientation: CGImagePropertyOrientation) -> CGPoint? {
+        if let pupilRegion {
+            return VisionGeometryHelper.normalizedPoint(from: pupilRegion,
+                                                        boundingBox: boundingBox,
+                                                        imageWidth: imageWidth,
+                                                        imageHeight: imageHeight,
+                                                        orientation: orientation)
+        }
+
+        guard let eyeRegion else { return nil }
+        return VisionGeometryHelper.normalizedPoint(from: eyeRegion,
+                                                    boundingBox: boundingBox,
+                                                    imageWidth: imageWidth,
+                                                    imageHeight: imageHeight,
+                                                    orientation: orientation)
+    }
+
+    private func resolvedNoseBridgePoint(landmarks: VNFaceLandmarks2D?,
+                                         boundingBox: CGRect,
+                                         imageWidth: Int,
+                                         imageHeight: Int,
+                                         orientation: CGImagePropertyOrientation) -> CGPoint? {
+        let crestPoints = VisionGeometryHelper.normalizedPoints(from: landmarks?.noseCrest,
+                                                                boundingBox: boundingBox,
+                                                                imageWidth: imageWidth,
+                                                                imageHeight: imageHeight,
+                                                                orientation: orientation)
+        let ordered = crestPoints.sorted { $0.y < $1.y }
+        guard !ordered.isEmpty else { return nil }
+
+        let sampleCount = min(max(ordered.count / 2, 1), 3)
+        let bridgePoints = Array(ordered.prefix(sampleCount))
+        let averageX = bridgePoints.map(\.x).reduce(0, +) / CGFloat(bridgePoints.count)
+        let averageY = bridgePoints.map(\.y).reduce(0, +) / CGFloat(bridgePoints.count)
+        return CGPoint(x: averageX, y: averageY)
+    }
+
+    private func mirroredPoint(_ point: CGPoint,
+                               around centralX: CGFloat) -> CGPoint {
+        CGPoint(x: (2 * centralX) - point.x,
+                y: point.y)
     }
 
     private func resolvedCentralY(rightPupilPoint: CGPoint?,
@@ -292,11 +338,10 @@ final class PostCaptureProcessor {
             isRightSide = isRightEye
         }
 
-        // Garante que a barra nasal permaneça sempre voltada ao ponto central enquanto a temporal segue para a lateral.
-        let nasalDirection: CGFloat = isRightSide ? -1 : 1
-        let temporalDirection: CGFloat = isRightSide ? 1 : -1
-        let nasal = centralPoint.x + (nasalDirection * nasalOffset)
-        let temporal = centralPoint.x + (temporalDirection * temporalOffset)
+        // Ambas as barras partem do PC em direção ao mesmo olho; a nasal fica mais próxima do PC.
+        let sideDirection: CGFloat = isRightSide ? 1 : -1
+        let nasal = centralPoint.x + (sideDirection * nasalOffset)
+        let temporal = centralPoint.x + (sideDirection * temporalOffset)
         let clampedNasal = min(max(nasal, 0), 1)
         let clampedTemporal = min(max(temporal, 0), 1)
 

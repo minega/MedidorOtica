@@ -43,8 +43,8 @@ extension VerificationManager {
     // MARK: - Constantes
     
     private enum CenteringConstants {
-        // Tolerância de 0,5 cm convertida para metros
-        static let tolerance: Float = 0.005
+        // Tolerância de 0,35 cm convertida para metros para exigir centralização mais precisa.
+        static let tolerance: Float = 0.0035
 
         // Índice do vértice correspondente à ponta do nariz
         struct FaceIndices {

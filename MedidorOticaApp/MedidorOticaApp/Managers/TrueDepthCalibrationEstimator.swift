@@ -443,12 +443,16 @@ final class TrueDepthCalibrationEstimator {
 
         var horizontalCandidates: [Double] = []
         var verticalCandidates: [Double] = []
+        var fallbackFailureReason: TrueDepthBlockReason?
 
-        if let interPupillaryCandidate = interPupillaryCandidate(faceAnchor: faceAnchor,
-                                                                 camera: frame.camera,
-                                                                 uiOrientation: uiOrientation,
-                                                                 viewportSize: viewportSize) {
-            horizontalCandidates.append(interPupillaryCandidate)
+        switch interPupillaryCandidate(faceAnchor: faceAnchor,
+                                       camera: frame.camera,
+                                       uiOrientation: uiOrientation,
+                                       viewportSize: viewportSize) {
+        case .success(let candidate):
+            horizontalCandidates.append(candidate)
+        case .failure(let reason):
+            fallbackFailureReason = reason
         }
 
         let meshCandidates = meshBasedCandidates(faceAnchor: faceAnchor,
@@ -459,7 +463,11 @@ final class TrueDepthCalibrationEstimator {
         verticalCandidates.append(contentsOf: meshCandidates.vertical)
 
         guard !horizontalCandidates.isEmpty else {
-            return .rejected(.invalidEyeDepth)
+            let meshFailureReason = meshSamplingFailureReason(faceAnchor: faceAnchor,
+                                                             camera: frame.camera,
+                                                             uiOrientation: uiOrientation,
+                                                             viewportSize: viewportSize)
+            return .rejected(meshFailureReason ?? fallbackFailureReason ?? .invalidEyeDepth)
         }
 
         guard let mmPerPixelX = Statistics.robustMean(horizontalCandidates),
@@ -511,7 +519,7 @@ final class TrueDepthCalibrationEstimator {
     private static func interPupillaryCandidate(faceAnchor: ARFaceAnchor,
                                                 camera: ARCamera,
                                                 uiOrientation: UIInterfaceOrientation,
-                                                viewportSize: CGSize) -> Double? {
+                                                viewportSize: CGSize) -> Result<Double, TrueDepthBlockReason> {
         let leftTransform = simd_mul(faceAnchor.transform, faceAnchor.leftEyeTransform)
         let rightTransform = simd_mul(faceAnchor.transform, faceAnchor.rightEyeTransform)
         let leftPosition = worldPosition(from: leftTransform)
@@ -521,7 +529,7 @@ final class TrueDepthCalibrationEstimator {
         guard distanceMM.isFinite,
               distanceMM >= Constants.minimumInterPupillaryMM,
               distanceMM <= Constants.maximumInterPupillaryMM else {
-            return nil
+            return .failure(.ipdOutOfRange)
         }
 
         let projectedLeft = camera.projectPoint(leftPosition,
@@ -533,17 +541,40 @@ final class TrueDepthCalibrationEstimator {
         let pixelDX = Double(abs(projectedRight.x - projectedLeft.x))
         guard pixelDX.isFinite,
               pixelDX >= Constants.minimumHorizontalPixels else {
-            return nil
+            return .failure(.pixelBaselineTooSmall)
         }
 
         let mmPerPixel = distanceMM / pixelDX
         guard mmPerPixel.isFinite,
               mmPerPixel >= Constants.minMMPerPixel,
               mmPerPixel <= Constants.maxMMPerPixel else {
-            return nil
+            return .failure(.scaleOutOfRange)
         }
 
-        return mmPerPixel
+        return .success(mmPerPixel)
+    }
+
+    private static func meshSamplingFailureReason(faceAnchor: ARFaceAnchor,
+                                                  camera: ARCamera,
+                                                  uiOrientation: UIInterfaceOrientation,
+                                                  viewportSize: CGSize) -> TrueDepthBlockReason? {
+        let vertices = faceAnchor.geometry.vertices
+        guard let minimumXVertex = vertices.min(by: { $0.x < $1.x }),
+              let maximumXVertex = vertices.max(by: { $0.x < $1.x }),
+              let measurement = measurePair(first: minimumXVertex,
+                                            second: maximumXVertex,
+                                            faceAnchor: faceAnchor,
+                                            camera: camera,
+                                            uiOrientation: uiOrientation,
+                                            viewportSize: viewportSize) else {
+            return .noRecentSamples
+        }
+
+        if measurement.pixelDX < Constants.minimumHorizontalPixels {
+            return .pixelBaselineTooSmall
+        }
+
+        return .noRecentSamples
     }
 
     private static func meshBasedCandidates(faceAnchor: ARFaceAnchor,

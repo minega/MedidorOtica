@@ -22,6 +22,9 @@ final class VerificationManager: ObservableObject {
     @Published var faceAligned = false
     @Published var headAligned = false
     @Published var lastMeasuredDistance: Float = 0.0
+    @Published private(set) var projectedFaceTooSmall = false
+    @Published private(set) var projectedFaceWidthRatio: Float = 0.0
+    @Published private(set) var projectedFaceHeightRatio: Float = 0.0
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
     @Published var alignmentData: [String: Float] = [:]
@@ -298,6 +301,9 @@ final class VerificationManager: ObservableObject {
 
         if !evaluation.faceDetected {
             lastMeasuredDistance = 0
+            projectedFaceTooSmall = false
+            projectedFaceWidthRatio = 0
+            projectedFaceHeightRatio = 0
             alignmentData = [:]
             facePosition = [:]
         } else if !evaluation.faceAligned {
@@ -338,6 +344,9 @@ final class VerificationManager: ObservableObject {
         faceAligned = false
         headAligned = false
         lastMeasuredDistance = 0
+        projectedFaceTooSmall = false
+        projectedFaceWidthRatio = 0
+        projectedFaceHeightRatio = 0
         alignmentData = [:]
         facePosition = [:]
 

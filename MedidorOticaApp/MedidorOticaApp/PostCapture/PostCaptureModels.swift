@@ -96,31 +96,28 @@ extension EyeMeasurementData {
     /// Normaliza os valores mantendo a barra nasal sempre próxima ao ponto central informado.
     /// - Parameter centralX: Coordenada X do ponto central utilizado como referência para o lado nasal.
     func normalized(centralX: CGFloat) -> EyeMeasurementData {
+        let minimumHorizontalGap: CGFloat = 0.002
         let reference = min(max(centralX, 0), 1)
+        let pupilValue = pupil.clamped()
         let nasalClamped = min(max(nasalBarX, 0), 1)
         let temporalClamped = min(max(temporalBarX, 0), 1)
         let inferiorClamped = min(max(inferiorBarY, 0), 1)
         let superiorClamped = min(max(superiorBarY, 0), 1)
 
-        let nasalDistance = abs(nasalClamped - reference)
-        let temporalDistance = abs(temporalClamped - reference)
-
-        let nasalValue: CGFloat
-        let temporalValue: CGFloat
-
-        if nasalDistance <= temporalDistance {
-            nasalValue = nasalClamped
-            temporalValue = temporalClamped
-        } else {
-            nasalValue = temporalClamped
-            temporalValue = nasalClamped
-        }
+        let sortedDistances = [abs(nasalClamped - reference), abs(temporalClamped - reference)].sorted()
+        let nearestDistance = sortedDistances.first ?? 0
+        let farthestDistance = max(sortedDistances.last ?? nearestDistance,
+                                   nearestDistance + minimumHorizontalGap)
+        let eyeOnRightSide = pupilValue.x >= reference
+        let sideSign: CGFloat = eyeOnRightSide ? 1 : -1
+        let nasalValue = min(max(reference + (nearestDistance * sideSign), 0), 1)
+        let temporalValue = min(max(reference + (farthestDistance * sideSign), 0), 1)
 
         let inferiorValue = max(inferiorClamped, superiorClamped)
         let superiorValue = min(inferiorClamped, superiorClamped)
 
         return EyeMeasurementData(
-            pupil: pupil.clamped(),
+            pupil: pupilValue,
             nasalBarX: nasalValue,
             temporalBarX: temporalValue,
             inferiorBarY: inferiorValue,

@@ -3,7 +3,7 @@
 //  MedidorOticaApp
 //
 //  Verificação 4: Alinhamento da cabeça
-//  Usando ARKit para medições precisas com margem de erro de ±3 graus
+//  Usando ARKit para medições precisas com checagens extras de simetria e profundidade
 //
 
 import ARKit
@@ -12,19 +12,36 @@ import simd
 
 // Extensão para verificação de alinhamento da cabeça
 extension VerificationManager {
+    private enum HeadAlignmentConstants {
+        /// Tolerância angular mais rígida para reduzir capturas tortas.
+        static let toleranceDegrees: Float = 2.0
+        /// Diferença máxima permitida entre a profundidade dos olhos.
+        static let maxEyeDepthDeltaMM: Float = 8.0
+        /// Inclinação máxima permitida da linha interpupilar.
+        static let maxEyeLineTiltDegrees: Float = 1.5
+        /// Faixa anatômica esperada entre a profundidade média dos olhos e o nariz.
+        static let noseDepthLeadRangeMM: ClosedRange<Float> = 4.0...35.0
+
+        struct FaceIndices {
+            static let noseTip = 9
+        }
+    }
+
+    /// Métricas consolidadas de alinhamento da cabeça.
+    private struct HeadAlignmentMetrics: Sendable {
+        let rollDegrees: Float
+        let yawDegrees: Float
+        let pitchDegrees: Float
+        let eyeDepthDeltaMM: Float?
+        let eyeLineTiltDegrees: Float?
+        let noseDepthLeadMM: Float?
+    }
+
     // MARK: - Verificação 4: Alinhamento da Cabeça
     /// Verifica se a cabeça está alinhada em todos os eixos
     
     func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        // Verificação de alinhamento com tolerância de ±3 graus
-        // conforme especificação do projeto
-
-        // Define a margem de erro exatamente como ±3 graus
-        let alignmentToleranceDegrees: Float = 3.0
-
-        var rollDegrees: Float?
-        var yawDegrees: Float?
-        var pitchDegrees: Float?
+        var metrics: HeadAlignmentMetrics?
 
         let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
 
@@ -34,53 +51,127 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                // Calcula os ângulos relativos compensando a orientação atual do dispositivo
-                // para que a leitura permaneça coerente em qualquer rotação do iPhone
-                let euler = extractRelativeEulerAngles(faceAnchor: anchor, frame: frame)
-                let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
-                rollDegrees  = radiansToDegrees(euler.roll) * sign
-                yawDegrees   = radiansToDegrees(euler.yaw) * sign
-                pitchDegrees = radiansToDegrees(euler.pitch)
+                metrics = makeTrueDepthHeadAlignmentMetrics(faceAnchor: anchor, frame: frame)
                 break
             case .liDAR:
                 guard let angles = headAnglesWithVision(from: frame) else { continue }
-                rollDegrees = angles.roll
-                yawDegrees = angles.yaw
-                pitchDegrees = angles.pitch
+                metrics = HeadAlignmentMetrics(rollDegrees: angles.roll,
+                                               yawDegrees: angles.yaw,
+                                               pitchDegrees: angles.pitch,
+                                               eyeDepthDeltaMM: nil,
+                                               eyeLineTiltDegrees: nil,
+                                               noseDepthLeadMM: nil)
                 break
             case .none:
                 continue
             }
         }
 
-        guard
-            let rollDegrees,
-            let yawDegrees,
-            let pitchDegrees
-        else {
-            return false
-        }
-        
-        // Verifica se todos os ângulos estão dentro da margem de tolerância
-        let isRollAligned = abs(rollDegrees) <= alignmentToleranceDegrees
-        let isYawAligned = abs(yawDegrees) <= alignmentToleranceDegrees
-        let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
-
-        // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
-        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
-        
-        DispatchQueue.main.async {
-            // Armazena dados sobre o desalinhamento para feedback mais preciso
-            self.alignmentData = [
-                "roll": rollDegrees,
-                "yaw": yawDegrees,
-                "pitch": pitchDegrees
-            ]
-
-            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
-        }
-        
+        guard let metrics else { return false }
+        let isHeadAligned = headIsAligned(using: metrics)
+        publishAlignmentMetrics(metrics, isHeadAligned: isHeadAligned)
         return isHeadAligned
+    }
+
+    /// Calcula métricas de alinhamento usando a geometria 3D do TrueDepth.
+    private func makeTrueDepthHeadAlignmentMetrics(faceAnchor: ARFaceAnchor,
+                                                   frame: ARFrame) -> HeadAlignmentMetrics? {
+        let euler = extractRelativeEulerAngles(faceAnchor: faceAnchor, frame: frame)
+        let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+        let rollDegrees = radiansToDegrees(euler.roll) * sign
+        let yawDegrees = radiansToDegrees(euler.yaw) * sign
+        let pitchDegrees = radiansToDegrees(euler.pitch)
+
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let faceInCamera = simd_mul(worldToCamera, faceAnchor.transform)
+        let leftEyeTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
+        let rightEyeTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
+        let leftEyePosition = translation(from: leftEyeTransform)
+        let rightEyePosition = translation(from: rightEyeTransform)
+        let eyeDepthDeltaMM = (abs(leftEyePosition.z) - abs(rightEyePosition.z)) * 1000
+
+        let eyeVector = rightEyePosition - leftEyePosition
+        let eyeLineTiltDegrees = radiansToDegrees(atan2(eyeVector.y,
+                                                        max(abs(eyeVector.x), Float.ulpOfOne)))
+
+        let noseDepthLeadMM = noseDepthLead(faceAnchor: faceAnchor,
+                                            faceInCamera: faceInCamera,
+                                            leftEyePosition: leftEyePosition,
+                                            rightEyePosition: rightEyePosition)
+
+        return HeadAlignmentMetrics(rollDegrees: rollDegrees,
+                                    yawDegrees: yawDegrees,
+                                    pitchDegrees: pitchDegrees,
+                                    eyeDepthDeltaMM: eyeDepthDeltaMM,
+                                    eyeLineTiltDegrees: eyeLineTiltDegrees,
+                                    noseDepthLeadMM: noseDepthLeadMM)
+    }
+
+    /// Calcula o avanço do nariz em relação ao plano médio dos olhos.
+    private func noseDepthLead(faceAnchor: ARFaceAnchor,
+                               faceInCamera: simd_float4x4,
+                               leftEyePosition: SIMD3<Float>,
+                               rightEyePosition: SIMD3<Float>) -> Float? {
+        let vertices = faceAnchor.geometry.vertices
+        guard vertices.count > HeadAlignmentConstants.FaceIndices.noseTip else {
+            return nil
+        }
+
+        let noseVector = simd_mul(faceInCamera,
+                                  simd_float4(vertices[HeadAlignmentConstants.FaceIndices.noseTip], 1))
+        guard let nosePosition = positionFromHomogeneous(noseVector) else {
+            return nil
+        }
+
+        let averageEyeDepth = (abs(leftEyePosition.z) + abs(rightEyePosition.z)) * 0.5
+        return (averageEyeDepth - abs(nosePosition.z)) * 1000
+    }
+
+    /// Avalia se as métricas atuais já estão boas o bastante para a captura.
+    private func headIsAligned(using metrics: HeadAlignmentMetrics) -> Bool {
+        let isRollAligned = abs(metrics.rollDegrees) <= HeadAlignmentConstants.toleranceDegrees
+        let isYawAligned = abs(metrics.yawDegrees) <= HeadAlignmentConstants.toleranceDegrees
+        let isPitchAligned = abs(metrics.pitchDegrees) <= HeadAlignmentConstants.toleranceDegrees
+        let isEyeDepthBalanced = metrics.eyeDepthDeltaMM.map {
+            abs($0) <= HeadAlignmentConstants.maxEyeDepthDeltaMM
+        } ?? true
+        let isEyeLineLevel = metrics.eyeLineTiltDegrees.map {
+            abs($0) <= HeadAlignmentConstants.maxEyeLineTiltDegrees
+        } ?? true
+        let hasExpectedNoseDepth = metrics.noseDepthLeadMM.map {
+            HeadAlignmentConstants.noseDepthLeadRangeMM.contains($0)
+        } ?? true
+
+        return isRollAligned &&
+               isYawAligned &&
+               isPitchAligned &&
+               isEyeDepthBalanced &&
+               isEyeLineLevel &&
+               hasExpectedNoseDepth
+    }
+
+    /// Publica as métricas usadas pela UI e pelo overlay de depuração.
+    private func publishAlignmentMetrics(_ metrics: HeadAlignmentMetrics,
+                                         isHeadAligned: Bool) {
+        DispatchQueue.main.async {
+            var debugData: [String: Float] = [
+                "roll": metrics.rollDegrees,
+                "yaw": metrics.yawDegrees,
+                "pitch": metrics.pitchDegrees
+            ]
+            if let eyeDepthDeltaMM = metrics.eyeDepthDeltaMM {
+                debugData["eyeDepthDeltaMM"] = eyeDepthDeltaMM
+            }
+            if let eyeLineTiltDegrees = metrics.eyeLineTiltDegrees {
+                debugData["eyeLineTiltDegrees"] = eyeLineTiltDegrees
+            }
+            if let noseDepthLeadMM = metrics.noseDepthLeadMM {
+                debugData["noseDepthLeadMM"] = noseDepthLeadMM
+            }
+            self.alignmentData = debugData
+
+            print("Alinhamento da cabeça: Roll=\(metrics.rollDegrees)°, Yaw=\(metrics.yawDegrees)°, Pitch=\(metrics.pitchDegrees)°, DeltaOlhos=\(String(format: "%.1f", metrics.eyeDepthDeltaMM ?? 0))mm, LinhaOlhos=\(String(format: "%.1f", metrics.eyeLineTiltDegrees ?? 0))°, Nariz=\(String(format: "%.1f", metrics.noseDepthLeadMM ?? 0))mm, Alinhado=\(isHeadAligned)")
+        }
     }
     
     // Estrutura para armazenar os ângulos de Euler
@@ -178,5 +269,22 @@ extension VerificationManager {
             print("Erro ao calcular ângulos com Vision: \(error)")
             return nil
         }
+    }
+}
+
+// MARK: - Helpers geométricos
+private extension VerificationManager {
+    /// Extrai o ponto 3D a partir de um vetor homogêneo.
+    func positionFromHomogeneous(_ vector: simd_float4) -> SIMD3<Float>? {
+        guard vector.w.isFinite, abs(vector.w) > Float.ulpOfOne else { return nil }
+        return SIMD3<Float>(vector.x / vector.w,
+                            vector.y / vector.w,
+                            vector.z / vector.w)
+    }
+
+    /// Extrai apenas a translação de uma matriz 4x4.
+    func translation(from transform: simd_float4x4) -> SIMD3<Float> {
+        let translation = transform.columns.3
+        return SIMD3<Float>(translation.x, translation.y, translation.z)
     }
 }

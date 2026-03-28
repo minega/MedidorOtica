@@ -120,7 +120,9 @@ struct CameraInstructions: View {
             return "🙂 👀 Mostre bem os olhos"
         case .ipdOutOfRange, .pixelBaselineTooSmall:
             return "🙂 ↔️ Ajuste a distancia"
-        case .scaleOutOfRange, .baselineNoiseTooHigh, .noRecentSamples:
+        case .noRecentSamples:
+            return "🙂 ↔️ Aproxime o rosto"
+        case .scaleOutOfRange, .baselineNoiseTooHigh:
             return "📱 ⏳ Estabilize o celular"
         }
     }
@@ -141,6 +143,10 @@ struct CameraInstructions: View {
         let minDistance = verificationManager.minDistance
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
+
+        if verificationManager.projectedFaceTooSmall {
+            return "🙂 ↔️ Aproxime o rosto"
+        }
 
         if currentDistance <= 0 {
             return "🙂 ↔️ Fique a \(Int(minDistance))-\(Int(maxDistance)) cm"
@@ -187,7 +193,12 @@ struct CameraInstructions: View {
         let roll = verificationManager.alignmentData["roll"] ?? 0
         let yaw = verificationManager.alignmentData["yaw"] ?? 0
         let pitch = verificationManager.alignmentData["pitch"] ?? 0
-        let tolerance: Float = 3
+        let eyeLineTilt = verificationManager.alignmentData["eyeLineTiltDegrees"] ?? 0
+        let eyeDepthDelta = verificationManager.alignmentData["eyeDepthDeltaMM"] ?? 0
+        let noseDepthLead = verificationManager.alignmentData["noseDepthLeadMM"] ?? 18
+        let tolerance: Float = 2
+        let eyeLineTolerance: Float = 1.5
+        let eyeDepthTolerance: Float = 8
 
         if abs(roll) > max(abs(yaw), abs(pitch)), abs(roll) > tolerance {
             let magnitude = format(abs(roll), digits: 0)
@@ -202,6 +213,18 @@ struct CameraInstructions: View {
         if abs(pitch) > tolerance {
             let magnitude = format(abs(pitch), digits: 0)
             return pitch > 0 ? "🙂 ⬆️ Queixo \(magnitude)°" : "🙂 ⬇️ Queixo \(magnitude)°"
+        }
+
+        if abs(eyeLineTilt) > eyeLineTolerance {
+            return eyeLineTilt > 0 ? "🙂 ↩️ Nivele os olhos" : "🙂 ↪️ Nivele os olhos"
+        }
+
+        if abs(eyeDepthDelta) > eyeDepthTolerance {
+            return "🙂 ↔️ Desvire o rosto"
+        }
+
+        if noseDepthLead < 4 || noseDepthLead > 35 {
+            return "📱 ↕️ Ajuste a altura"
         }
 
         return "🙂 ⏳ Mantenha a cabeca reta"
