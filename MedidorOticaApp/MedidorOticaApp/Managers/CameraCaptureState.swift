@@ -136,6 +136,23 @@ enum TrueDepthRecoveryDecision: Equatable, Sendable {
     case showFailure(reason: TrueDepthBlockReason)
 }
 
+// MARK: - Snapshot da pose da cabeca
+/// Pose atual da cabeca medida no frame mais recente.
+struct HeadPoseSnapshot: Equatable, Sendable {
+    let rollDegrees: Float
+    let yawDegrees: Float
+    let pitchDegrees: Float
+    let timestamp: TimeInterval
+    let sensor: VerificationManager.SensorType
+
+    /// Indica se os tres eixos foram medidos com valores finitos.
+    var isValid: Bool {
+        rollDegrees.isFinite &&
+        yawDegrees.isFinite &&
+        pitchDegrees.isFinite
+    }
+}
+
 // MARK: - Motivos de bloqueio
 /// Motivos que impedem a captura de seguir para a foto final.
 enum CameraCaptureBlockReason: Equatable {
@@ -145,6 +162,7 @@ enum CameraCaptureBlockReason: Equatable {
     case faceNotDetected
     case distanceOutOfRange
     case faceNotCentered
+    case headPoseUnavailable
     case headNotAligned
     case calibrationUnavailable
     case unstableFrame
@@ -165,6 +183,8 @@ enum CameraCaptureBlockReason: Equatable {
             return "Ajuste a distancia do rosto."
         case .faceNotCentered:
             return "Ajuste o celular ate o nariz ficar no centro."
+        case .headPoseUnavailable:
+            return "Mantenha testa, olhos e queixo visiveis para medir os eixos."
         case .headNotAligned:
             return "Corrija o eixo indicado na seta da tela."
         case .calibrationUnavailable:
@@ -199,6 +219,7 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
     let faceDetected: Bool
     let distanceCorrect: Bool
     let faceAligned: Bool
+    let headPoseAvailable: Bool
     let headAligned: Bool
 
     /// Informa se todas as verificacoes principais ja passaram.
@@ -208,6 +229,7 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
         faceDetected &&
         distanceCorrect &&
         faceAligned &&
+        headPoseAvailable &&
         headAligned
     }
 
@@ -218,6 +240,7 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
                                                    faceDetected: false,
                                                    distanceCorrect: false,
                                                    faceAligned: false,
+                                                   headPoseAvailable: false,
                                                    headAligned: false)
 }
 

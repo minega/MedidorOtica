@@ -72,6 +72,7 @@ final class CaptureReadinessEngine {
         guard input.evaluation.faceDetected else { return .faceNotDetected }
         guard input.evaluation.distanceCorrect else { return .distanceOutOfRange }
         guard input.evaluation.faceAligned else { return .faceNotCentered }
+        guard input.evaluation.headPoseAvailable else { return .headPoseUnavailable }
         guard input.evaluation.headAligned else { return .headNotAligned }
         guard input.calibrationReady else { return .calibrationUnavailable }
         return nil

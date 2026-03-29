@@ -27,8 +27,8 @@ final class VerificationManager: ObservableObject {
     @Published var projectedFaceHeightRatio: Float = 0.0
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
+    @Published var headPoseSnapshot: HeadPoseSnapshot?
     @Published var alignmentData: [String: Float] = [:]
-    @Published var lastAlignmentMetricsTimestamp: TimeInterval = 0
     @Published var facePosition: [String: Float] = [:]
     @Published private(set) var activeSensor: SensorType = .none
     @Published private(set) var latestEvaluation: VerificationFrameEvaluation = .empty
@@ -38,7 +38,7 @@ final class VerificationManager: ObservableObject {
 
     // MARK: - Sensor
     /// Representa o sensor ativo para as verificacoes AR.
-    enum SensorType {
+    enum SensorType: Sendable {
         case none
         case trueDepth
         case liDAR
@@ -258,6 +258,7 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: false,
                                                distanceCorrect: false,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
@@ -269,6 +270,7 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: true,
                                                distanceCorrect: false,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
@@ -280,17 +282,19 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: true,
                                                distanceCorrect: true,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
-        let headAligned = checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
+        let headAlignment = evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor)
         return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                            trackingIsNormal: trackingIsNormal,
                                            hasTrackedFaceAnchor: hasTrackedFaceAnchor,
                                            faceDetected: true,
                                            distanceCorrect: true,
                                            faceAligned: true,
-                                           headAligned: headAligned)
+                                           headPoseAvailable: headAlignment.headPoseAvailable,
+                                           headAligned: headAlignment.isAligned)
     }
 
     private func apply(evaluation: VerificationFrameEvaluation) {
@@ -305,12 +309,12 @@ final class VerificationManager: ObservableObject {
             projectedFaceTooSmall = false
             projectedFaceWidthRatio = 0
             projectedFaceHeightRatio = 0
+            headPoseSnapshot = nil
             alignmentData = [:]
-            lastAlignmentMetricsTimestamp = 0
             facePosition = [:]
-        } else if !evaluation.faceAligned {
+        } else if !evaluation.faceAligned || !evaluation.headPoseAvailable {
+            headPoseSnapshot = nil
             alignmentData = [:]
-            lastAlignmentMetricsTimestamp = 0
         }
 
         updateVerificationStatus(throttled: true)
@@ -350,8 +354,8 @@ final class VerificationManager: ObservableObject {
         projectedFaceTooSmall = false
         projectedFaceWidthRatio = 0
         projectedFaceHeightRatio = 0
+        headPoseSnapshot = nil
         alignmentData = [:]
-        lastAlignmentMetricsTimestamp = 0
         facePosition = [:]
 
         var updated = verifications

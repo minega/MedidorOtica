@@ -2,49 +2,75 @@
 //  CameraInstructions.swift
 //  MedidorOticaApp
 //
-//  Textos de orientacao detalhada durante a captura.
+//  Textos curtos e objetivos para orientar a captura em tempo real.
 //
 
 import SwiftUI
 
+// MARK: - Construtor da instrucao da cabeca
+enum HeadPoseInstructionBuilder {
+    static let toleranceDegrees: Float = 3.0
+
+    /// Escolhe um unico eixo por vez, seguindo a ordem pitch, yaw e roll.
+    static func adjustment(from snapshot: HeadPoseSnapshot) -> HeadAxisAdjustment? {
+        if abs(snapshot.pitchDegrees) > toleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.pitchDegrees)
+            return snapshot.pitchDegrees > 0 ? .pitchUp(correction) : .pitchDown(correction)
+        }
+
+        if abs(snapshot.yawDegrees) > toleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.yawDegrees)
+            return snapshot.yawDegrees > 0 ? .yawRight(correction) : .yawLeft(correction)
+        }
+
+        if abs(snapshot.rollDegrees) > toleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.rollDegrees)
+            return snapshot.rollDegrees > 0 ? .rollLeft(correction) : .rollRight(correction)
+        }
+
+        return nil
+    }
+
+    /// Mostra apenas o quanto falta corrigir apos a tolerancia.
+    private static func displayedDegrees(from angle: Float) -> Float {
+        max(round(abs(angle) - toleranceDegrees), 1)
+    }
+}
+
+// MARK: - Ajuste de eixo
+enum HeadAxisAdjustment: Equatable, Sendable {
+    case rollLeft(Float)
+    case rollRight(Float)
+    case yawLeft(Float)
+    case yawRight(Float)
+    case pitchUp(Float)
+    case pitchDown(Float)
+
+    /// Texto curto e objetivo para corrigir um eixo por vez.
+    var instruction: String {
+        switch self {
+        case .rollLeft(let degrees):
+            return "🙂 ↩️ Incline a cabeca \(Self.degreesText(degrees))° para a esquerda"
+        case .rollRight(let degrees):
+            return "🙂 ↪️ Incline a cabeca \(Self.degreesText(degrees))° para a direita"
+        case .yawLeft(let degrees):
+            return "🙂 ⬅️ Gire a cabeca \(Self.degreesText(degrees))° para a esquerda"
+        case .yawRight(let degrees):
+            return "🙂 ➡️ Gire a cabeca \(Self.degreesText(degrees))° para a direita"
+        case .pitchUp(let degrees):
+            return "🙂 ⬆️ Gire a cabeca \(Self.degreesText(degrees))° para cima"
+        case .pitchDown(let degrees):
+            return "🙂 ⬇️ Gire a cabeca \(Self.degreesText(degrees))° para baixo"
+        }
+    }
+
+    private static func degreesText(_ value: Float) -> String {
+        String(format: "%.0f", value)
+    }
+}
+
 // MARK: - Instrucoes da camera
 struct CameraInstructions: View {
-    private enum InstructionLimits {
-        /// Evita instruções absurdas quando a pose chega corrompida.
-        static let maxPlausiblePoseDegrees: Float = 35
-    }
-
-    private enum HeadAxisAdjustment {
-        case rollLeft(Float)
-        case rollRight(Float)
-        case yawLeft(Float)
-        case yawRight(Float)
-        case pitchUp(Float)
-        case pitchDown(Float)
-
-        /// Texto curto e objetivo para corrigir um eixo por vez.
-        var instruction: String {
-            switch self {
-            case .rollLeft(let degrees):
-                return "🙂 ↩️ Incline a cabeca \(Self.degreesText(degrees))° para a esquerda"
-            case .rollRight(let degrees):
-                return "🙂 ↪️ Incline a cabeca \(Self.degreesText(degrees))° para a direita"
-            case .yawLeft(let degrees):
-                return "🙂 ⬅️ Gire a cabeca \(Self.degreesText(degrees))° para a esquerda"
-            case .yawRight(let degrees):
-                return "🙂 ➡️ Gire a cabeca \(Self.degreesText(degrees))° para a direita"
-            case .pitchUp(let degrees):
-                return "🙂 ⬆️ Gire a cabeca \(Self.degreesText(degrees))° para cima"
-            case .pitchDown(let degrees):
-                return "🙂 ⬇️ Gire a cabeca \(Self.degreesText(degrees))° para baixo"
-            }
-        }
-
-        private static func degreesText(_ value: Float) -> String {
-            String(format: "%.1f", value)
-        }
-    }
-
     /// Observa as verificacoes do enquadramento.
     @ObservedObject var verificationManager: VerificationManager
     /// Observa o estado real do pipeline de captura.
@@ -139,6 +165,8 @@ struct CameraInstructions: View {
             return distanceInstruction()
         case .faceNotCentered:
             return centeringInstruction()
+        case .headPoseUnavailable:
+            return "🙂 👀 Mostre testa, olhos e queixo para medir os eixos"
         case .headNotAligned:
             return headAlignmentInstruction()
         case .calibrationUnavailable:
@@ -242,66 +270,21 @@ struct CameraInstructions: View {
     }
 
     // MARK: - Cabeca
-    /// Regra do fluxo: toda instrucao de alinhamento precisa dizer o que mover.
+    /// Toda instrucao da etapa 4 precisa apontar um eixo real.
     private func headAlignmentInstruction() -> String {
-        if let adjustment = dominantHeadAxisAdjustment() {
-            return adjustment.instruction
+        guard let snapshot = verificationManager.headPoseSnapshot else {
+            return "🙂 👀 Mostre testa, olhos e queixo para medir os eixos"
         }
 
-        if let adjustment = bestEffortHeadAxisAdjustment() {
-            return adjustment.instruction
+        guard let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) else {
+            return "🙂 ✅ Cabeca alinhada nos 3 eixos"
         }
 
-        return "🙂 ⏳ Segure a cabeca parada por 1 segundo ate a seta do eixo aparecer"
-    }
-
-    /// Mantem a ordem fixa pedida no fluxo: pitch, yaw e por fim inclinacao.
-    private func dominantHeadAxisAdjustment() -> HeadAxisAdjustment? {
-        headAxisAdjustment(minimumDegrees: 2)
-    }
-
-    /// Evita texto generico quando a leitura oscila perto do limite.
-    private func bestEffortHeadAxisAdjustment() -> HeadAxisAdjustment? {
-        headAxisAdjustment(minimumDegrees: 0.3)
-    }
-
-    /// Escolhe sempre um unico eixo, respeitando a ordem fixa do fluxo.
-    private func headAxisAdjustment(minimumDegrees: Float) -> HeadAxisAdjustment? {
-        guard let roll = verificationManager.alignmentData["roll"],
-              let yaw = verificationManager.alignmentData["yaw"],
-              let pitch = verificationManager.alignmentData["pitch"] else {
-            return nil
-        }
-
-        if abs(pitch) > minimumDegrees, isPlausiblePoseAngle(pitch) {
-            let correction = correctedDegrees(from: pitch, tolerance: minimumDegrees)
-            return pitch > 0 ? .pitchUp(correction) : .pitchDown(correction)
-        }
-
-        if abs(yaw) > minimumDegrees, isPlausiblePoseAngle(yaw) {
-            let correction = correctedDegrees(from: yaw, tolerance: minimumDegrees)
-            return yaw > 0 ? .yawRight(correction) : .yawLeft(correction)
-        }
-
-        if abs(roll) > minimumDegrees, isPlausiblePoseAngle(roll) {
-            let correction = correctedDegrees(from: roll, tolerance: minimumDegrees)
-            return roll > 0 ? .rollLeft(correction) : .rollRight(correction)
-        }
-
-        return nil
-    }
-
-    private func correctedDegrees(from angle: Float,
-                                  tolerance: Float) -> Float {
-        max(abs(angle) - tolerance, 0.5)
+        return adjustment.instruction
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {
         String(format: "%.\(digits)f", value)
-    }
-
-    private func isPlausiblePoseAngle(_ angle: Float) -> Bool {
-        abs(angle) <= InstructionLimits.maxPlausiblePoseDegrees
     }
 }
 

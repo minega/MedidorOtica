@@ -475,6 +475,9 @@ struct CameraView: View {
         }
 
         if !verificationManager.headAligned {
+            if cameraManager.captureState == .checking(.headPoseUnavailable) {
+                return "Mostre testa, olhos e queixo para medir os eixos da cabeca."
+            }
             return "Corrija primeiro o eixo indicado na instrucao da tela antes da captura."
         }
 
@@ -529,9 +532,10 @@ struct HeadAlignmentDebugOverlay: View {
     @ObservedObject var verificationManager: VerificationManager
 
     var body: some View {
-        let roll = verificationManager.alignmentData["roll"] ?? 0
-        let yaw = verificationManager.alignmentData["yaw"] ?? 0
-        let pitch = verificationManager.alignmentData["pitch"] ?? 0
+        let snapshot = verificationManager.headPoseSnapshot
+        let roll = snapshot?.rollDegrees ?? 0
+        let yaw = snapshot?.yawDegrees ?? 0
+        let pitch = snapshot?.pitchDegrees ?? 0
 
         VStack(alignment: .leading, spacing: 4) {
             Text("🔧 Depuracao Alinhamento")

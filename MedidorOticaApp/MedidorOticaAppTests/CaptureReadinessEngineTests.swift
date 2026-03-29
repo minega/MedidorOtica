@@ -34,6 +34,36 @@ struct CaptureReadinessEngineTests {
         #expect(VerificationType.headAlignment.description == "Rosto reto em roll, yaw e pitch")
     }
 
+    @Test func headPoseInstructionPrioritizesPitchBeforeYawAndRoll() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 10,
+                                        yawDegrees: 8,
+                                        pitchDegrees: -12,
+                                        timestamp: 1,
+                                        sensor: .trueDepth)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .pitchDown(9))
+    }
+
+    @Test func headPoseInstructionUsesYawBeforeRollWhenPitchIsAligned() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 11,
+                                        yawDegrees: 7,
+                                        pitchDegrees: 1,
+                                        timestamp: 1,
+                                        sensor: .trueDepth)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .yawRight(4))
+    }
+
+    @Test func headPoseInstructionReturnsNilWhenThreeAxesAreWithinTolerance() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 2,
+                                        yawDegrees: -3,
+                                        pitchDegrees: 1,
+                                        timestamp: 1,
+                                        sensor: .trueDepth)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
+    }
+
     @Test func requiresConsecutiveStableFramesBeforeReady() async throws {
         let engine = CaptureReadinessEngine(requiredStableSampleCount: 3,
                                             maximumFrameGap: 0.20,
@@ -146,6 +176,26 @@ struct CaptureReadinessEngineTests {
         #expect(status.recentSampleCount == 0)
     }
 
+    @Test func captureReadinessBlocksWhenHeadPoseIsUnavailable() async throws {
+        let engine = CaptureReadinessEngine(requiredStableSampleCount: 2,
+                                            maximumFrameGap: 0.20,
+                                            maximumCaptureAge: 0.15)
+        let evaluation = VerificationFrameEvaluation(timestamp: 5,
+                                                     trackingIsNormal: true,
+                                                     hasTrackedFaceAnchor: true,
+                                                     faceDetected: true,
+                                                     distanceCorrect: true,
+                                                     faceAligned: true,
+                                                     headPoseAvailable: false,
+                                                     headAligned: false)
+
+        let status = engine.evaluate(input: CaptureReadinessInput(evaluation: evaluation,
+                                                                  sessionReady: true,
+                                                                  calibrationReady: true))
+
+        #expect(status.blockReason == .headPoseUnavailable)
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,
@@ -159,6 +209,7 @@ struct CaptureReadinessEngineTests {
                                     faceDetected: true,
                                     distanceCorrect: true,
                                     faceAligned: true,
+                                    headPoseAvailable: true,
                                     headAligned: true)
     }
 }
