@@ -51,8 +51,6 @@ struct PostCaptureMeasurementCalculator {
     func makeMetrics() throws -> PostCaptureMetrics {
         guard scale.isReliable else { throw PostCaptureMeasurementError.unreliableCalibration }
 
-        let horizontalReference = Double(scale.horizontalReferenceMM)
-        let verticalReference = Double(scale.verticalReferenceMM)
         let geometry = try PostCaptureMeasurementValidator(configuration: configuration,
                                                            centralPoint: centralPoint).validate()
         let normalizedRight = geometry.rightEye
@@ -60,35 +58,35 @@ struct PostCaptureMeasurementCalculator {
 
         let rightHorizontal = horizontalMillimeters(between: normalizedRight.temporalBarX,
                                                     and: normalizedRight.nasalBarX,
-                                                    reference: horizontalReference)
+                                                    at: normalizedRight.pupil.y)
         let leftHorizontal = horizontalMillimeters(between: normalizedLeft.temporalBarX,
                                                    and: normalizedLeft.nasalBarX,
-                                                   reference: horizontalReference)
+                                                   at: normalizedLeft.pupil.y)
 
         let rightVertical = verticalMillimeters(between: normalizedRight.inferiorBarY,
                                                 and: normalizedRight.superiorBarY,
-                                                reference: verticalReference)
+                                                at: normalizedRight.pupil.x)
         let leftVertical = verticalMillimeters(between: normalizedLeft.inferiorBarY,
                                                and: normalizedLeft.superiorBarY,
-                                               reference: verticalReference)
+                                               at: normalizedLeft.pupil.x)
 
         let rightDNP = horizontalMillimeters(between: normalizedRight.pupil.x,
                                              and: centralPoint.x,
-                                             reference: horizontalReference)
+                                             at: midpoint(normalizedRight.pupil.y, centralPoint.y))
         let leftDNP = horizontalMillimeters(between: normalizedLeft.pupil.x,
                                             and: centralPoint.x,
-                                            reference: horizontalReference)
+                                            at: midpoint(normalizedLeft.pupil.y, centralPoint.y))
 
         let rightAltura = verticalMillimeters(between: normalizedRight.inferiorBarY,
                                               and: normalizedRight.pupil.y,
-                                              reference: verticalReference)
+                                              at: normalizedRight.pupil.x)
         let leftAltura = verticalMillimeters(between: normalizedLeft.inferiorBarY,
                                              and: normalizedLeft.pupil.y,
-                                             reference: verticalReference)
+                                             at: normalizedLeft.pupil.x)
 
         let ponte = horizontalMillimeters(between: normalizedLeft.nasalBarX,
                                           and: normalizedRight.nasalBarX,
-                                          reference: horizontalReference)
+                                          at: centralPoint.y)
 
         let rightSummary = EyeMeasurementSummary(horizontalMaior: rightHorizontal,
                                                  verticalMaior: rightVertical,
@@ -110,15 +108,19 @@ struct PostCaptureMeasurementCalculator {
     /// Converte um deslocamento horizontal normalizado em milímetros considerando a calibração válida.
     private func horizontalMillimeters(between first: CGFloat,
                                        and second: CGFloat,
-                                       reference: Double) -> Double {
-        sanitizedMillimeters(from: Double(abs(first - second)) * reference)
+                                       at y: CGFloat) -> Double {
+        sanitizedMillimeters(from: scale.horizontalMillimeters(between: first,
+                                                               and: second,
+                                                               at: y))
     }
 
     /// Converte um deslocamento vertical normalizado em milímetros considerando a calibração válida.
     private func verticalMillimeters(between first: CGFloat,
                                      and second: CGFloat,
-                                     reference: Double) -> Double {
-        sanitizedMillimeters(from: Double(abs(first - second)) * reference)
+                                     at x: CGFloat) -> Double {
+        sanitizedMillimeters(from: scale.verticalMillimeters(between: first,
+                                                             and: second,
+                                                             at: x))
     }
 
     /// Garante que valores inválidos não contaminem o resumo final respeitando precisão de 0,01 mm.
@@ -165,5 +167,10 @@ struct PostCaptureMeasurementCalculator {
         guard value.isFinite, range.contains(value) else {
             throw PostCaptureMeasurementError.implausibleMeasurement(message)
         }
+    }
+
+    private func midpoint(_ first: CGFloat,
+                          _ second: CGFloat) -> CGFloat {
+        (first + second) * 0.5
     }
 }

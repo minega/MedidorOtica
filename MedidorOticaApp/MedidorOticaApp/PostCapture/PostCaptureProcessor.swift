@@ -326,10 +326,14 @@ final class PostCaptureProcessor {
                                          y: point?.y ?? defaultY).clamped()
 
         // Conversões de milímetros para valores normalizados
-        let nasalOffset = scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM)
-        let temporalOffset = scale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM)
-        let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM)
-        let superiorOffset = scale.normalizedVertical(PostCaptureScale.superiorOffsetMM)
+        let nasalOffset = scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM,
+                                                     at: centralPoint)
+        let temporalOffset = scale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM,
+                                                        at: centralPoint)
+        let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM,
+                                                      at: pupilPoint)
+        let superiorOffset = scale.normalizedVertical(PostCaptureScale.superiorOffsetMM,
+                                                      at: pupilPoint)
 
         let isRightSide: Bool
         if let point {

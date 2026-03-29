@@ -103,6 +103,31 @@ struct PostCaptureMeasurementCalculatorTests {
         }
     }
 
+    @Test func prefersLocalFaceScaleWhenAvailable() async throws {
+        let globalCalibration = PostCaptureCalibration(horizontalReferenceMM: 160,
+                                                       verticalReferenceMM: 120)
+        let localSamples = (0..<12).map { index in
+            LocalFaceScaleSample(point: NormalizedPoint(x: CGFloat(index % 4) / 3,
+                                                        y: CGFloat(index / 4) / 2),
+                                 horizontalReferenceMM: 80,
+                                 verticalReferenceMM: 60,
+                                 depthMM: 320)
+        }
+
+        let scale = PostCaptureScale(calibration: globalCalibration,
+                                     localCalibration: LocalFaceScaleCalibration(samples: localSamples))
+        let horizontal = scale.horizontalMillimeters(between: 0.20,
+                                                     and: 0.40,
+                                                     at: 0.5)
+        let vertical = scale.verticalMillimeters(between: 0.25,
+                                                 and: 0.55,
+                                                 at: 0.5)
+
+        #expect(abs(horizontal - 16) < 0.01)
+        #expect(abs(vertical - 18) < 0.01)
+        #expect(abs(scale.normalizedHorizontal(8, at: NormalizedPoint(x: 0.5, y: 0.5)) - 0.1) < 0.0001)
+    }
+
     // MARK: - Geometria inválida
     @Test func rejectsGeometryWhenPupilIsOutsideBars() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)

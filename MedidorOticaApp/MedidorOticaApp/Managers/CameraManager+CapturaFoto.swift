@@ -16,6 +16,11 @@ extension CameraManager {
         static let gazeDeviationThreshold: Float = 0.35
     }
 
+    private struct CaptureCalibrationBundle {
+        let global: PostCaptureCalibration
+        let local: LocalFaceScaleCalibration
+    }
+
     // MARK: - Captura de foto
     /// Captura uma foto somente quando o pipeline estiver realmente pronto.
     func capturePhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
@@ -86,6 +91,7 @@ extension CameraManager {
                               width: CGFloat(cgImage.width),
                               height: CGFloat(cgImage.height))
         guard let calibration = buildCalibration(from: frame,
+                                                 faceAnchor: trackedFaceAnchor,
                                                  cropRect: cropRect,
                                                  cgOrientation: cgOrientation,
                                                  uiOrientation: uiOrientation) else {
@@ -95,7 +101,8 @@ extension CameraManager {
 
         let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
         let photo = CapturedPhoto(image: image,
-                                  calibration: calibration,
+                                  calibration: calibration.global,
+                                  localCalibration: calibration.local,
                                   frameTimestamp: frame.timestamp,
                                   orientation: cgOrientation,
                                   captureWarning: makeCaptureWarning(from: trackedFaceAnchor))
@@ -108,9 +115,23 @@ extension CameraManager {
 
     /// Calcula a calibracao da imagem utilizando dados do TrueDepth.
     private func buildCalibration(from frame: ARFrame,
+                                  faceAnchor: ARFaceAnchor,
                                   cropRect: CGRect,
                                   cgOrientation: CGImagePropertyOrientation,
-                                  uiOrientation: UIInterfaceOrientation) -> PostCaptureCalibration? {
+                                  uiOrientation: UIInterfaceOrientation) -> CaptureCalibrationBundle? {
+        if let localCalibration = buildLocalCalibration(from: frame,
+                                                        faceAnchor: faceAnchor,
+                                                        cgOrientation: cgOrientation,
+                                                        uiOrientation: uiOrientation),
+           let localGlobal = validCalibration(localCalibration.globalCalibration) {
+            logCalibration(localGlobal,
+                           cropRect: cropRect,
+                           frameTimestamp: frame.timestamp,
+                           label: "OK Calibracao local da malha")
+            return CaptureCalibrationBundle(global: localGlobal,
+                                            local: localCalibration)
+        }
+
         if let refined = validCalibration(calibrationEstimator.refinedCalibration(for: frame,
                                                                                   cropRect: cropRect,
                                                                                   orientation: cgOrientation,
@@ -119,7 +140,8 @@ extension CameraManager {
                            cropRect: cropRect,
                            frameTimestamp: frame.timestamp,
                            label: "OK Calibracao TrueDepth refinada")
-            return refined
+            return CaptureCalibrationBundle(global: refined,
+                                            local: .empty)
         }
 
         if let instant = validCalibration(calibrationEstimator.instantCalibration(for: frame,
@@ -130,7 +152,8 @@ extension CameraManager {
                            cropRect: cropRect,
                            frameTimestamp: frame.timestamp,
                            label: "OK Calibracao TrueDepth imediata")
-            return instant
+            return CaptureCalibrationBundle(global: instant,
+                                            local: .empty)
         }
 
         if let reused = recentSuccessfulCalibration(referenceTimestamp: frame.timestamp) {
@@ -138,12 +161,24 @@ extension CameraManager {
                            cropRect: cropRect,
                            frameTimestamp: frame.timestamp,
                            label: "INFO Calibracao TrueDepth reutilizada")
-            return reused
+            return CaptureCalibrationBundle(global: reused,
+                                            local: .empty)
         }
 
         logCalibrationFailure(code: 301,
                               message: "Nao foi possivel obter calibracao confiavel no frame atual.")
         return nil
+    }
+
+    /// Monta o mapa local da face usando profundidade real e intrinsics da camera.
+    private func buildLocalCalibration(from frame: ARFrame,
+                                       faceAnchor: ARFaceAnchor,
+                                       cgOrientation: CGImagePropertyOrientation,
+                                       uiOrientation: UIInterfaceOrientation) -> LocalFaceScaleCalibration? {
+        calibrationEstimator.localFaceCalibration(for: frame,
+                                                  faceAnchor: faceAnchor,
+                                                  orientation: cgOrientation,
+                                                  uiOrientation: uiOrientation)
     }
 
     /// Valida a calibracao antes de permitir o uso no resumo final.

@@ -22,6 +22,8 @@ struct Measurement: Identifiable, Codable {
     var postCaptureMetrics: PostCaptureMetrics?
     /// Calibração utilizada para converter valores normalizados em milímetros.
     var postCaptureCalibration: PostCaptureCalibration
+    /// Mapa local de escala derivado da malha facial para preservar a precisão.
+    var postCaptureLocalCalibration: LocalFaceScaleCalibration?
 
     // MARK: - Computados
     var formattedDate: String {
@@ -55,6 +57,7 @@ struct Measurement: Identifiable, Codable {
          postCaptureConfiguration: PostCaptureConfiguration,
          postCaptureMetrics: PostCaptureMetrics,
          postCaptureCalibration: PostCaptureCalibration,
+         postCaptureLocalCalibration: LocalFaceScaleCalibration? = nil,
          id: UUID = UUID(),
          date: Date = Date()) {
         self.id = id
@@ -65,6 +68,7 @@ struct Measurement: Identifiable, Codable {
         self.postCaptureConfiguration = postCaptureConfiguration
         self.postCaptureMetrics = postCaptureMetrics
         self.postCaptureCalibration = postCaptureCalibration
+        self.postCaptureLocalCalibration = postCaptureLocalCalibration
         self.imageData = capturedImage.jpegData(compressionQuality: 0.92)
     }
 
@@ -79,6 +83,7 @@ struct Measurement: Identifiable, Codable {
         case postCaptureConfiguration
         case postCaptureMetrics
         case postCaptureCalibration
+        case postCaptureLocalCalibration
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +97,8 @@ struct Measurement: Identifiable, Codable {
         postCaptureConfiguration = try container.decodeIfPresent(PostCaptureConfiguration.self, forKey: .postCaptureConfiguration)
         postCaptureMetrics = try container.decodeIfPresent(PostCaptureMetrics.self, forKey: .postCaptureMetrics)
         postCaptureCalibration = try container.decodeIfPresent(PostCaptureCalibration.self, forKey: .postCaptureCalibration) ?? .default
+        postCaptureLocalCalibration = try container.decodeIfPresent(LocalFaceScaleCalibration.self,
+                                                                    forKey: .postCaptureLocalCalibration)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,5 +112,6 @@ struct Measurement: Identifiable, Codable {
         try container.encodeIfPresent(postCaptureConfiguration, forKey: .postCaptureConfiguration)
         try container.encodeIfPresent(postCaptureMetrics, forKey: .postCaptureMetrics)
         try container.encode(postCaptureCalibration, forKey: .postCaptureCalibration)
+        try container.encodeIfPresent(postCaptureLocalCalibration, forKey: .postCaptureLocalCalibration)
     }
 }

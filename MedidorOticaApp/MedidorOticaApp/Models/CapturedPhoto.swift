@@ -14,6 +14,8 @@ struct CapturedPhoto {
     let image: UIImage
     /// Calibração utilizada para converter valores normalizados em milímetros.
     let calibration: PostCaptureCalibration
+    /// Mapa local da escala facial para compensar deformações de perspectiva.
+    let localCalibration: LocalFaceScaleCalibration
     /// Timestamp do frame utilizado na captura.
     let frameTimestamp: TimeInterval
     /// Orientação aplicada ao frame final entregue para o pós-captura.
@@ -24,11 +26,13 @@ struct CapturedPhoto {
     /// Inicializa a captura preservando metadados úteis para auditoria futura.
     init(image: UIImage,
          calibration: PostCaptureCalibration,
+         localCalibration: LocalFaceScaleCalibration = .empty,
          frameTimestamp: TimeInterval = 0,
          orientation: CGImagePropertyOrientation = .up,
          captureWarning: String? = nil) {
         self.image = image
         self.calibration = calibration
+        self.localCalibration = localCalibration
         self.frameTimestamp = frameTimestamp
         self.orientation = orientation
         self.captureWarning = captureWarning

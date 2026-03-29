@@ -43,6 +43,34 @@ final class TrueDepthCalibrationEstimator {
         let pixelDY: Double
     }
 
+    private struct LocalScaleAccumulator {
+        var sumX: CGFloat = 0
+        var sumY: CGFloat = 0
+        var sumHorizontal: Double = 0
+        var sumVertical: Double = 0
+        var sumDepth: Double = 0
+        var count = 0
+
+        mutating func append(_ sample: LocalFaceScaleSample) {
+            sumX += sample.point.x
+            sumY += sample.point.y
+            sumHorizontal += sample.horizontalReferenceMM
+            sumVertical += sample.verticalReferenceMM
+            sumDepth += sample.depthMM
+            count += 1
+        }
+
+        func averagedSample() -> LocalFaceScaleSample? {
+            guard count > 0 else { return nil }
+
+            return LocalFaceScaleSample(point: NormalizedPoint(x: sumX / CGFloat(count),
+                                                               y: sumY / CGFloat(count)),
+                                        horizontalReferenceMM: sumHorizontal / Double(count),
+                                        verticalReferenceMM: sumVertical / Double(count),
+                                        depthMM: sumDepth / Double(count))
+        }
+    }
+
     private enum SampleOutcome {
         case accepted(CalibrationSample)
         case rejected(TrueDepthBlockReason)
@@ -71,6 +99,11 @@ final class TrueDepthCalibrationEstimator {
         static let trimRatio = 0.10
         static let meshPairTrimDivisor = 20
         static let maxMeshPairs = 6
+        static let localCalibrationGridColumns = 8
+        static let localCalibrationGridRows = 10
+        static let localCalibrationMinimumDepthMeters = 0.18
+        static let localCalibrationMaximumDepthMeters = 0.60
+        static let minimumLocalSamples = 12
     }
 
     // MARK: - Estado
@@ -170,6 +203,27 @@ final class TrueDepthCalibrationEstimator {
                                   cropRect: cropRect,
                                   orientation: orientation,
                                   uiOrientation: uiOrientation)
+    }
+
+    /// Gera um mapa local de escala a partir da malha 3D do TrueDepth no frame capturado.
+    func localFaceCalibration(for frame: ARFrame,
+                              faceAnchor: ARFaceAnchor,
+                              orientation: CGImagePropertyOrientation,
+                              uiOrientation: UIInterfaceOrientation) -> LocalFaceScaleCalibration? {
+        let viewportSize = Self.orientedViewportSize(resolution: frame.camera.imageResolution,
+                                                     orientation: orientation)
+        let focal = Self.orientedFocalLengths(from: frame.camera.intrinsics,
+                                              orientation: orientation)
+        guard focal.fx > 0, focal.fy > 0 else { return nil }
+
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let calibration = Self.makeLocalFaceCalibration(faceAnchor: faceAnchor,
+                                                        camera: frame.camera,
+                                                        worldToCamera: worldToCamera,
+                                                        uiOrientation: uiOrientation,
+                                                        viewportSize: viewportSize,
+                                                        focal: focal)
+        return calibration?.isReliable == true ? calibration : nil
     }
 
     /// Retorna um diagnostico resumido do estado interno atual.
@@ -718,6 +772,96 @@ final class TrueDepthCalibrationEstimator {
                                pixelDY: pixelDY)
     }
 
+    private static func makeLocalFaceCalibration(faceAnchor: ARFaceAnchor,
+                                                 camera: ARCamera,
+                                                 worldToCamera: simd_float4x4,
+                                                 uiOrientation: UIInterfaceOrientation,
+                                                 viewportSize: CGSize,
+                                                 focal: (fx: Double, fy: Double)) -> LocalFaceScaleCalibration? {
+        let samples = faceAnchor.geometry.vertices.compactMap { vertex in
+            makeLocalScaleSample(vertex: vertex,
+                                 faceAnchor: faceAnchor,
+                                 camera: camera,
+                                 worldToCamera: worldToCamera,
+                                 uiOrientation: uiOrientation,
+                                 viewportSize: viewportSize,
+                                 focal: focal)
+        }
+
+        guard samples.count >= Constants.minimumLocalSamples else { return nil }
+        return groupedLocalCalibration(from: samples)
+    }
+
+    private static func makeLocalScaleSample(vertex: simd_float3,
+                                             faceAnchor: ARFaceAnchor,
+                                             camera: ARCamera,
+                                             worldToCamera: simd_float4x4,
+                                             uiOrientation: UIInterfaceOrientation,
+                                             viewportSize: CGSize,
+                                             focal: (fx: Double, fy: Double)) -> LocalFaceScaleSample? {
+        let worldPoint = worldPosition(of: vertex, transform: faceAnchor.transform)
+        let cameraPoint = cameraSpacePosition(of: worldPoint, worldToCamera: worldToCamera)
+        let depthMeters = Double(-cameraPoint.z)
+
+        guard depthMeters.isFinite,
+              depthMeters >= Constants.localCalibrationMinimumDepthMeters,
+              depthMeters <= Constants.localCalibrationMaximumDepthMeters else {
+            return nil
+        }
+
+        let projected = camera.projectPoint(worldPoint,
+                                            orientation: uiOrientation,
+                                            viewportSize: viewportSize)
+        guard projected.x.isFinite,
+              projected.y.isFinite,
+              projected.x >= 0,
+              projected.y >= 0,
+              projected.x <= Float(viewportSize.width),
+              projected.y <= Float(viewportSize.height) else {
+            return nil
+        }
+
+        let horizontalReference = (depthMeters * 1000.0 / focal.fx) * Double(viewportSize.width)
+        let verticalReference = (depthMeters * 1000.0 / focal.fy) * Double(viewportSize.height)
+        guard horizontalReference.isFinite,
+              verticalReference.isFinite,
+              horizontalReference > 0,
+              verticalReference > 0 else {
+            return nil
+        }
+
+        let normalizedPoint = NormalizedPoint.fromAbsolute(CGPoint(x: CGFloat(projected.x),
+                                                                   y: CGFloat(projected.y)),
+                                                           size: viewportSize)
+        return LocalFaceScaleSample(point: normalizedPoint,
+                                    horizontalReferenceMM: horizontalReference,
+                                    verticalReferenceMM: verticalReference,
+                                    depthMM: depthMeters * 1000.0)
+    }
+
+    private static func groupedLocalCalibration(from samples: [LocalFaceScaleSample]) -> LocalFaceScaleCalibration? {
+        guard !samples.isEmpty else { return nil }
+
+        let columns = Constants.localCalibrationGridColumns
+        let rows = Constants.localCalibrationGridRows
+        var buckets: [Int: LocalScaleAccumulator] = [:]
+
+        for sample in samples {
+            let column = min(max(Int(sample.point.x * CGFloat(columns)), 0), columns - 1)
+            let row = min(max(Int(sample.point.y * CGFloat(rows)), 0), rows - 1)
+            let key = (row * columns) + column
+            var accumulator = buckets[key] ?? LocalScaleAccumulator()
+            accumulator.append(sample)
+            buckets[key] = accumulator
+        }
+
+        let averagedSamples = buckets.values.compactMap { $0.averagedSample() }
+        guard averagedSamples.count >= Constants.minimumLocalSamples else { return nil }
+        return LocalFaceScaleCalibration(samples: averagedSamples.sorted { first, second in
+            first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
+        })
+    }
+
     private static func averageEyeDepth(faceAnchor: ARFaceAnchor,
                                         camera: ARCamera) -> Double {
         let worldToCamera = simd_inverse(camera.transform)
@@ -762,6 +906,12 @@ final class TrueDepthCalibrationEstimator {
         simd_float3(transform.columns.3.x,
                     transform.columns.3.y,
                     transform.columns.3.z)
+    }
+
+    private static func cameraSpacePosition(of worldPoint: simd_float3,
+                                            worldToCamera: simd_float4x4) -> simd_float3 {
+        let position = simd_mul(worldToCamera, SIMD4<Float>(worldPoint.x, worldPoint.y, worldPoint.z, 1))
+        return simd_float3(position.x, position.y, position.z)
     }
 
     private static func euclideanDistance(_ first: simd_float3,

@@ -54,6 +54,8 @@ final class PostCaptureViewModel: ObservableObject {
     private let existingConfiguration: PostCaptureConfiguration?
     /// Calibração aplicada à imagem atual.
     let calibration: PostCaptureCalibration
+    /// Mapa local da face usado para reduzir erro de perspectiva.
+    let localCalibration: LocalFaceScaleCalibration
     /// Aviso opcional gerado no momento da captura para orientar a revisão manual.
     let captureWarning: String?
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
@@ -69,8 +71,10 @@ final class PostCaptureViewModel: ObservableObject {
         self.baseMeasurement = existingMeasurement
         self.existingConfiguration = existingMeasurement?.postCaptureConfiguration
         self.calibration = existingMeasurement?.postCaptureCalibration ?? photo.calibration
+        self.localCalibration = existingMeasurement?.postCaptureLocalCalibration ?? photo.localCalibration
         self.captureWarning = photo.captureWarning
-        self.scale = PostCaptureScale(calibration: self.calibration)
+        self.scale = PostCaptureScale(calibration: self.calibration,
+                                      localCalibration: self.localCalibration)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
         self.isProcessing = true
@@ -383,6 +387,7 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureConfiguration: configuration,
                            postCaptureMetrics: metrics,
                            postCaptureCalibration: calibration,
+                           postCaptureLocalCalibration: localCalibration,
                            id: identifier,
                            date: date)
     }

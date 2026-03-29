@@ -15,8 +15,8 @@ struct DistanceOverlay: View {
     // MARK: - View
     var body: some View {
         if verificationManager.faceDetected {
-            // Mostra a distância somente enquanto o rosto está rastreado
-            Text(String(format: "%.1f cm", verificationManager.lastMeasuredDistance))
+            // Mostra a distância real entre o rosto e a câmera, não entre o rosto e a tela.
+            Text(String(format: "%.1f cm da camera", verificationManager.lastMeasuredDistance))
                 .font(.headline)
                 .foregroundColor(.white)
                 .padding(.horizontal, 12)
