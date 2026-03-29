@@ -166,7 +166,7 @@ struct CameraInstructions: View {
         case .faceNotCentered:
             return centeringInstruction()
         case .headPoseUnavailable:
-            return "🙂 👀 Mostre testa, olhos e queixo para medir os eixos"
+            return headAlignmentInstruction()
         case .headNotAligned:
             return headAlignmentInstruction()
         case .calibrationUnavailable:

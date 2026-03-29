@@ -55,6 +55,12 @@ final class VerificationManager: ObservableObject {
     private var lastFrameTime = Date.distantPast
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
+    /// Mantem a ultima pose valida por poucos frames para evitar sumir com a instrucao
+    /// quando o ARKit oscila, sem liberar captura com leitura velha.
+    private enum HeadPoseRetention {
+        static let reuseWindow: TimeInterval = 0.25
+    }
+
     // MARK: - Distancia
     var minDistance: Float { DistanceLimits.minCm }
     var maxDistance: Float { DistanceLimits.maxCm }
@@ -312,13 +318,26 @@ final class VerificationManager: ObservableObject {
             headPoseSnapshot = nil
             alignmentData = [:]
             facePosition = [:]
-        } else if !evaluation.faceAligned || !evaluation.headPoseAvailable {
+        } else if shouldClearHeadPose(for: evaluation) {
             headPoseSnapshot = nil
             alignmentData = [:]
         }
 
         updateVerificationStatus(throttled: true)
         evaluationHandler?(evaluation)
+    }
+
+    /// Limpa a pose apenas quando o fluxo realmente saiu da etapa 4
+    /// ou quando a leitura antiga ja ficou velha demais para orientar o usuario.
+    private func shouldClearHeadPose(for evaluation: VerificationFrameEvaluation) -> Bool {
+        guard evaluation.faceDetected else { return true }
+        guard evaluation.distanceCorrect else { return true }
+        guard evaluation.faceAligned else { return true }
+        guard !evaluation.headPoseAvailable else { return false }
+        guard let snapshot = headPoseSnapshot else { return true }
+
+        let delta = evaluation.timestamp - snapshot.timestamp
+        return !delta.isFinite || delta < 0 || delta > HeadPoseRetention.reuseWindow
     }
 
     // MARK: - Gate de processamento

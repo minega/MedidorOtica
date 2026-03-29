@@ -14,8 +14,6 @@ extension VerificationManager {
     private enum HeadAlignmentConstants {
         /// Tolerancia escolhida para manter a etapa estavel sem perder precisao.
         static let toleranceDegrees: Float = 3.0
-        /// Limite amplo para descartar somente leituras claramente corrompidas.
-        static let maxReasonableDegrees: Float = 89.0
     }
 
     /// Mede a pose atual da cabeca e informa se a etapa 4 esta liberada.
@@ -25,7 +23,7 @@ extension VerificationManager {
                                        faceAnchorAvailable: faceAnchor != nil)
 
         guard !sensors.isEmpty else {
-            clearHeadPose(reason: "Nenhum sensor conseguiu medir a pose da cabeca.")
+            reportUnavailableHeadPose(reason: "Nenhum sensor conseguiu medir a pose da cabeca.")
             return (false, false)
         }
 
@@ -49,7 +47,7 @@ extension VerificationManager {
             return (true, isAligned)
         }
 
-        clearHeadPose(reason: "A pose da cabeca nao ficou disponivel neste frame.")
+        reportUnavailableHeadPose(reason: "A pose da cabeca nao ficou disponivel neste frame.")
         return (false, false)
     }
 
@@ -64,8 +62,7 @@ extension VerificationManager {
                                         timestamp: frame.timestamp,
                                         sensor: .trueDepth)
 
-        return snapshot.isReasonable(maxDegrees: HeadAlignmentConstants.maxReasonableDegrees) ?
-            snapshot : nil
+        return snapshot.isValid ? snapshot : nil
     }
 
     /// Calcula a pose com Vision para o caminho do LiDAR.
@@ -77,8 +74,7 @@ extension VerificationManager {
                                         timestamp: frame.timestamp,
                                         sensor: .liDAR)
 
-        return snapshot.isReasonable(maxDegrees: HeadAlignmentConstants.maxReasonableDegrees) ?
-            snapshot : nil
+        return snapshot.isValid ? snapshot : nil
     }
 
     /// Publica a pose atual para a UI e para o gate de captura.
@@ -96,13 +92,11 @@ extension VerificationManager {
         }
     }
 
-    /// Limpa a ultima pose publicada quando o frame atual nao pode medir os eixos.
-    private func clearHeadPose(reason: String) {
-        DispatchQueue.main.async {
-            self.headPoseSnapshot = nil
-            self.alignmentData = [:]
-            print("Pose da cabeca indisponivel: \(reason)")
-        }
+    /// Apenas registra a indisponibilidade do frame atual.
+    /// A limpeza efetiva fica centralizada no `VerificationManager.apply(evaluation:)`
+    /// para evitar apagar a ultima pose valida antes da UI decidir se pode reutiliza-la.
+    private func reportUnavailableHeadPose(reason: String) {
+        print("Pose da cabeca indisponivel: \(reason)")
     }
 
     // MARK: - Angulos de Euler
@@ -198,13 +192,5 @@ private extension HeadPoseSnapshot {
         abs(rollDegrees) <= tolerance &&
         abs(yawDegrees) <= tolerance &&
         abs(pitchDegrees) <= tolerance
-    }
-
-    /// Descarta apenas leituras claramente corrompidas.
-    func isReasonable(maxDegrees: Float) -> Bool {
-        isValid &&
-        abs(rollDegrees) <= maxDegrees &&
-        abs(yawDegrees) <= maxDegrees &&
-        abs(pitchDegrees) <= maxDegrees
     }
 }

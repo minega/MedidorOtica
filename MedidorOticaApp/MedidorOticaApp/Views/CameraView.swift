@@ -475,6 +475,11 @@ struct CameraView: View {
         }
 
         if !verificationManager.headAligned {
+            if let snapshot = verificationManager.headPoseSnapshot,
+               let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) {
+                return adjustment.instruction
+            }
+
             if cameraManager.captureState == .checking(.headPoseUnavailable) {
                 return "Mostre testa, olhos e queixo para medir os eixos da cabeca."
             }
