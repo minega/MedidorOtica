@@ -816,8 +816,8 @@ final class TrueDepthCalibrationEstimator {
               projected.y.isFinite,
               projected.x >= 0,
               projected.y >= 0,
-              projected.x <= Float(viewportSize.width),
-              projected.y <= Float(viewportSize.height) else {
+              projected.x <= CGFloat(viewportSize.width),
+              projected.y <= CGFloat(viewportSize.height) else {
             return nil
         }
 

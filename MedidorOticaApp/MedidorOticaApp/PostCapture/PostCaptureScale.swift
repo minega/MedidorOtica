@@ -285,10 +285,10 @@ struct PostCaptureScale {
         guard localCalibration.isReliable else {
             return Double(abs(first - second)) * Double(horizontalReferenceMM)
         }
-        localCalibration.horizontalMillimeters(between: first,
-                                               and: second,
-                                               at: y,
-                                               fallbackReference: Double(horizontalReferenceMM))
+        return localCalibration.horizontalMillimeters(between: first,
+                                                      and: second,
+                                                      at: y,
+                                                      fallbackReference: Double(horizontalReferenceMM))
     }
 
     /// Mede um segmento vertical em milímetros usando a escala local quando ela estiver disponível.
@@ -298,9 +298,9 @@ struct PostCaptureScale {
         guard localCalibration.isReliable else {
             return Double(abs(first - second)) * Double(verticalReferenceMM)
         }
-        localCalibration.verticalMillimeters(between: first,
-                                             and: second,
-                                             at: x,
-                                             fallbackReference: Double(verticalReferenceMM))
+        return localCalibration.verticalMillimeters(between: first,
+                                                    and: second,
+                                                    at: x,
+                                                    fallbackReference: Double(verticalReferenceMM))
     }
 }
