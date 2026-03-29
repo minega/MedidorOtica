@@ -6,6 +6,7 @@
 //
 
 import Testing
+import CoreGraphics
 @testable import MedidorOticaApp
 
 struct PostCaptureMeasurementCalculatorTests {
