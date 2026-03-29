@@ -55,32 +55,13 @@ extension VerificationManager {
             return nil
         }
 
-        var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
-        for vertex in vertices {
-            let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
-            let projected = frame.camera.projectPoint(worldPoint,
-                                                      orientation: uiOrientation,
-                                                      viewportSize: viewportSize)
-            guard projected.x.isFinite, projected.y.isFinite else { continue }
-
-            let projectedPoint = CGPoint(x: CGFloat(projected.x),
-                                         y: CGFloat(projected.y))
-            let distance = squaredPixelDistance(from: projectedPoint,
-                                                to: targetPoint)
-            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
-                                                           worldToCamera: worldToCamera)
-            guard cameraPoint.x.isFinite,
-                  cameraPoint.y.isFinite,
-                  cameraPoint.z.isFinite else {
-                continue
-            }
-
-            if let current = bestCandidate, current.distance <= distance {
-                continue
-            }
-
-            bestCandidate = (cameraPoint, projectedPoint, distance)
-        }
+        let bestCandidate = bridgeMeasurementCandidate(vertices: vertices,
+                                                       faceAnchor: faceAnchor,
+                                                       frame: frame,
+                                                       uiOrientation: uiOrientation,
+                                                       viewportSize: viewportSize,
+                                                       targetPoint: targetPoint,
+                                                       worldToCamera: worldToCamera)
 
         guard let bestCandidate else { return nil }
 
@@ -268,15 +249,15 @@ extension VerificationManager {
         let rightEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
                                                                        faceAnchor.rightEyeTransform))
 
-        let projectedNose = frame.camera.projectPoint(noseWorldPoint,
-                                                      orientation: uiOrientation,
-                                                      viewportSize: viewportSize)
         let projectedLeftEye = frame.camera.projectPoint(leftEyeWorldPoint,
                                                          orientation: uiOrientation,
                                                          viewportSize: viewportSize)
         let projectedRightEye = frame.camera.projectPoint(rightEyeWorldPoint,
                                                           orientation: uiOrientation,
                                                           viewportSize: viewportSize)
+        let projectedNose = frame.camera.projectPoint(noseWorldPoint,
+                                                      orientation: uiOrientation,
+                                                      viewportSize: viewportSize)
 
         guard projectedNose.x.isFinite,
               projectedNose.y.isFinite,
@@ -334,6 +315,79 @@ extension CGImagePropertyOrientation {
 
 // MARK: - Helpers geometricos
 private extension VerificationManager {
+    /// Escolhe um ponto da malha no dorso do nariz, na altura das pupilas.
+    func bridgeMeasurementCandidate(vertices: [simd_float3],
+                                    faceAnchor: ARFaceAnchor,
+                                    frame: ARFrame,
+                                    uiOrientation: UIInterfaceOrientation,
+                                    viewportSize: CGSize,
+                                    targetPoint: CGPoint,
+                                    worldToCamera: simd_float4x4) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let midlineThreshold: Float = 0.006
+        var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
+
+        for vertex in vertices {
+            let midlinePenalty = CGFloat(abs(vertex.x))
+            guard abs(vertex.x) <= midlineThreshold else { continue }
+
+            let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
+            let projected = frame.camera.projectPoint(worldPoint,
+                                                      orientation: uiOrientation,
+                                                      viewportSize: viewportSize)
+            guard projected.x.isFinite, projected.y.isFinite else { continue }
+
+            let projectedPoint = CGPoint(x: CGFloat(projected.x),
+                                         y: CGFloat(projected.y))
+            let distance = squaredPixelDistance(from: projectedPoint,
+                                                to: targetPoint) + (midlinePenalty * 500)
+            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
+                                                           worldToCamera: worldToCamera)
+            guard cameraPoint.x.isFinite,
+                  cameraPoint.y.isFinite,
+                  cameraPoint.z.isFinite else {
+                continue
+            }
+
+            if let current = bestCandidate, current.distance <= distance {
+                continue
+            }
+
+            bestCandidate = (cameraPoint, projectedPoint, distance)
+        }
+
+        if let bestCandidate {
+            return bestCandidate
+        }
+
+        for vertex in vertices {
+            let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
+            let projected = frame.camera.projectPoint(worldPoint,
+                                                      orientation: uiOrientation,
+                                                      viewportSize: viewportSize)
+            guard projected.x.isFinite, projected.y.isFinite else { continue }
+
+            let projectedPoint = CGPoint(x: CGFloat(projected.x),
+                                         y: CGFloat(projected.y))
+            let distance = squaredPixelDistance(from: projectedPoint,
+                                                to: targetPoint)
+            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
+                                                           worldToCamera: worldToCamera)
+            guard cameraPoint.x.isFinite,
+                  cameraPoint.y.isFinite,
+                  cameraPoint.z.isFinite else {
+                continue
+            }
+
+            if let current = bestCandidate, current.distance <= distance {
+                continue
+            }
+
+            bestCandidate = (cameraPoint, projectedPoint, distance)
+        }
+
+        return bestCandidate
+    }
+
     /// Converte um vetor homogeneo em coordenadas usuais da camera.
     func homogeneousCameraPosition(_ vector: simd_float4) -> SIMD3<Float>? {
         guard vector.w.isFinite, abs(vector.w) > Float.ulpOfOne else { return nil }
