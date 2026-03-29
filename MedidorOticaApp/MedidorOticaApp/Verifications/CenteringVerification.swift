@@ -198,11 +198,11 @@ extension VerificationManager {
     }
 
     /// Converte um ponto normalizado generico para coordenadas da camera e do depth map.
-    private func fallbackResolvedPoint(at normalizedPoint: CGPoint,
+    private func fallbackResolvedPoint(at normalizedLocation: CGPoint,
                                        imageWidth: Int,
                                        imageHeight: Int,
                                        orientation: CGImagePropertyOrientation) -> (camera: CGPoint, depth: CGPoint) {
-        let pixelPoint = VNImagePointForNormalizedPoint(normalizedPoint,
+        let pixelPoint = VNImagePointForNormalizedPoint(normalizedLocation,
                                                         imageWidth,
                                                         imageHeight)
         let rawCameraNormalized = CGPoint(x: pixelPoint.x / CGFloat(imageWidth),
