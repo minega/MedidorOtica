@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - Construtor da instrucao da cabeca
 enum HeadPoseInstructionBuilder {
-    static let toleranceDegrees: Float = 3.0
+    static let toleranceDegrees: Float = 2.0
 
     /// Escolhe um unico eixo por vez, seguindo a ordem pitch, yaw e roll.
     static func adjustment(from snapshot: HeadPoseSnapshot) -> HeadAxisAdjustment? {

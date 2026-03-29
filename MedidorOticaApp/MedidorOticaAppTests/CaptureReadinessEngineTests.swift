@@ -41,7 +41,7 @@ struct CaptureReadinessEngineTests {
                                         timestamp: 1,
                                         sensor: .trueDepth)
 
-        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .pitchDown(9))
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .pitchDown(10))
     }
 
     @Test func headPoseInstructionUsesYawBeforeRollWhenPitchIsAligned() async throws {
@@ -51,12 +51,12 @@ struct CaptureReadinessEngineTests {
                                         timestamp: 1,
                                         sensor: .trueDepth)
 
-        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .yawRight(4))
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .yawRight(5))
     }
 
     @Test func headPoseInstructionReturnsNilWhenThreeAxesAreWithinTolerance() async throws {
         let snapshot = HeadPoseSnapshot(rollDegrees: 2,
-                                        yawDegrees: -3,
+                                        yawDegrees: -2,
                                         pitchDegrees: 1,
                                         timestamp: 1,
                                         sensor: .trueDepth)

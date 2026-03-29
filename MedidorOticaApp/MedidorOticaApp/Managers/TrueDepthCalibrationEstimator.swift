@@ -62,11 +62,12 @@ final class TrueDepthCalibrationEstimator {
         static let minimumInterPupillaryMM: Double = 45
         static let maximumInterPupillaryMM: Double = 80
         static let minimumMeshDistanceMM: Double = 60
-        static let maximumMeshDistanceMM: Double = 240
+        static let maximumMeshDistanceMM: Double = 180
         static let minMMPerPixel: Double = 0.01
         static let maxMMPerPixel: Double = 0.35
         static let maximumBaselineError: Double = 0.18
         static let maximumBaselineErrorDiscard: Double = 0.35
+        static let meshSupportToleranceRatio: Double = 0.12
         static let trimRatio = 0.10
         static let meshPairTrimDivisor = 20
         static let maxMeshPairs = 6
@@ -445,48 +446,70 @@ final class TrueDepthCalibrationEstimator {
         var verticalCandidates: [Double] = []
         var fallbackFailureReason: TrueDepthBlockReason?
 
-        switch interPupillaryCandidate(faceAnchor: faceAnchor,
-                                       camera: frame.camera,
-                                       uiOrientation: uiOrientation,
-                                       viewportSize: viewportSize) {
-        case .success(let candidate):
-            horizontalCandidates.append(candidate)
-        case .failure(let reason):
-            fallbackFailureReason = reason
-        }
-
         let meshCandidates = meshBasedCandidates(faceAnchor: faceAnchor,
                                                  camera: frame.camera,
                                                  uiOrientation: uiOrientation,
                                                  viewportSize: viewportSize)
-        horizontalCandidates.append(contentsOf: meshCandidates.horizontal)
-        verticalCandidates.append(contentsOf: meshCandidates.vertical)
+        let interPupillaryResult = interPupillaryCandidate(faceAnchor: faceAnchor,
+                                                           camera: frame.camera,
+                                                           uiOrientation: uiOrientation,
+                                                           viewportSize: viewportSize)
 
-        guard !horizontalCandidates.isEmpty else {
-            let meshFailureReason = meshSamplingFailureReason(faceAnchor: faceAnchor,
-                                                             camera: frame.camera,
-                                                             uiOrientation: uiOrientation,
-                                                             viewportSize: viewportSize)
-            return .rejected(meshFailureReason ?? fallbackFailureReason ?? .invalidEyeDepth)
-        }
+        let mmPerPixelX: Double
+        let mmPerPixelY: Double
 
-        guard let mmPerPixelX = Statistics.robustMean(horizontalCandidates),
-              mmPerPixelX.isFinite,
-              mmPerPixelX >= Constants.minMMPerPixel,
-              mmPerPixelX <= Constants.maxMMPerPixel else {
-            return .rejected(.scaleOutOfRange)
-        }
+        switch interPupillaryResult {
+        case .success(let candidate):
+            // Quando a distancia interpupilar real esta disponivel, ela vira a referencia principal.
+            // Isso evita inflar a escala com pares largos da malha facial.
+            horizontalCandidates = [candidate]
 
-        let projectedVertical = mmPerPixelX * (focal.fx / focal.fy)
-        if projectedVertical.isFinite {
-            verticalCandidates.append(projectedVertical)
-        }
+            let projectedVertical = candidate * (focal.fx / focal.fy)
+            guard projectedVertical.isFinite,
+                  projectedVertical >= Constants.minMMPerPixel,
+                  projectedVertical <= Constants.maxMMPerPixel else {
+                return .rejected(.scaleOutOfRange)
+            }
 
-        guard let mmPerPixelY = Statistics.robustMean(verticalCandidates),
-              mmPerPixelY.isFinite,
-              mmPerPixelY >= Constants.minMMPerPixel,
-              mmPerPixelY <= Constants.maxMMPerPixel else {
-            return .rejected(.scaleOutOfRange)
+            let filteredVerticalSupport = supportedMeshCandidates(meshCandidates.vertical,
+                                                                  around: projectedVertical)
+            verticalCandidates = [projectedVertical] + filteredVerticalSupport
+            mmPerPixelX = candidate
+            mmPerPixelY = Statistics.robustMean(verticalCandidates) ?? projectedVertical
+        case .failure(let reason):
+            fallbackFailureReason = reason
+            horizontalCandidates = meshCandidates.horizontal
+            verticalCandidates = meshCandidates.vertical
+
+            guard !horizontalCandidates.isEmpty else {
+                let meshFailureReason = meshSamplingFailureReason(faceAnchor: faceAnchor,
+                                                                 camera: frame.camera,
+                                                                 uiOrientation: uiOrientation,
+                                                                 viewportSize: viewportSize)
+                return .rejected(meshFailureReason ?? fallbackFailureReason ?? .invalidEyeDepth)
+            }
+
+            guard let horizontalMean = Statistics.robustMean(horizontalCandidates),
+                  horizontalMean.isFinite,
+                  horizontalMean >= Constants.minMMPerPixel,
+                  horizontalMean <= Constants.maxMMPerPixel else {
+                return .rejected(.scaleOutOfRange)
+            }
+
+            let projectedVertical = horizontalMean * (focal.fx / focal.fy)
+            if projectedVertical.isFinite {
+                verticalCandidates.append(projectedVertical)
+            }
+
+            guard let verticalMean = Statistics.robustMean(verticalCandidates),
+                  verticalMean.isFinite,
+                  verticalMean >= Constants.minMMPerPixel,
+                  verticalMean <= Constants.maxMMPerPixel else {
+                return .rejected(.scaleOutOfRange)
+            }
+
+            mmPerPixelX = horizontalMean
+            mmPerPixelY = verticalMean
         }
 
         let baselineError = max(Statistics.normalizedDispersion(horizontalCandidates, center: mmPerPixelX),
@@ -651,6 +674,20 @@ final class TrueDepthCalibrationEstimator {
             }
 
             return value
+        }
+    }
+
+    /// Mantem apenas candidatos da malha compatíveis com a escala principal derivada dos olhos.
+    private static func supportedMeshCandidates(_ values: [Double],
+                                                around reference: Double) -> [Double] {
+        guard reference.isFinite, reference > 0 else { return [] }
+
+        let minimum = reference * (1 - Constants.meshSupportToleranceRatio)
+        let maximum = reference * (1 + Constants.meshSupportToleranceRatio)
+        return values.filter { value in
+            value.isFinite &&
+            value >= minimum &&
+            value <= maximum
         }
     }
 

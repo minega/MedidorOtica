@@ -13,7 +13,7 @@ import simd
 extension VerificationManager {
     private enum HeadAlignmentConstants {
         /// Tolerancia escolhida para manter a etapa estavel sem perder precisao.
-        static let toleranceDegrees: Float = 3.0
+        static let toleranceDegrees: Float = 2.0
     }
 
     /// Mede a pose atual da cabeca e informa se a etapa 4 esta liberada.
