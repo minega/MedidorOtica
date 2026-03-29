@@ -26,17 +26,17 @@ struct CameraInstructions: View {
         var instruction: String {
             switch self {
             case .rollLeft(let degrees):
-                return "🙂 ↩️ Incline a cabeca cerca de \(Self.degreesText(degrees))° para a sua esquerda"
+                return "🙂 ↩️ Incline a cabeca \(Self.degreesText(degrees))° para a esquerda"
             case .rollRight(let degrees):
-                return "🙂 ↪️ Incline a cabeca cerca de \(Self.degreesText(degrees))° para a sua direita"
+                return "🙂 ↪️ Incline a cabeca \(Self.degreesText(degrees))° para a direita"
             case .yawLeft(let degrees):
-                return "🙂 ⬅️ Vire o rosto cerca de \(Self.degreesText(degrees))° para a sua esquerda"
+                return "🙂 ⬅️ Gire a cabeca \(Self.degreesText(degrees))° para a esquerda"
             case .yawRight(let degrees):
-                return "🙂 ➡️ Vire o rosto cerca de \(Self.degreesText(degrees))° para a sua direita"
+                return "🙂 ➡️ Gire a cabeca \(Self.degreesText(degrees))° para a direita"
             case .pitchUp(let degrees):
-                return "🙂 ⬆️ Levante o queixo cerca de \(Self.degreesText(degrees))°"
+                return "🙂 ⬆️ Gire a cabeca \(Self.degreesText(degrees))° para cima"
             case .pitchDown(let degrees):
-                return "🙂 ⬇️ Abaixe o queixo cerca de \(Self.degreesText(degrees))°"
+                return "🙂 ⬇️ Gire a cabeca \(Self.degreesText(degrees))° para baixo"
             }
         }
 
@@ -248,41 +248,47 @@ struct CameraInstructions: View {
             return adjustment.instruction
         }
 
-        return "🙂 ↔️ Traga o rosto para frente, sem inclinar, sem virar e com o queixo neutro"
+        if let adjustment = bestEffortHeadAxisAdjustment() {
+            return adjustment.instruction
+        }
+
+        return "🙂 ⏳ Segure a cabeca parada por 1 segundo ate a seta do eixo aparecer"
     }
 
-    /// Escolhe sempre o eixo dominante para a UI orientar um ajuste por vez.
+    /// Mantem a ordem fixa pedida no fluxo: pitch, yaw e por fim inclinacao.
     private func dominantHeadAxisAdjustment() -> HeadAxisAdjustment? {
+        headAxisAdjustment(minimumDegrees: 2)
+    }
+
+    /// Evita texto generico quando a leitura oscila perto do limite.
+    private func bestEffortHeadAxisAdjustment() -> HeadAxisAdjustment? {
+        headAxisAdjustment(minimumDegrees: 0.3)
+    }
+
+    /// Escolhe sempre um unico eixo, respeitando a ordem fixa do fluxo.
+    private func headAxisAdjustment(minimumDegrees: Float) -> HeadAxisAdjustment? {
         guard let roll = verificationManager.alignmentData["roll"],
               let yaw = verificationManager.alignmentData["yaw"],
               let pitch = verificationManager.alignmentData["pitch"] else {
             return nil
         }
 
-        let angleTolerance: Float = 2
-        let candidates: [(axis: String, value: Float)] = [
-            ("roll", roll),
-            ("yaw", yaw),
-            ("pitch", pitch)
-        ]
-
-        guard let dominant = candidates
-            .filter({ abs($0.value) > angleTolerance && isPlausiblePoseAngle($0.value) })
-            .max(by: { abs($0.value) < abs($1.value) }) else {
-            return nil
+        if abs(pitch) > minimumDegrees, isPlausiblePoseAngle(pitch) {
+            let correction = correctedDegrees(from: pitch, tolerance: minimumDegrees)
+            return pitch > 0 ? .pitchUp(correction) : .pitchDown(correction)
         }
 
-        let correction = correctedDegrees(from: dominant.value, tolerance: angleTolerance)
-        switch dominant.axis {
-        case "roll":
-            return dominant.value > 0 ? .rollLeft(correction) : .rollRight(correction)
-        case "yaw":
-            return dominant.value > 0 ? .yawRight(correction) : .yawLeft(correction)
-        case "pitch":
-            return dominant.value > 0 ? .pitchUp(correction) : .pitchDown(correction)
-        default:
-            return nil
+        if abs(yaw) > minimumDegrees, isPlausiblePoseAngle(yaw) {
+            let correction = correctedDegrees(from: yaw, tolerance: minimumDegrees)
+            return yaw > 0 ? .yawRight(correction) : .yawLeft(correction)
         }
+
+        if abs(roll) > minimumDegrees, isPlausiblePoseAngle(roll) {
+            let correction = correctedDegrees(from: roll, tolerance: minimumDegrees)
+            return roll > 0 ? .rollLeft(correction) : .rollRight(correction)
+        }
+
+        return nil
     }
 
     private func correctedDegrees(from angle: Float,

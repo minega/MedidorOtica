@@ -475,7 +475,7 @@ struct CameraView: View {
         }
 
         if !verificationManager.headAligned {
-            return "Siga a seta da instrucao na tela e alinhe o rosto nos 3 eixos antes da captura."
+            return "Corrija primeiro o eixo indicado na instrucao da tela antes da captura."
         }
 
         return cameraManager.captureHint
