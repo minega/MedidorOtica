@@ -165,9 +165,7 @@ struct CameraInstructions: View {
             return distanceInstruction()
         case .faceNotCentered:
             return centeringInstruction()
-        case .headPoseUnavailable:
-            return headAlignmentInstruction()
-        case .headNotAligned:
+        case .headPoseUnavailable, .headNotAligned:
             return headAlignmentInstruction()
         case .calibrationUnavailable:
             return calibrationInstruction()
@@ -191,7 +189,7 @@ struct CameraInstructions: View {
         case .noRecentSamples:
             return "🙂 ↔️ Aproxime o rosto ate aparecer a malha facial"
         case .scaleOutOfRange, .baselineNoiseTooHigh:
-            return "📱 ⏳ Segure o celular reto e parado ate a malha estabilizar"
+            return "📱 ↔️ Aproxime o rosto ate o sensor confirmar a malha"
         }
     }
 
@@ -200,7 +198,7 @@ struct CameraInstructions: View {
             return instruction(for: failure)
         }
 
-        return "📱 ⏳ Segure o celular reto e parado ate o sensor confirmar a malha"
+        return "📱 ↔️ Aproxime o rosto ate o sensor confirmar a malha"
     }
 
     // MARK: - Bloco visual
@@ -225,7 +223,7 @@ struct CameraInstructions: View {
         }
 
         if currentDistance <= 0 {
-            return "🙂 ↔️ Posicione o rosto entre \(Int(minDistance)) e \(Int(maxDistance)) cm da tela"
+            return "🙂 ↔️ Posicione o rosto entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
         }
 
         if currentDistance < minDistance {
@@ -246,24 +244,24 @@ struct CameraInstructions: View {
 
         if abs(xPos) >= abs(yPos) {
             if xPos > 0 {
-                return "📱 ⬇️ Baixe \(format(max(abs(xPos), 0.1))) cm ate a camera ficar no meio do nariz e na altura das pupilas"
+                return "📱 ➡️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a direita ate a camera ficar no meio do nariz"
             }
 
             if xPos < 0 {
-                return "📱 ⬆️ Levante \(format(max(abs(xPos), 0.1))) cm ate a camera ficar no meio do nariz e na altura das pupilas"
+                return "📱 ⬅️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a esquerda ate a camera ficar no meio do nariz"
             }
         } else {
             if yPos > 0 {
-                return "📱 ➡️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a direita ate a camera ficar no meio do nariz"
+                return "📱 ⬆️ Levante o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura das pupilas"
             }
 
             if yPos < 0 {
-                return "📱 ⬅️ Leve o celular \(format(max(abs(yPos), 0.1))) cm para a esquerda ate a camera ficar no meio do nariz"
+                return "📱 ⬇️ Baixe o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura das pupilas"
             }
         }
 
         if dominantOffset > 0.05 {
-            return "📱 ↔️ Faca um ajuste fino ate a camera ficar no meio do nariz e na altura das pupilas"
+            return "📱 ↔️ Faca um ajuste fino ate a camera ficar no PC"
         }
 
         return "📱 ⏳ Segure o celular reto sem girar"
@@ -317,8 +315,12 @@ struct VerificationMenu: View {
     }
 
     private func progressHeader() -> some View {
-        let completedCount = verificationManager.verifications.filter { $0.isChecked && !$0.type.isOptional }.count
-        let requiredCount = verificationManager.verifications.filter { !$0.type.isOptional }.count
+        let completedCount = verificationManager.verifications
+            .filter { $0.isChecked && !$0.type.isOptional }
+            .count
+        let requiredCount = verificationManager.verifications
+            .filter { !$0.type.isOptional }
+            .count
         let progressWidth = requiredCount > 0 ? 50 * CGFloat(completedCount) / CGFloat(requiredCount) : 0
 
         return HStack {

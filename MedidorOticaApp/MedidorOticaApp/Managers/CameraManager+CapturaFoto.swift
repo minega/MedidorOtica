@@ -99,10 +99,14 @@ extension CameraManager {
             return
         }
 
+        let captureCentralPoint = VerificationManager.shared
+            .trueDepthMeasurementReference(faceAnchor: trackedFaceAnchor, frame: frame)?
+            .pcNormalizedPoint
         let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
         let photo = CapturedPhoto(image: image,
                                   calibration: calibration.global,
                                   localCalibration: calibration.local,
+                                  captureCentralPoint: captureCentralPoint,
                                   frameTimestamp: frame.timestamp,
                                   orientation: cgOrientation,
                                   captureWarning: makeCaptureWarning(from: trackedFaceAnchor))

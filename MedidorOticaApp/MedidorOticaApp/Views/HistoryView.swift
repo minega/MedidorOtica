@@ -82,7 +82,8 @@ struct HistoryView: View {
             if let image = measurement.getImage() {
                 let photo = CapturedPhoto(image: image,
                                           calibration: measurement.postCaptureCalibration,
-                                          localCalibration: measurement.postCaptureLocalCalibration ?? .empty)
+                                          localCalibration: measurement.postCaptureLocalCalibration ?? .empty,
+                                          captureCentralPoint: measurement.postCaptureCaptureCentralPoint)
                 PostCaptureFlowView(capturedPhoto: photo,
                                     existingMeasurement: measurement,
                                     onRetake: {

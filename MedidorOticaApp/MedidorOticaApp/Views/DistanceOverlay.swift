@@ -2,21 +2,19 @@
 //  DistanceOverlay.swift
 //  MedidorOticaApp
 //
-//  Exibe a distância atual entre o usuário e a câmera.
-//  Pode ser facilmente ativada ou removida.
+//  Exibe a distancia atual entre o sensor e o plano do PC.
 //
 
 import SwiftUI
 
-/// View opcional que mostra a distância medida.
+/// View opcional que mostra a distancia medida.
 struct DistanceOverlay: View {
     @ObservedObject var verificationManager: VerificationManager
 
     // MARK: - View
     var body: some View {
         if verificationManager.faceDetected {
-            // Mostra a distância real entre o rosto e a câmera, não entre o rosto e a tela.
-            Text(String(format: "%.1f cm da camera", verificationManager.lastMeasuredDistance))
+            Text(String(format: "%.1f cm ate o PC", verificationManager.lastMeasuredDistance))
                 .font(.headline)
                 .foregroundColor(.white)
                 .padding(.horizontal, 12)

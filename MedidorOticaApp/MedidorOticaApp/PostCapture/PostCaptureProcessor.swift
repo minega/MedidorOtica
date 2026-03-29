@@ -34,7 +34,9 @@ final class PostCaptureProcessor {
     ///   - image: Imagem capturada.
     ///   - scale: Escala utilizada para converter milímetros em coordenadas normalizadas.
     /// - Returns: Estrutura com configuração inicial calculada.
-    func analyze(image: UIImage, scale: PostCaptureScale) async throws -> PostCaptureAnalysisResult {
+    func analyze(image: UIImage,
+                 scale: PostCaptureScale,
+                 preferredCentralPoint: NormalizedPoint? = nil) async throws -> PostCaptureAnalysisResult {
         let orientedImage = image.normalizedOrientation()
 
         guard let cgImage = orientedImage.cgImage else {
@@ -56,7 +58,8 @@ final class PostCaptureProcessor {
         let analysis = buildConfiguration(from: observation,
                                           imageSize: imageSize,
                                           orientation: orientation,
-                                          scale: scale)
+                                          scale: scale,
+                                          preferredCentralPoint: preferredCentralPoint)
         return PostCaptureAnalysisResult(configuration: analysis.configuration,
                                          detectedPupils: analysis.detectedPupils)
     }
@@ -65,8 +68,9 @@ final class PostCaptureProcessor {
     private func buildConfiguration(from observation: VNFaceObservation,
                                     imageSize: CGSize,
                                     orientation: CGImagePropertyOrientation,
-                                    scale: PostCaptureScale) -> (configuration: PostCaptureConfiguration,
-                                                                  detectedPupils: PostCaptureAnalysisResult.DetectedPupils) {
+                                    scale: PostCaptureScale,
+                                    preferredCentralPoint: NormalizedPoint?) -> (configuration: PostCaptureConfiguration,
+                                                                                 detectedPupils: PostCaptureAnalysisResult.DetectedPupils) {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -99,8 +103,10 @@ final class PostCaptureProcessor {
 
         let averagePupilY = resolvedCentralY(rightPupilPoint: rightPupilPoint,
                                              leftPupilPoint: leftPupilPoint,
+                                             preferredCentralPoint: preferredCentralPoint,
                                              normalizedBounds: normalizedBounds)
         let centralX = resolvedCentralX(nosePoint: nosePoint,
+                                        preferredCentralPoint: preferredCentralPoint,
                                         rightPupilPoint: rightPupilPoint,
                                         leftPupilPoint: leftPupilPoint,
                                         normalizedBounds: normalizedBounds)
@@ -131,9 +137,15 @@ final class PostCaptureProcessor {
     }
 
     private func resolvedCentralX(nosePoint: CGPoint?,
+                                  preferredCentralPoint: NormalizedPoint?,
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
+        if let preferredCentralPoint,
+           (normalizedBounds.x...(normalizedBounds.x + normalizedBounds.width)).contains(preferredCentralPoint.x) {
+            return preferredCentralPoint.x
+        }
+
         if let nosePoint {
             return nosePoint.x
         }
@@ -195,9 +207,14 @@ final class PostCaptureProcessor {
 
     private func resolvedCentralY(rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
+                                  preferredCentralPoint: NormalizedPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
         let detectedPupilYs = [rightPupilPoint?.y, leftPupilPoint?.y].compactMap { $0 }
         guard !detectedPupilYs.isEmpty else {
+            if let preferredCentralPoint,
+               (normalizedBounds.y...(normalizedBounds.y + normalizedBounds.height)).contains(preferredCentralPoint.y) {
+                return preferredCentralPoint.y
+            }
             return normalizedBounds.y + (normalizedBounds.height * 0.42)
         }
 
