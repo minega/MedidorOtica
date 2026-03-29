@@ -128,7 +128,9 @@ extension VerificationManager {
                                             frame: ARFrame) -> EulerAngles {
         let worldToCamera = simd_inverse(frame.camera.transform)
         let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
-        return extractEulerAngles(from: relativeTransform)
+        let orientationMatrix = simd_float4x4(orientationCompensation())
+        let compensatedTransform = simd_mul(orientationMatrix, relativeTransform)
+        return extractEulerAngles(from: compensatedTransform)
     }
 
     /// Converte um angulo de radianos para graus.
