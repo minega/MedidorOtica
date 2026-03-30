@@ -17,8 +17,15 @@ struct PostCaptureAnalysisResult {
         let left: Bool
     }
 
+    struct CentralPointCandidates {
+        let bridge: NormalizedPoint
+        let faceMidline: NormalizedPoint
+        let pupilMidline: NormalizedPoint
+    }
+
     let configuration: PostCaptureConfiguration
     let detectedPupils: DetectedPupils
+    let centralCandidates: CentralPointCandidates
 }
 
 // MARK: - Processor
@@ -66,7 +73,8 @@ final class PostCaptureProcessor {
                                           scale: scale,
                                           preferredCentralPoint: preferredCentralPoint)
         return PostCaptureAnalysisResult(configuration: analysis.configuration,
-                                         detectedPupils: analysis.detectedPupils)
+                                         detectedPupils: analysis.detectedPupils,
+                                         centralCandidates: analysis.centralCandidates)
     }
 
     // MARK: - Montagem da Configuração
@@ -75,7 +83,8 @@ final class PostCaptureProcessor {
                                     orientation: CGImagePropertyOrientation,
                                     scale: PostCaptureScale,
                                     preferredCentralPoint: NormalizedPoint?) -> (configuration: PostCaptureConfiguration,
-                                                                                 detectedPupils: PostCaptureAnalysisResult.DetectedPupils) {
+                                                                                 detectedPupils: PostCaptureAnalysisResult.DetectedPupils,
+                                                                                 centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates) {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -116,6 +125,12 @@ final class PostCaptureProcessor {
                                         leftPupilPoint: leftPupilPoint,
                                         normalizedBounds: normalizedBounds)
         let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
+        let centralCandidates = makeCentralPointCandidates(nosePoint: nosePoint,
+                                                           rightPupilPoint: rightPupilPoint,
+                                                           leftPupilPoint: leftPupilPoint,
+                                                           normalizedBounds: normalizedBounds,
+                                                           averagePupilY: averagePupilY,
+                                                           resolvedCentralPoint: centralPoint)
         let resolvedRightPupil = rightPupilPoint ?? leftPupilPoint.map { mirroredPoint($0, around: centralPoint.x) }
         let resolvedLeftPupil = leftPupilPoint ?? rightPupilPoint.map { mirroredPoint($0, around: centralPoint.x) }
 
@@ -138,7 +153,29 @@ final class PostCaptureProcessor {
         let detected = PostCaptureAnalysisResult.DetectedPupils(right: rightPupilPoint != nil,
                                                                 left: leftPupilPoint != nil)
 
-        return (configuration, detected)
+        return (configuration, detected, centralCandidates)
+    }
+
+    private func makeCentralPointCandidates(nosePoint: CGPoint?,
+                                            rightPupilPoint: CGPoint?,
+                                            leftPupilPoint: CGPoint?,
+                                            normalizedBounds: NormalizedRect,
+                                            averagePupilY: CGFloat,
+                                            resolvedCentralPoint: NormalizedPoint) -> PostCaptureAnalysisResult.CentralPointCandidates {
+        let bridgeX = nosePoint?.x ?? resolvedCentralPoint.x
+        let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
+        let pupilMidlineX: CGFloat
+        if let rightPupilPoint, let leftPupilPoint {
+            pupilMidlineX = (rightPupilPoint.x + leftPupilPoint.x) / 2
+        } else {
+            pupilMidlineX = resolvedCentralPoint.x
+        }
+
+        return PostCaptureAnalysisResult.CentralPointCandidates(
+            bridge: NormalizedPoint(x: bridgeX, y: averagePupilY).clamped(),
+            faceMidline: NormalizedPoint(x: faceMidlineX, y: averagePupilY).clamped(),
+            pupilMidline: NormalizedPoint(x: pupilMidlineX, y: averagePupilY).clamped()
+        )
     }
 
     private func resolvedCentralX(nosePoint: CGPoint?,

@@ -12,7 +12,7 @@ import simd
 /// Limites globais de distancia em centimetros.
 struct DistanceLimits {
     static let minCm: Float = 30.0
-    static let maxCm: Float = 45.0
+    static let maxCm: Float = 38.0
 }
 
 // MARK: - Distancia
@@ -23,8 +23,8 @@ extension VerificationManager {
         static let minDistanceMeters: Float = DistanceLimits.minCm / 100
         static let maxDistanceMeters: Float = DistanceLimits.maxCm / 100
         static let maxValidDepth: Float = 10.0
-        static let minProjectedFaceWidthRatio: Float = 0.20
-        static let minProjectedFaceHeightRatio: Float = 0.28
+        static let minProjectedFaceWidthRatio: Float = 0.16
+        static let minProjectedFaceHeightRatio: Float = 0.22
     }
 
     /// Resultado completo da verificacao de distancia.

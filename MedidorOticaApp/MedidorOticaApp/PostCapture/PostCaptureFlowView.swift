@@ -276,6 +276,10 @@ struct PostCaptureFlowView: View {
                 SummaryMetricsSection(metrics: metrics)
             }
 
+            if !viewModel.dpCandidates.isEmpty {
+                DPCandidateSection(candidates: viewModel.dpCandidates)
+            }
+
             summaryFormFields
             summaryActionButtons
         }
@@ -584,6 +588,49 @@ private struct SummaryMetricsSection: View {
             PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
             ?? String(format: "%.1f", value)
         }
+    }
+}
+
+/// Exibe variantes do eixo X do PC para comparar qual DP fica mais fiel.
+private struct DPCandidateSection: View {
+    let candidates: [PostCaptureDPCandidate]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Comparacao de DP")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.65))
+
+            ForEach(candidates) { candidate in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(candidate.title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+
+                    HStack(spacing: 12) {
+                        SummaryValueChip(text: "OD \(formatted(candidate.rightDNP))")
+                        SummaryValueChip(text: "OE \(formatted(candidate.leftDNP))")
+                        SummaryValueChip(text: "DP \(formatted(candidate.totalDP))")
+                    }
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    private func formatted(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
     }
 }
 

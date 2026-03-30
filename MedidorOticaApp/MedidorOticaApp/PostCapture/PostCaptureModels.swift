@@ -222,6 +222,19 @@ struct PostCaptureMetrics: Codable, Equatable {
     }
 }
 
+/// Compara variantes do eixo X do PC apenas para a DP final.
+struct PostCaptureDPCandidate: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let point: NormalizedPoint
+    let rightDNP: Double
+    let leftDNP: Double
+
+    var totalDP: Double {
+        rightDNP + leftDNP
+    }
+}
+
 // MARK: - Resumo formatado das métricas
 extension PostCaptureMetrics {
     /// Entrada utilizada para exibir ou compartilhar uma linha do resumo final.

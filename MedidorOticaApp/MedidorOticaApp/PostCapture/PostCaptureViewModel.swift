@@ -48,6 +48,7 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var faceBounds: NormalizedRect = NormalizedRect()
     /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
     @Published var previewBounds: NormalizedRect = NormalizedRect()
+    @Published var dpCandidates: [PostCaptureDPCandidate] = []
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -65,6 +66,7 @@ final class PostCaptureViewModel: ObservableObject {
     // MARK: - Estados Internos
     private var didMirrorLeftEye = false
     private var detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: false, left: false)
+    private var centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates?
 
     // MARK: - Inicialização
     init(photo: CapturedPhoto, existingMeasurement: Measurement? = nil) {
@@ -159,11 +161,13 @@ final class PostCaptureViewModel: ObservableObject {
             await MainActor.run {
                 self.configuration = result.configuration
                 self.detectedPupils = result.detectedPupils
+                self.centralCandidates = result.centralCandidates
                 self.normalizeEyeOrdering()
                 self.faceBounds = result.configuration.faceBounds
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
                 self.previewBounds = preview.bounds
+                self.dpCandidates = self.makeDPCandidates()
                 self.isProcessing = false
             }
         } catch {
@@ -181,10 +185,12 @@ final class PostCaptureViewModel: ObservableObject {
         await MainActor.run {
             self.configuration = storedConfiguration
             self.detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: true, left: true)
+            self.centralCandidates = self.makeFallbackCentralCandidates(from: storedConfiguration)
             self.normalizeEyeOrdering()
             self.faceBounds = storedConfiguration.faceBounds
             self.facePreview = preview.image
             self.previewBounds = preview.bounds
+            self.dpCandidates = self.makeDPCandidates()
             self.isProcessing = false
             self.errorMessage = nil
         }
@@ -372,6 +378,7 @@ final class PostCaptureViewModel: ObservableObject {
                                                          centralPoint: configuration.centralPoint,
                                                          scale: scale)
         metrics = try calculator.makeMetrics()
+        dpCandidates = makeDPCandidates()
     }
 
     // MARK: - Construção de Measurement
@@ -488,5 +495,50 @@ final class PostCaptureViewModel: ObservableObject {
             return preview
         }
         return faceBounds.clamped()
+    }
+
+    private func makeFallbackCentralCandidates(from configuration: PostCaptureConfiguration) -> PostCaptureAnalysisResult.CentralPointCandidates {
+        let pupilMidX = (configuration.rightEye.pupil.x + configuration.leftEye.pupil.x) / 2
+        let faceMidX = configuration.faceBounds.x + (configuration.faceBounds.width / 2)
+        let y = configuration.centralPoint.y
+
+        return PostCaptureAnalysisResult.CentralPointCandidates(
+            bridge: configuration.centralPoint,
+            faceMidline: NormalizedPoint(x: faceMidX, y: y).clamped(),
+            pupilMidline: NormalizedPoint(x: pupilMidX, y: y).clamped()
+        )
+    }
+
+    private func makeDPCandidates() -> [PostCaptureDPCandidate] {
+        let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
+        return [
+            makeDPCandidate(id: "bridge", title: "DP ponte", point: candidates.bridge),
+            makeDPCandidate(id: "faceMidline", title: "DP meio do rosto", point: candidates.faceMidline),
+            makeDPCandidate(id: "pupilMidline", title: "DP media das pupilas", point: candidates.pupilMidline)
+        ]
+    }
+
+    private func makeDPCandidate(id: String,
+                                 title: String,
+                                 point: NormalizedPoint) -> PostCaptureDPCandidate {
+        let rightY = (configuration.rightEye.pupil.y + point.y) * 0.5
+        let leftY = (configuration.leftEye.pupil.y + point.y) * 0.5
+        let rightDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
+                                                                        and: point.x,
+                                                                        at: rightY))
+        let leftDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
+                                                                       and: point.x,
+                                                                       at: leftY))
+        return PostCaptureDPCandidate(id: id,
+                                      title: title,
+                                      point: point,
+                                      rightDNP: rightDNP,
+                                      leftDNP: leftDNP)
+    }
+
+    private func sanitizedMillimeters(_ value: Double) -> Double {
+        guard value.isFinite, value >= 0 else { return 0 }
+        let precision = 0.01
+        return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
     }
 }
