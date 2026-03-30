@@ -78,7 +78,7 @@ extension VerificationManager {
         }
 
         return FaceCenteringMetrics(horizontal: reference.pcCameraPosition.x,
-                                    vertical: reference.eyeCenterCameraPosition.y,
+                                    vertical: reference.pcCameraPosition.y,
                                     noseAlignment: reference.pcCameraPosition.x)
     }
 

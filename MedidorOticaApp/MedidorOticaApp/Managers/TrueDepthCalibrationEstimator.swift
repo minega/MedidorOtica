@@ -104,6 +104,10 @@ final class TrueDepthCalibrationEstimator {
         static let localCalibrationMinimumDepthMeters = 0.18
         static let localCalibrationMaximumDepthMeters = 0.60
         static let minimumLocalSamples = 12
+        static let opticalBandHalfWidthMeters: Float = 0.075
+        static let opticalBandMinHeightMeters: Float = -0.035
+        static let opticalBandMaxHeightMeters: Float = 0.055
+        static let opticalBandMaxForwardMeters: Float = 0.032
     }
 
     // MARK: - Estado
@@ -799,6 +803,8 @@ final class TrueDepthCalibrationEstimator {
                                              uiOrientation: UIInterfaceOrientation,
                                              viewportSize: CGSize,
                                              focal: (fx: Double, fy: Double)) -> LocalFaceScaleSample? {
+        guard isOpticalBandVertex(vertex) else { return nil }
+
         let worldPoint = worldPosition(of: vertex, transform: faceAnchor.transform)
         let cameraPoint = cameraSpacePosition(of: worldPoint, worldToCamera: worldToCamera)
         let depthMeters = Double(-cameraPoint.z)
@@ -837,6 +843,13 @@ final class TrueDepthCalibrationEstimator {
                                     horizontalReferenceMM: horizontalReference,
                                     verticalReferenceMM: verticalReference,
                                     depthMM: depthMeters * 1000.0)
+    }
+
+    private static func isOpticalBandVertex(_ vertex: simd_float3) -> Bool {
+        abs(vertex.x) <= Constants.opticalBandHalfWidthMeters &&
+        vertex.y >= Constants.opticalBandMinHeightMeters &&
+        vertex.y <= Constants.opticalBandMaxHeightMeters &&
+        vertex.z <= Constants.opticalBandMaxForwardMeters
     }
 
     private static func groupedLocalCalibration(from samples: [LocalFaceScaleSample]) -> LocalFaceScaleCalibration? {

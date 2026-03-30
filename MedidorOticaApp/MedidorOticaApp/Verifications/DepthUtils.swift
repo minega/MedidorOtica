@@ -261,12 +261,17 @@ extension VerificationManager {
 
         guard projectedNose.x.isFinite,
               projectedNose.y.isFinite,
+              projectedLeftEye.x.isFinite,
+              projectedRightEye.x.isFinite,
               projectedLeftEye.y.isFinite,
               projectedRightEye.y.isFinite else {
             return nil
         }
 
-        return CGPoint(x: CGFloat(projectedNose.x),
+        let averageEyeX = CGFloat((projectedLeftEye.x + projectedRightEye.x) / 2)
+        let noseBlendX = CGFloat(projectedNose.x)
+        let targetX = (averageEyeX * 0.7) + (noseBlendX * 0.3)
+        return CGPoint(x: targetX,
                        y: CGFloat((projectedLeftEye.y + projectedRightEye.y) / 2))
     }
 }
@@ -323,11 +328,12 @@ private extension VerificationManager {
                                     viewportSize: CGSize,
                                     targetPoint: CGPoint,
                                     worldToCamera: simd_float4x4) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
-        let midlineThreshold: Float = 0.006
+        let midlineThreshold: Float = 0.0045
+        let verticalTolerance = max(viewportSize.height * 0.08, 24)
+        let horizontalTolerance = max(viewportSize.width * 0.12, 36)
         var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
 
         for vertex in vertices {
-            let midlinePenalty = CGFloat(abs(vertex.x))
             guard abs(vertex.x) <= midlineThreshold else { continue }
 
             let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
@@ -338,8 +344,15 @@ private extension VerificationManager {
 
             let projectedPoint = CGPoint(x: CGFloat(projected.x),
                                          y: CGFloat(projected.y))
-            let distance = squaredPixelDistance(from: projectedPoint,
-                                                to: targetPoint) + (midlinePenalty * 500)
+            let verticalDistance = abs(projectedPoint.y - targetPoint.y)
+            guard verticalDistance <= verticalTolerance else { continue }
+
+            let horizontalDistance = abs(projectedPoint.x - targetPoint.x)
+            guard horizontalDistance <= horizontalTolerance else { continue }
+
+            let distance = (verticalDistance * verticalDistance * 5) +
+                (horizontalDistance * horizontalDistance * 0.35) +
+                (CGFloat(abs(vertex.x)) * 4000)
             let cameraPoint = cameraPointFromWorldPosition(worldPoint,
                                                            worldToCamera: worldToCamera)
             guard cameraPoint.x.isFinite,

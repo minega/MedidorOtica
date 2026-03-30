@@ -244,19 +244,19 @@ struct CameraInstructions: View {
 
         if abs(xPos) >= abs(yPos) {
             if xPos > 0 {
-                return "📱 ⬅️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a esquerda ate a camera ficar no meio do nariz"
+                return "📱 ➡️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a direita ate a camera ficar no PC"
             }
 
             if xPos < 0 {
-                return "📱 ➡️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a direita ate a camera ficar no meio do nariz"
+                return "📱 ⬅️ Leve o celular \(format(max(abs(xPos), 0.1))) cm para a esquerda ate a camera ficar no PC"
             }
         } else {
             if yPos > 0 {
-                return "📱 ⬆️ Levante o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura das pupilas"
+                return "📱 ⬆️ Levante o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura do PC"
             }
 
             if yPos < 0 {
-                return "📱 ⬇️ Baixe o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura das pupilas"
+                return "📱 ⬇️ Baixe o celular \(format(max(abs(yPos), 0.1))) cm ate a camera ficar na altura do PC"
             }
         }
 
