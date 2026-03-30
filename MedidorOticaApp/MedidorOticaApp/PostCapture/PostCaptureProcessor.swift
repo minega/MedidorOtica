@@ -28,6 +28,11 @@ final class PostCaptureProcessor {
     static let shared = PostCaptureProcessor()
     private init() {}
 
+    private enum CentralPointTolerance {
+        static let minimumTolerance: CGFloat = 0.025
+        static let widthRatio: CGFloat = 0.12
+    }
+
     // MARK: - Processamento
     /// Executa a análise assíncrona retornando as posições normalizadas de interesse.
     /// - Parameters:
@@ -141,9 +146,12 @@ final class PostCaptureProcessor {
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
-        if let preferredCentralPoint,
-           (normalizedBounds.x...(normalizedBounds.x + normalizedBounds.width)).contains(preferredCentralPoint.x) {
-            return preferredCentralPoint.x
+        if let preferredX = validatedPreferredCentralX(nosePoint: nosePoint,
+                                                       preferredCentralPoint: preferredCentralPoint,
+                                                       rightPupilPoint: rightPupilPoint,
+                                                       leftPupilPoint: leftPupilPoint,
+                                                       normalizedBounds: normalizedBounds) {
+            return preferredX
         }
 
         if let nosePoint {
@@ -155,6 +163,39 @@ final class PostCaptureProcessor {
         }
 
         return normalizedBounds.x + (normalizedBounds.width / 2)
+    }
+
+    private func validatedPreferredCentralX(nosePoint: CGPoint?,
+                                            preferredCentralPoint: NormalizedPoint?,
+                                            rightPupilPoint: CGPoint?,
+                                            leftPupilPoint: CGPoint?,
+                                            normalizedBounds: NormalizedRect) -> CGFloat? {
+        guard let preferredCentralPoint,
+              (normalizedBounds.x...(normalizedBounds.x + normalizedBounds.width)).contains(preferredCentralPoint.x) else {
+            return nil
+        }
+
+        let tolerance = max(normalizedBounds.width * CentralPointTolerance.widthRatio,
+                            CentralPointTolerance.minimumTolerance)
+
+        if let nosePoint,
+           abs(preferredCentralPoint.x - nosePoint.x) <= tolerance {
+            return preferredCentralPoint.x
+        }
+
+        if let rightPupilPoint, let leftPupilPoint {
+            let pupilMidpoint = (rightPupilPoint.x + leftPupilPoint.x) / 2
+            if abs(preferredCentralPoint.x - pupilMidpoint) <= tolerance {
+                return preferredCentralPoint.x
+            }
+            return pupilMidpoint
+        }
+
+        if nosePoint == nil {
+            return preferredCentralPoint.x
+        }
+
+        return nil
     }
 
     private func resolvedEyePoint(pupilRegion: VNFaceLandmarkRegion2D?,

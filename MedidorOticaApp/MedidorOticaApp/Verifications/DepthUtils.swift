@@ -181,15 +181,17 @@ extension VerificationManager {
     ///   - vertical: Desvio vertical em centimetros.
     /// - Returns: Desvios adaptados a orientacao atual.
     func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
+        let portraitMapped = (horizontal: vertical, vertical: -horizontal)
+
         switch resolvedInterfaceOrientation() {
         case .landscapeLeft:
-            return (vertical, -horizontal)
+            return (portraitMapped.vertical, -portraitMapped.horizontal)
         case .landscapeRight:
-            return (-vertical, horizontal)
+            return (-portraitMapped.vertical, portraitMapped.horizontal)
         case .portraitUpsideDown:
-            return (-horizontal, -vertical)
+            return (-portraitMapped.horizontal, -portraitMapped.vertical)
         default:
-            return (horizontal, vertical)
+            return portraitMapped
         }
     }
 

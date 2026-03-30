@@ -23,8 +23,8 @@ extension VerificationManager {
         static let minDistanceMeters: Float = DistanceLimits.minCm / 100
         static let maxDistanceMeters: Float = DistanceLimits.maxCm / 100
         static let maxValidDepth: Float = 10.0
-        static let minProjectedFaceWidthRatio: Float = 0.22
-        static let minProjectedFaceHeightRatio: Float = 0.30
+        static let minProjectedFaceWidthRatio: Float = 0.20
+        static let minProjectedFaceHeightRatio: Float = 0.28
     }
 
     /// Resultado completo da verificacao de distancia.
