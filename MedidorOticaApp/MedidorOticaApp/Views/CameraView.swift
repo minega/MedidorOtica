@@ -462,9 +462,6 @@ struct CameraView: View {
         }
 
         if !verificationManager.distanceCorrect {
-            if verificationManager.projectedFaceTooSmall {
-                return "Aproxime o rosto ate os olhos ocuparem melhor o oval."
-            }
             return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
                 "Afaste um pouco o rosto para entrar na faixa ideal." :
                 "Aproxime um pouco o rosto para entrar na faixa ideal."

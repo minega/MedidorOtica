@@ -23,8 +23,8 @@ extension VerificationManager {
         static let minDistanceMeters: Float = DistanceLimits.minCm / 100
         static let maxDistanceMeters: Float = DistanceLimits.maxCm / 100
         static let maxValidDepth: Float = 10.0
-        static let minProjectedFaceWidthRatio: Float = 0.16
-        static let minProjectedFaceHeightRatio: Float = 0.22
+        static let advisoryProjectedFaceWidthRatio: Float = 0.10
+        static let advisoryProjectedFaceHeightRatio: Float = 0.14
     }
 
     /// Resultado completo da verificacao de distancia.
@@ -34,8 +34,10 @@ extension VerificationManager {
         let projectedFaceHeightRatio: Float
 
         var projectedFaceTooSmall: Bool {
-            projectedFaceWidthRatio < DistanceConstants.minProjectedFaceWidthRatio ||
-            projectedFaceHeightRatio < DistanceConstants.minProjectedFaceHeightRatio
+            projectedFaceWidthRatio > 0 &&
+            projectedFaceHeightRatio > 0 &&
+            (projectedFaceWidthRatio < DistanceConstants.advisoryProjectedFaceWidthRatio ||
+             projectedFaceHeightRatio < DistanceConstants.advisoryProjectedFaceHeightRatio)
         }
 
         var hasValidDepth: Bool {
@@ -53,8 +55,7 @@ extension VerificationManager {
 
         let isWithinRange = (DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters)
             .contains(measurement.distance)
-        let isWithinProjectedRange = !measurement.projectedFaceTooSmall
-        let isValid = measurement.hasValidDepth && isWithinProjectedRange
+        let isValid = measurement.hasValidDepth
 
         updateDistanceUI(distance: measurement.distance,
                          isValid: isWithinRange && isValid,
@@ -121,12 +122,7 @@ extension VerificationManager {
             self.projectedFaceHeightRatio = projectedFaceHeightRatio
 
             if !isValid {
-                let message: String
-                if projectedFaceTooSmall {
-                    message = "Face ainda pequena no enquadramento"
-                } else {
-                    message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
-                }
+                let message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
                 print("Aviso: \(message): \(String(format: "%.1f", distanceInCm)) cm")
             }
         }
