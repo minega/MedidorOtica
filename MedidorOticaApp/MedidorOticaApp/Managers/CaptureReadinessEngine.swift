@@ -9,6 +9,7 @@ import Foundation
 
 // MARK: - Motor de prontidao
 /// Exige amostras consecutivas validas antes de liberar a foto.
+/// A calibracao final continua sendo validada no frame real da captura.
 final class CaptureReadinessEngine {
     // MARK: - Configuracao
     static let defaultStableSampleCount = 6
@@ -74,7 +75,6 @@ final class CaptureReadinessEngine {
         guard input.evaluation.faceAligned else { return .faceNotCentered }
         guard input.evaluation.headPoseAvailable else { return .headPoseUnavailable }
         guard input.evaluation.headAligned else { return .headNotAligned }
-        guard input.calibrationReady else { return .calibrationUnavailable }
         return nil
     }
 

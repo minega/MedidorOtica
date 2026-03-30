@@ -11,10 +11,10 @@ import Testing
 
 struct CaptureReadinessEngineTests {
     @Test func distanceVerificationDescriptionReflectsTighterRange() async throws {
-        #expect(DistanceLimits.minCm == 28.0)
-        #expect(DistanceLimits.maxCm == 45.0)
-        #expect(VerificationType.distance.description.contains("28cm"))
-        #expect(VerificationType.distance.description.contains("45cm"))
+        #expect(DistanceLimits.minCm == 30.0)
+        #expect(DistanceLimits.maxCm == 38.0)
+        #expect(VerificationType.distance.description.contains("30cm"))
+        #expect(VerificationType.distance.description.contains("38cm"))
     }
 
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
@@ -79,20 +79,19 @@ struct CaptureReadinessEngineTests {
         #expect(status3.progress == 1.0)
     }
 
-    @Test func resetsWhenCalibrationIsLost() async throws {
+    @Test func keepsStabilityWhenCalibrationPreviewOscillates() async throws {
         let engine = CaptureReadinessEngine(requiredStableSampleCount: 2,
                                             maximumFrameGap: 0.20,
                                             maximumCaptureAge: 0.15)
 
         _ = engine.evaluate(input: readyInput(timestamp: 2.00))
-        let blocked = engine.evaluate(input: CaptureReadinessInput(evaluation: readyEvaluation(timestamp: 2.05),
-                                                                   sessionReady: true,
-                                                                   calibrationReady: false))
-        let recovered = engine.evaluate(input: readyInput(timestamp: 2.10))
+        let stable = engine.evaluate(input: CaptureReadinessInput(evaluation: readyEvaluation(timestamp: 2.05),
+                                                                  sessionReady: true,
+                                                                  calibrationReady: false))
 
-        #expect(blocked.blockReason == .calibrationUnavailable)
-        #expect(!recovered.isStableReady)
-        #expect(recovered.progress == 0.5)
+        #expect(stable.blockReason == nil)
+        #expect(stable.isStableReady)
+        #expect(stable.progress == 1.0)
     }
 
     @Test func rejectsFramesThatBecomeStaleForCapture() async throws {

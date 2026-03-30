@@ -282,7 +282,7 @@ final class CameraManager: NSObject, ObservableObject {
         guard isCaptureReady else { return false }
         guard lastFrameTimestamp > 0 else { return false }
         guard captureReadinessEngine.isFrameFresh(lastFrameTimestamp) else { return false }
-        return calibrationReadiness().ready
+        return true
     }
 
     /// Limpa os dados acumulados do pipeline de captura.
@@ -311,7 +311,8 @@ final class CameraManager: NSObject, ObservableObject {
     private var hasRecentSuccessfulCalibration: Bool {
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return false }
         guard lastFrameTimestamp > 0 else { return false }
-        return abs(lastFrameTimestamp - timestamp) <= CaptureReadinessEngine.defaultMaximumCaptureAge
+        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.10
+        return abs(lastFrameTimestamp - timestamp) <= maximumAge
     }
 
     private func updatePreviewCalibration(for frame: ARFrame,

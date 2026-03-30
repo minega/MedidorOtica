@@ -196,7 +196,8 @@ extension CameraManager {
         guard let calibration = lastSuccessfulCalibration, calibration.isReliable else { return nil }
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return nil }
         let age = abs(referenceTimestamp - timestamp)
-        guard age <= CaptureReadinessEngine.defaultMaximumCaptureAge else { return nil }
+        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.10
+        guard age <= maximumAge else { return nil }
         return calibration
     }
 
