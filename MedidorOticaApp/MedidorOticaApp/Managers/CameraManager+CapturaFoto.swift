@@ -28,6 +28,11 @@ extension CameraManager {
         static let allowedMMPerPixelRange: ClosedRange<Double> = 0.01...0.35
     }
 
+    private enum CaptureVerificationReuseConstants {
+        /// Janela curta para reaproveitar a ultima verificacao valida durante a captura.
+        static let maximumAge: TimeInterval = 0.45
+    }
+
     private struct CaptureCalibrationBundle {
         let global: PostCaptureCalibration
         let local: LocalFaceScaleCalibration
@@ -102,20 +107,45 @@ extension CameraManager {
             return .failure(.sessionNotReady)
         }
 
-        guard captureReadinessEngine.isFrameFresh(frame.timestamp) else {
-            return .failure(.staleFrame)
-        }
-
-        let captureEvaluation = VerificationManager.shared.evaluationForCapture(frame)
-        handleVerificationEvaluation(captureEvaluation)
-        guard captureEvaluation.allChecksPassed else {
-            return .failure(.sessionNotReady)
+        guard let captureEvaluation = resolveCaptureEvaluation(for: frame) else {
+            let staleFrame = !captureReadinessEngine.isFrameFresh(frame.timestamp) &&
+                recentSuccessfulVerification(referenceTimestamp: frame.timestamp) == nil
+            return .failure(staleFrame ? .staleFrame : .sessionNotReady)
         }
 
         return .success(CaptureFrameContext(frame: frame,
                                             faceAnchor: trackedFaceAnchor,
                                             cgOrientation: VerificationManager.shared.currentCGOrientation(),
                                             uiOrientation: VerificationManager.shared.currentUIOrientation()))
+    }
+
+    /// Resolve a avaliacao usada na captura, aceitando uma verificacao recente
+    /// quando o frame atual oscila por um instante.
+    private func resolveCaptureEvaluation(for frame: ARFrame) -> VerificationFrameEvaluation? {
+        let recentEvaluation = recentSuccessfulVerification(referenceTimestamp: frame.timestamp)
+        let directEvaluation = VerificationManager.shared.evaluationForCapture(frame)
+        if directEvaluation.allChecksPassed {
+            handleVerificationEvaluation(directEvaluation)
+            return directEvaluation
+        }
+
+        guard let recentEvaluation else {
+            handleVerificationEvaluation(directEvaluation)
+            return nil
+        }
+
+        handleVerificationEvaluation(recentEvaluation)
+        return recentEvaluation
+    }
+
+    /// Reaproveita a ultima verificacao valida por uma janela curta para evitar
+    /// falhas intermitentes entre o toque e o frame efetivo da foto.
+    private func recentSuccessfulVerification(referenceTimestamp: TimeInterval) -> VerificationFrameEvaluation? {
+        let evaluation = lastVerificationEvaluation
+        guard evaluation.allChecksPassed else { return nil }
+        let age = abs(referenceTimestamp - evaluation.timestamp)
+        guard age <= CaptureVerificationReuseConstants.maximumAge else { return nil }
+        return evaluation
     }
 
     /// Renderiza a foto e resolve a calibracao final do frame escolhido.
