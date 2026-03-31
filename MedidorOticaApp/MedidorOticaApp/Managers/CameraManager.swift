@@ -113,7 +113,7 @@ final class CameraManager: NSObject, ObservableObject {
     let captureReadinessEngine = CaptureReadinessEngine()
     var lastSuccessfulCalibration: PostCaptureCalibration?
     var lastCalibrationFailure: (code: Int, message: String)?
-    private var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
+    private(set) var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
     var lastFrameTimestamp: TimeInterval = 0
     var lastSuccessfulCalibrationTimestamp: TimeInterval?
     private let trueDepthRecoveryPolicy = TrueDepthRecoveryPolicy()

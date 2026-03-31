@@ -321,7 +321,9 @@ struct CameraView: View {
                                                            object: nil,
                                                            queue: .main) { notification in
             guard let error = notification.userInfo?["error"] as? CameraError else { return }
-            handleCameraError(error)
+            Task { @MainActor in
+                handleCameraError(error)
+            }
         }
         notificationObservers.append(token)
     }
@@ -330,13 +332,15 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["error"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "Falha ao configurar ARSession."
+            Task { @MainActor in
+                if let message = notification.userInfo?["error"] as? String {
+                    alertMessage = message
+                } else {
+                    alertMessage = "Falha ao configurar ARSession."
+                }
+                cameraManager.stop()
+                showingAlert = true
             }
-            cameraManager.stop()
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -345,12 +349,14 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["message"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "A sessao de AR apresentou um erro."
+            Task { @MainActor in
+                if let message = notification.userInfo?["message"] as? String {
+                    alertMessage = message
+                } else {
+                    alertMessage = "A sessao de AR apresentou um erro."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -359,14 +365,16 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let reason = notification.userInfo?["reason"] as? String {
-                alertMessage = "Dispositivo nao compativel: \(reason)"
-            } else if let sensor = notification.userInfo?["sensor"] as? String {
-                alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
-            } else {
-                alertMessage = "Dispositivo nao compativel com as medicoes."
+            Task { @MainActor in
+                if let reason = notification.userInfo?["reason"] as? String {
+                    alertMessage = "Dispositivo nao compativel: \(reason)"
+                } else if let sensor = notification.userInfo?["sensor"] as? String {
+                    alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
+                } else {
+                    alertMessage = "Dispositivo nao compativel com as medicoes."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
