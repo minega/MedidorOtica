@@ -332,8 +332,9 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
+            let message = notification.userInfo?["error"] as? String
             Task { @MainActor in
-                if let message = notification.userInfo?["error"] as? String {
+                if let message {
                     alertMessage = message
                 } else {
                     alertMessage = "Falha ao configurar ARSession."
@@ -349,8 +350,9 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
+            let message = notification.userInfo?["message"] as? String
             Task { @MainActor in
-                if let message = notification.userInfo?["message"] as? String {
+                if let message {
                     alertMessage = message
                 } else {
                     alertMessage = "A sessao de AR apresentou um erro."
@@ -365,10 +367,12 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
+            let reason = notification.userInfo?["reason"] as? String
+            let sensor = notification.userInfo?["sensor"] as? String
             Task { @MainActor in
-                if let reason = notification.userInfo?["reason"] as? String {
+                if let reason {
                     alertMessage = "Dispositivo nao compativel: \(reason)"
-                } else if let sensor = notification.userInfo?["sensor"] as? String {
+                } else if let sensor {
                     alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
                 } else {
                     alertMessage = "Dispositivo nao compativel com as medicoes."
