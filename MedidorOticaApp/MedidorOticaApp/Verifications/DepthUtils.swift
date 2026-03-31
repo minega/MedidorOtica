@@ -244,8 +244,6 @@ extension VerificationManager {
         let vertices = faceAnchor.geometry.vertices
         guard vertices.count > noseTipIndex else { return nil }
 
-        let noseWorldPoint = vertexWorldPoint(of: vertices[noseTipIndex],
-                                              transform: faceAnchor.transform)
         let leftEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
                                                                       faceAnchor.leftEyeTransform))
         let rightEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
@@ -257,13 +255,7 @@ extension VerificationManager {
         let projectedRightEye = frame.camera.projectPoint(rightEyeWorldPoint,
                                                           orientation: uiOrientation,
                                                           viewportSize: viewportSize)
-        let projectedNose = frame.camera.projectPoint(noseWorldPoint,
-                                                      orientation: uiOrientation,
-                                                      viewportSize: viewportSize)
-
-        guard projectedNose.x.isFinite,
-              projectedNose.y.isFinite,
-              projectedLeftEye.x.isFinite,
+        guard projectedLeftEye.x.isFinite,
               projectedRightEye.x.isFinite,
               projectedLeftEye.y.isFinite,
               projectedRightEye.y.isFinite else {
@@ -271,9 +263,7 @@ extension VerificationManager {
         }
 
         let averageEyeX = CGFloat((projectedLeftEye.x + projectedRightEye.x) / 2)
-        let noseBlendX = CGFloat(projectedNose.x)
-        let targetX = (averageEyeX * 0.7) + (noseBlendX * 0.3)
-        return CGPoint(x: targetX,
+        return CGPoint(x: averageEyeX,
                        y: CGFloat((projectedLeftEye.y + projectedRightEye.y) / 2))
     }
 }

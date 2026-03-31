@@ -9,6 +9,7 @@ import Foundation
 import AVFoundation
 import ARKit
 import Combine
+import CoreImage
 import ImageIO
 import UIKit
 
@@ -63,6 +64,20 @@ enum CameraError: Error, LocalizedError {
 final class CameraManager: NSObject, ObservableObject {
     static let shared = CameraManager()
 
+    // MARK: - Qualidade de imagem
+    /// Contexto dedicado para renderizar a foto final com o maximo de fidelidade pratica.
+    private static let photoColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    /// Cria um `CIContext` fixo para evitar variacoes de renderizacao entre frames.
+    private static func makePhotoProcessingContext() -> CIContext {
+        CIContext(options: [
+            .cacheIntermediates: false,
+            .workingColorSpace: photoColorSpace,
+            .outputColorSpace: photoColorSpace,
+            .priorityRequestLow: false
+        ])
+    }
+
     // MARK: - Published Properties
     @Published private(set) var error: CameraError?
     @Published var isFlashOn = false
@@ -90,7 +105,7 @@ final class CameraManager: NSObject, ObservableObject {
     let videoOutput = AVCapturePhotoOutput()
     var videoDeviceInput: AVCaptureDeviceInput?
     var arSession: ARSession?
-    let photoProcessingContext = CIContext()
+    let photoProcessingContext = CameraManager.makePhotoProcessingContext()
     private(set) var hardwareHasTrueDepth = false
     let calibrationEstimator = TrueDepthCalibrationEstimator()
 

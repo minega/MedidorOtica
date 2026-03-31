@@ -53,6 +53,11 @@ struct Measurement: Identifiable, Codable {
     }
 
     // MARK: - Inicializacao
+    private enum ImageQuality {
+        /// Mantem a foto salva praticamente sem perda visivel.
+        static let jpegCompressionQuality: CGFloat = 0.98
+    }
+
     init(clientName: String,
          orderNumber: String,
          capturedImage: UIImage,
@@ -73,7 +78,7 @@ struct Measurement: Identifiable, Codable {
         self.postCaptureCalibration = postCaptureCalibration
         self.postCaptureLocalCalibration = postCaptureLocalCalibration
         self.postCaptureCaptureCentralPoint = postCaptureCaptureCentralPoint
-        self.imageData = capturedImage.jpegData(compressionQuality: 0.92)
+        self.imageData = capturedImage.jpegData(compressionQuality: ImageQuality.jpegCompressionQuality)
     }
 
     // MARK: - Codable
