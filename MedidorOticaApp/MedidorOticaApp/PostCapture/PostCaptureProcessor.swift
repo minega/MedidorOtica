@@ -214,14 +214,16 @@ final class PostCaptureProcessor {
             return nil
         }
 
+        guard nosePoint == nil,
+              rightPupilPoint == nil,
+              leftPupilPoint == nil else {
+            return nil
+        }
+
         let tolerance = max(normalizedBounds.width * CentralPointConsensus.preferredPointWeightToleranceRatio,
                             CentralPointTolerance.minimumTolerance)
         guard abs(preferredCentralPoint.x - consensusX) <= tolerance else {
             return nil
-        }
-
-        if rightPupilPoint == nil && leftPupilPoint == nil && nosePoint == nil {
-            return preferredCentralPoint.x
         }
 
         return preferredCentralPoint.x
