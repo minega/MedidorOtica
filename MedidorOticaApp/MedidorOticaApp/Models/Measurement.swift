@@ -24,7 +24,8 @@ struct Measurement: Identifiable, Codable {
     var postCaptureCalibration: PostCaptureCalibration
     /// Mapa local de escala derivado da malha facial para preservar a precisao.
     var postCaptureLocalCalibration: LocalFaceScaleCalibration?
-    /// PC projetado no frame capturado para reduzir vies lateral ao reabrir a medicao.
+    /// Campo legado preservado para compatibilidade com historicos antigos.
+    /// Novas medicoes nao dependem mais desse valor para inicializar o PC.
     var postCaptureCaptureCentralPoint: NormalizedPoint?
 
     // MARK: - Computados

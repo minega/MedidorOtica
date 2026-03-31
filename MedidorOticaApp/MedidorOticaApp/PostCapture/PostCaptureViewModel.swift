@@ -59,7 +59,6 @@ final class PostCaptureViewModel: ObservableObject {
     let localCalibration: LocalFaceScaleCalibration
     /// Aviso opcional gerado no momento da captura para orientar a revisão manual.
     let captureWarning: String?
-    let captureCentralPoint: NormalizedPoint?
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
     let scale: PostCaptureScale
 
@@ -76,7 +75,6 @@ final class PostCaptureViewModel: ObservableObject {
         self.calibration = existingMeasurement?.postCaptureCalibration ?? photo.calibration
         self.localCalibration = existingMeasurement?.postCaptureLocalCalibration ?? photo.localCalibration
         self.captureWarning = photo.captureWarning
-        self.captureCentralPoint = existingMeasurement?.postCaptureCaptureCentralPoint ?? photo.captureCentralPoint
         self.scale = PostCaptureScale(calibration: self.calibration,
                                       localCalibration: self.localCalibration)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
@@ -155,9 +153,11 @@ final class PostCaptureViewModel: ObservableObject {
 
     private func runAnalysis() async {
         do {
+            // A analise inicial da pos-captura deve nascer da foto estatica.
+            // O PC herdado da captura so serve para registros antigos ja consolidados,
+            // evitando contaminar a linha central quando a captura vier enviesada.
             let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage,
-                                                                       scale: scale,
-                                                                       preferredCentralPoint: captureCentralPoint)
+                                                                       scale: scale)
             await MainActor.run {
                 self.configuration = result.configuration
                 self.detectedPupils = result.detectedPupils
@@ -398,7 +398,7 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureMetrics: metrics,
                            postCaptureCalibration: calibration,
                            postCaptureLocalCalibration: localCalibration,
-                           postCaptureCaptureCentralPoint: captureCentralPoint,
+                           postCaptureCaptureCentralPoint: nil,
                            id: identifier,
                            date: date)
     }
