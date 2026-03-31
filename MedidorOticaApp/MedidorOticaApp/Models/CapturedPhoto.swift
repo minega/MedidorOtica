@@ -16,8 +16,7 @@ struct CapturedPhoto {
     let calibration: PostCaptureCalibration
     /// Mapa local da escala facial para compensar deformacoes de perspectiva.
     let localCalibration: LocalFaceScaleCalibration
-    /// Referencia legada da captura mantida apenas para auditoria e compatibilidade.
-    /// O fluxo novo da pos-captura recalcula o PC exclusivamente a partir da foto estatica.
+    /// PC projetado no frame capturado para reduzir vies lateral no pos-captura.
     let captureCentralPoint: NormalizedPoint?
     /// Timestamp do frame utilizado na captura.
     let frameTimestamp: TimeInterval
