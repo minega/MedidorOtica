@@ -172,7 +172,6 @@ final class PostCaptureProcessor {
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
-                                  normalizedBounds: NormalizedRect) -> CGFloat {
         resolvedConsensusCentralX(nosePoint: nosePoint,
                                   rightPupilPoint: rightPupilPoint,
                                   leftPupilPoint: leftPupilPoint,
