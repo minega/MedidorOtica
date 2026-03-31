@@ -43,34 +43,6 @@ final class TrueDepthCalibrationEstimator {
         let pixelDY: Double
     }
 
-    private struct LocalScaleAccumulator {
-        var sumX: CGFloat = 0
-        var sumY: CGFloat = 0
-        var sumHorizontal: Double = 0
-        var sumVertical: Double = 0
-        var sumDepth: Double = 0
-        var count = 0
-
-        mutating func append(_ sample: LocalFaceScaleSample) {
-            sumX += sample.point.x
-            sumY += sample.point.y
-            sumHorizontal += sample.horizontalReferenceMM
-            sumVertical += sample.verticalReferenceMM
-            sumDepth += sample.depthMM
-            count += 1
-        }
-
-        func averagedSample() -> LocalFaceScaleSample? {
-            guard count > 0 else { return nil }
-
-            return LocalFaceScaleSample(point: NormalizedPoint(x: sumX / CGFloat(count),
-                                                               y: sumY / CGFloat(count)),
-                                        horizontalReferenceMM: sumHorizontal / Double(count),
-                                        verticalReferenceMM: sumVertical / Double(count),
-                                        depthMM: sumDepth / Double(count))
-        }
-    }
-
     private enum SampleOutcome {
         case accepted(CalibrationSample)
         case rejected(TrueDepthBlockReason)
@@ -99,15 +71,16 @@ final class TrueDepthCalibrationEstimator {
         static let trimRatio = 0.10
         static let meshPairTrimDivisor = 20
         static let maxMeshPairs = 6
-        static let localCalibrationGridColumns = 8
-        static let localCalibrationGridRows = 10
         static let localCalibrationMinimumDepthMeters = 0.18
         static let localCalibrationMaximumDepthMeters = 0.60
-        static let minimumLocalSamples = 12
-        static let opticalBandHalfWidthMeters: Float = 0.075
-        static let opticalBandMinHeightMeters: Float = -0.035
-        static let opticalBandMaxHeightMeters: Float = 0.055
-        static let opticalBandMaxForwardMeters: Float = 0.032
+        static let minimumLocalSamples = 40
+        static let maximumStoredLocalSamples = 240
+        static let localScaleToleranceRatio = 0.10
+        static let localDepthToleranceMM = 35.0
+        static let opticalBandHalfWidthMeters: Float = 0.09
+        static let opticalBandMinHeightMeters: Float = -0.05
+        static let opticalBandMaxHeightMeters: Float = 0.07
+        static let opticalBandMaxForwardMeters: Float = 0.04
     }
 
     // MARK: - Estado
@@ -855,24 +828,56 @@ final class TrueDepthCalibrationEstimator {
     private static func groupedLocalCalibration(from samples: [LocalFaceScaleSample]) -> LocalFaceScaleCalibration? {
         guard !samples.isEmpty else { return nil }
 
-        let columns = Constants.localCalibrationGridColumns
-        let rows = Constants.localCalibrationGridRows
-        var buckets: [Int: LocalScaleAccumulator] = [:]
+        let filteredSamples = filteredLocalSamples(from: samples)
+        guard filteredSamples.count >= Constants.minimumLocalSamples else { return nil }
 
-        for sample in samples {
-            let column = min(max(Int(sample.point.x * CGFloat(columns)), 0), columns - 1)
-            let row = min(max(Int(sample.point.y * CGFloat(rows)), 0), rows - 1)
-            let key = (row * columns) + column
-            var accumulator = buckets[key] ?? LocalScaleAccumulator()
-            accumulator.append(sample)
-            buckets[key] = accumulator
-        }
-
-        let averagedSamples = buckets.values.compactMap { $0.averagedSample() }
-        guard averagedSamples.count >= Constants.minimumLocalSamples else { return nil }
-        return LocalFaceScaleCalibration(samples: averagedSamples.sorted { first, second in
+        let storedSamples = distributedLocalSamples(from: filteredSamples)
+        return LocalFaceScaleCalibration(samples: storedSamples.sorted { first, second in
             first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
         })
+    }
+
+    /// Filtra amostras locais usando a própria distribuição da malha do rosto.
+    private static func filteredLocalSamples(from samples: [LocalFaceScaleSample]) -> [LocalFaceScaleSample] {
+        guard let horizontalCenter = Statistics.robustMean(samples.map(\.horizontalReferenceMM)),
+              let verticalCenter = Statistics.robustMean(samples.map(\.verticalReferenceMM)),
+              let depthCenter = Statistics.robustMean(samples.map(\.depthMM)) else {
+            return samples
+        }
+
+        let filtered = samples.filter { sample in
+            guard sample.horizontalReferenceMM.isFinite,
+                  sample.verticalReferenceMM.isFinite,
+                  sample.depthMM.isFinite else {
+                return false
+            }
+
+            let horizontalError = abs(sample.horizontalReferenceMM - horizontalCenter) / max(horizontalCenter, 0.001)
+            let verticalError = abs(sample.verticalReferenceMM - verticalCenter) / max(verticalCenter, 0.001)
+            let depthError = abs(sample.depthMM - depthCenter)
+
+            return horizontalError <= Constants.localScaleToleranceRatio &&
+                verticalError <= Constants.localScaleToleranceRatio &&
+                depthError <= Constants.localDepthToleranceMM
+        }
+
+        return filtered.count >= Constants.minimumLocalSamples ? filtered : samples
+    }
+
+    /// Reduz o volume persistido sem perder cobertura espacial da malha util.
+    private static func distributedLocalSamples(from samples: [LocalFaceScaleSample]) -> [LocalFaceScaleSample] {
+        guard samples.count > Constants.maximumStoredLocalSamples else { return samples }
+
+        let sorted = samples.sorted { first, second in
+            first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
+        }
+        let lastIndex = max(sorted.count - 1, 1)
+
+        return (0..<Constants.maximumStoredLocalSamples).map { index in
+            let progress = Double(index) / Double(Constants.maximumStoredLocalSamples - 1)
+            let sourceIndex = Int((progress * Double(lastIndex)).rounded())
+            return sorted[sourceIndex]
+        }
     }
 
     private static func averageEyeDepth(faceAnchor: ARFaceAnchor,

@@ -60,9 +60,15 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
 
     static let empty = LocalFaceScaleCalibration(samples: [])
 
+    private enum LocalIntegration {
+        static let minimumReliableSamples = 24
+        static let nearestNeighborCount = 16
+        static let integrationSegments = 32
+    }
+
     /// Exige uma quantidade minima de amostras validas antes de ativar a medicao local.
     var isReliable: Bool {
-        samples.count >= 12
+        samples.count >= LocalIntegration.minimumReliableSamples
     }
 
     /// Consolida a malha local em uma calibração global de fallback para telas antigas do fluxo.
@@ -125,7 +131,7 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
                                     keyPath: KeyPath<LocalFaceScaleSample, Double>) -> Double {
         let clampedStart = start.clamped()
         let clampedEnd = end.clamped()
-        let segments = 12
+        let segments = LocalIntegration.integrationSegments
 
         return (0..<segments).reduce(0) { partial, index in
             let t0 = CGFloat(index) / CGFloat(segments)
@@ -151,7 +157,7 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
                 (sample: sample, distance: distance(from: sample.point, to: clampedPoint))
             }
             .sorted { $0.distance < $1.distance }
-            .prefix(8)
+            .prefix(LocalIntegration.nearestNeighborCount)
 
         guard let first = nearest.first else { return fallback }
         if first.distance <= 0.0005 {
