@@ -62,8 +62,7 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
 
     private enum LocalIntegration {
         static let minimumReliableSamples = 24
-        static let nearestNeighborCount = 16
-        static let integrationSegments = 32
+        static let integrationSegments = 48
     }
 
     /// Exige uma quantidade minima de amostras validas antes de ativar a medicao local.
@@ -152,26 +151,29 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
         guard !samples.isEmpty else { return fallback }
 
         let clampedPoint = point.clamped()
-        let nearest = samples
-            .map { sample in
-                (sample: sample, distance: distance(from: sample.point, to: clampedPoint))
+        var nearestSample: LocalFaceScaleSample?
+        var nearestDistance = Double.greatestFiniteMagnitude
+        var weightedSum = 0.0
+        var totalWeight = 0.0
+
+        for sample in samples {
+            let currentDistance = distance(from: sample.point, to: clampedPoint)
+            if currentDistance < nearestDistance {
+                nearestDistance = currentDistance
+                nearestSample = sample
             }
-            .sorted { $0.distance < $1.distance }
-            .prefix(LocalIntegration.nearestNeighborCount)
 
-        guard let first = nearest.first else { return fallback }
-        if first.distance <= 0.0005 {
-            return first.sample[keyPath: keyPath]
+            let weight = 1.0 / pow(max(currentDistance, 0.0005), 2.0)
+            weightedSum += sample[keyPath: keyPath] * weight
+            totalWeight += weight
         }
 
-        let weighted = nearest.reduce(into: (sum: 0.0, weight: 0.0)) { partial, entry in
-            let weight = 1.0 / max(entry.distance, 0.0005)
-            partial.sum += entry.sample[keyPath: keyPath] * weight
-            partial.weight += weight
+        if nearestDistance <= 0.0005, let nearestSample {
+            return nearestSample[keyPath: keyPath]
         }
 
-        guard weighted.weight > 0 else { return fallback }
-        return weighted.sum / weighted.weight
+        guard totalWeight > 0 else { return fallback }
+        return weightedSum / totalWeight
     }
 
     private func interpolatedPoint(from start: NormalizedPoint,

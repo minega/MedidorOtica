@@ -74,7 +74,6 @@ final class TrueDepthCalibrationEstimator {
         static let localCalibrationMinimumDepthMeters = 0.18
         static let localCalibrationMaximumDepthMeters = 0.60
         static let minimumLocalSamples = 40
-        static let maximumStoredLocalSamples = 240
         static let localScaleToleranceRatio = 0.10
         static let localDepthToleranceMM = 35.0
         static let opticalBandHalfWidthMeters: Float = 0.09
@@ -831,8 +830,7 @@ final class TrueDepthCalibrationEstimator {
         let filteredSamples = filteredLocalSamples(from: samples)
         guard filteredSamples.count >= Constants.minimumLocalSamples else { return nil }
 
-        let storedSamples = distributedLocalSamples(from: filteredSamples)
-        return LocalFaceScaleCalibration(samples: storedSamples.sorted { first, second in
+        return LocalFaceScaleCalibration(samples: filteredSamples.sorted { first, second in
             first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
         })
     }
@@ -862,22 +860,6 @@ final class TrueDepthCalibrationEstimator {
         }
 
         return filtered.count >= Constants.minimumLocalSamples ? filtered : samples
-    }
-
-    /// Reduz o volume persistido sem perder cobertura espacial da malha util.
-    private static func distributedLocalSamples(from samples: [LocalFaceScaleSample]) -> [LocalFaceScaleSample] {
-        guard samples.count > Constants.maximumStoredLocalSamples else { return samples }
-
-        let sorted = samples.sorted { first, second in
-            first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
-        }
-        let lastIndex = max(sorted.count - 1, 1)
-
-        return (0..<Constants.maximumStoredLocalSamples).map { index in
-            let progress = Double(index) / Double(Constants.maximumStoredLocalSamples - 1)
-            let sourceIndex = Int((progress * Double(lastIndex)).rounded())
-            return sorted[sourceIndex]
-        }
     }
 
     private static func averageEyeDepth(faceAnchor: ARFaceAnchor,
