@@ -16,9 +16,28 @@ extension CameraManager {
         static let gazeDeviationThreshold: Float = 0.35
     }
 
+    private enum CaptureRetryConstants {
+        /// Numero maximo de tentativas curtas sobre frames consecutivos.
+        static let maximumAttempts = 6
+        /// Intervalo curto para esperar o proximo frame do ARKit.
+        static let retryDelay: TimeInterval = 0.08
+    }
+
+    private enum DepthAnchoredCalibrationConstants {
+        /// Faixa util de mm por pixel para o fallback ancorado no plano do PC.
+        static let allowedMMPerPixelRange: ClosedRange<Double> = 0.01...0.35
+    }
+
     private struct CaptureCalibrationBundle {
         let global: PostCaptureCalibration
         let local: LocalFaceScaleCalibration
+    }
+
+    private struct CaptureFrameContext {
+        let frame: ARFrame
+        let faceAnchor: ARFaceAnchor
+        let cgOrientation: CGImagePropertyOrientation
+        let uiOrientation: UIInterfaceOrientation
     }
 
     // MARK: - Captura de foto
@@ -31,89 +50,138 @@ extension CameraManager {
             return
         }
 
-        guard canCaptureCurrentFrame() else {
+        guard isCaptureReady else {
             let error: CameraError = captureReadinessEngine.isFrameFresh(lastFrameTimestamp) ? .sessionNotReady : .staleFrame
             failCapture(with: error, completion: completion)
             return
         }
 
         markCaptureStarted()
-        captureARPhoto(completion: completion)
+        captureARPhotoAttempt(attempt: 0, completion: completion)
     }
 
-    /// Realiza a captura diretamente da ARSession validando o frame atual.
-    private func captureARPhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+    /// Tenta capturar sobre alguns frames consecutivos para absorver oscilacoes curtas do sensor.
+    private func captureARPhotoAttempt(attempt: Int,
+                                       completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        switch makeCapturedPhoto() {
+        case .success(let photo):
+            DispatchQueue.main.async {
+                self.markCaptureCompleted()
+                completion(photo)
+            }
+        case .failure(let error):
+            retryOrFailCapture(after: error,
+                               attempt: attempt,
+                               completion: completion)
+        }
+    }
+
+    /// Monta a foto final a partir do frame atual do ARKit.
+    private func makeCapturedPhoto() -> Result<CapturedPhoto, CameraError> {
+        switch buildCaptureFrameContext() {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let context):
+            return renderCapturedPhoto(from: context)
+        }
+    }
+
+    /// Coleta um frame valido para a captura atual.
+    private func buildCaptureFrameContext() -> Result<CaptureFrameContext, CameraError> {
         guard let frame = arSession?.currentFrame else {
-            failCapture(with: .captureFailed, completion: completion)
-            return
+            return .failure(.captureFailed)
         }
 
         guard case .normal = frame.camera.trackingState else {
-            failCapture(with: .sessionNotReady, completion: completion)
-            return
+            return .failure(.sessionNotReady)
         }
 
         guard let trackedFaceAnchor = frame.anchors
             .compactMap({ $0 as? ARFaceAnchor })
             .first(where: { $0.isTracked }) else {
-            failCapture(with: .sessionNotReady, completion: completion)
-            return
+            return .failure(.sessionNotReady)
         }
 
         guard captureReadinessEngine.isFrameFresh(frame.timestamp) else {
-            failCapture(with: .staleFrame, completion: completion)
-            return
+            return .failure(.staleFrame)
         }
 
         let captureEvaluation = VerificationManager.shared.evaluationForCapture(frame)
         handleVerificationEvaluation(captureEvaluation)
         guard captureEvaluation.allChecksPassed else {
-            failCapture(with: .sessionNotReady, completion: completion)
-            return
+            return .failure(.sessionNotReady)
         }
 
-        outputDelegate?(frame)
+        return .success(CaptureFrameContext(frame: frame,
+                                            faceAnchor: trackedFaceAnchor,
+                                            cgOrientation: VerificationManager.shared.currentCGOrientation(),
+                                            uiOrientation: VerificationManager.shared.currentUIOrientation()))
+    }
 
-        let pixelBuffer = frame.capturedImage
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let cgOrientation = VerificationManager.shared.currentCGOrientation()
-        let uiOrientation = VerificationManager.shared.currentUIOrientation()
-        let orientedCIImage = ciImage.oriented(forExifOrientation: cgOrientation.exifOrientation)
+    /// Renderiza a foto e resolve a calibracao final do frame escolhido.
+    private func renderCapturedPhoto(from context: CaptureFrameContext) -> Result<CapturedPhoto, CameraError> {
+        outputDelegate?(context.frame)
+
+        let ciImage = CIImage(cvPixelBuffer: context.frame.capturedImage)
+        let orientedCIImage = ciImage.oriented(forExifOrientation: context.cgOrientation.exifOrientation)
 
         guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
                                                                  from: orientedCIImage.extent) else {
-            failCapture(with: .captureFailed, completion: completion)
-            return
+            return .failure(.captureFailed)
         }
 
         let cropRect = CGRect(x: 0,
                               y: 0,
                               width: CGFloat(cgImage.width),
                               height: CGFloat(cgImage.height))
-        guard let calibration = buildCalibration(from: frame,
-                                                 faceAnchor: trackedFaceAnchor,
+        guard let calibration = buildCalibration(from: context.frame,
+                                                 faceAnchor: context.faceAnchor,
                                                  cropRect: cropRect,
-                                                 cgOrientation: cgOrientation,
-                                                 uiOrientation: uiOrientation) else {
-            failCapture(with: .missingTrueDepthData, completion: completion)
-            return
+                                                 cgOrientation: context.cgOrientation,
+                                                 uiOrientation: context.uiOrientation) else {
+            return .failure(.missingTrueDepthData)
         }
 
         let captureCentralPoint = VerificationManager.shared
-            .trueDepthMeasurementReference(faceAnchor: trackedFaceAnchor, frame: frame)?
+            .trueDepthMeasurementReference(faceAnchor: context.faceAnchor, frame: context.frame)?
             .pcNormalizedPoint
         let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
         let photo = CapturedPhoto(image: image,
                                   calibration: calibration.global,
                                   localCalibration: calibration.local,
                                   captureCentralPoint: captureCentralPoint,
-                                  frameTimestamp: frame.timestamp,
-                                  orientation: cgOrientation,
-                                  captureWarning: makeCaptureWarning(from: trackedFaceAnchor))
+                                  frameTimestamp: context.frame.timestamp,
+                                  orientation: context.cgOrientation,
+                                  captureWarning: makeCaptureWarning(from: context.faceAnchor))
+        return .success(photo)
+    }
 
-        DispatchQueue.main.async {
-            self.markCaptureCompleted()
-            completion(photo)
+    /// Reexecuta a captura quando a falha for transitória e ainda houver tentativas disponiveis.
+    private func retryOrFailCapture(after error: CameraError,
+                                    attempt: Int,
+                                    completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        guard isRetryableCaptureError(error),
+              attempt + 1 < CaptureRetryConstants.maximumAttempts else {
+            failCapture(with: error, completion: completion)
+            return
+        }
+
+        sessionQueue.asyncAfter(deadline: .now() + CaptureRetryConstants.retryDelay) { [weak self] in
+            guard let self else { return }
+            self.captureARPhotoAttempt(attempt: attempt + 1, completion: completion)
+        }
+    }
+
+    /// Define quais falhas da captura podem ser resolvidas aguardando o frame seguinte.
+    private func isRetryableCaptureError(_ error: CameraError) -> Bool {
+        switch error {
+        case .captureFailed,
+             .missingTrueDepthData,
+             .sessionNotReady,
+             .staleFrame:
+            return true
+        default:
+            return false
         }
     }
 
@@ -169,6 +237,18 @@ extension CameraManager {
                                             local: .empty)
         }
 
+        if let depthAnchored = buildDepthAnchoredCalibration(from: frame,
+                                                             faceAnchor: faceAnchor,
+                                                             cropRect: cropRect,
+                                                             cgOrientation: cgOrientation) {
+            logCalibration(depthAnchored,
+                           cropRect: cropRect,
+                           frameTimestamp: frame.timestamp,
+                           label: "OK Calibracao ancorada no plano do PC")
+            return CaptureCalibrationBundle(global: depthAnchored,
+                                            local: .empty)
+        }
+
         logCalibrationFailure(code: 301,
                               message: "Nao foi possivel obter calibracao confiavel no frame atual.")
         return nil
@@ -191,12 +271,67 @@ extension CameraManager {
         return calibration
     }
 
+    /// Cria uma calibracao de fallback usando profundidade real do PC e intrinsics da camera.
+    private func buildDepthAnchoredCalibration(from frame: ARFrame,
+                                               faceAnchor: ARFaceAnchor,
+                                               cropRect: CGRect,
+                                               cgOrientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
+        guard let reference = VerificationManager.shared.trueDepthMeasurementReference(faceAnchor: faceAnchor,
+                                                                                       frame: frame) else {
+            return nil
+        }
+
+        let depthMeters = Double(abs(reference.pcCameraPosition.z))
+        guard depthMeters.isFinite, depthMeters > 0 else { return nil }
+
+        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
+                                         orientation: cgOrientation)
+        guard focal.fx > 0, focal.fy > 0 else { return nil }
+
+        let horizontalMMPerPixel = depthMeters * 1000.0 / focal.fx
+        let verticalMMPerPixel = depthMeters * 1000.0 / focal.fy
+        guard isValidDepthAnchoredScale(horizontalMMPerPixel),
+              isValidDepthAnchoredScale(verticalMMPerPixel) else {
+            return nil
+        }
+
+        let horizontalReference = horizontalMMPerPixel * Double(cropRect.width)
+        let verticalReference = verticalMMPerPixel * Double(cropRect.height)
+        let calibration = PostCaptureCalibration(horizontalReferenceMM: horizontalReference,
+                                                 verticalReferenceMM: verticalReference)
+        return calibration.isReliable ? calibration : nil
+    }
+
+    /// Valida a escala milimetrica derivada da profundidade do PC.
+    private func isValidDepthAnchoredScale(_ mmPerPixel: Double) -> Bool {
+        mmPerPixel.isFinite &&
+        DepthAnchoredCalibrationConstants.allowedMMPerPixelRange.contains(mmPerPixel)
+    }
+
+    /// Resolve os focais orientados no mesmo referencial da imagem final da captura.
+    private func orientedFocalLengths(from intrinsics: simd_float3x3,
+                                      orientation: CGImagePropertyOrientation) -> (fx: Double, fy: Double) {
+        let rawFX = Double(intrinsics.columns.0.x)
+        let rawFY = Double(intrinsics.columns.1.y)
+        return isRotatedCaptureOrientation(orientation) ? (rawFY, rawFX) : (rawFX, rawFY)
+    }
+
+    /// Informa se a orientacao final troca largura e altura em relacao ao sensor bruto.
+    private func isRotatedCaptureOrientation(_ orientation: CGImagePropertyOrientation) -> Bool {
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Reutiliza a ultima calibracao valida apenas quando ela ainda e recente.
     private func recentSuccessfulCalibration(referenceTimestamp: TimeInterval) -> PostCaptureCalibration? {
         guard let calibration = lastSuccessfulCalibration, calibration.isReliable else { return nil }
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return nil }
         let age = abs(referenceTimestamp - timestamp)
-        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.10
+        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.25
         guard age <= maximumAge else { return nil }
         return calibration
     }

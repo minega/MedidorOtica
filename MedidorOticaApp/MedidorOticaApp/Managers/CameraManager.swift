@@ -311,7 +311,7 @@ final class CameraManager: NSObject, ObservableObject {
     private var hasRecentSuccessfulCalibration: Bool {
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return false }
         guard lastFrameTimestamp > 0 else { return false }
-        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.10
+        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.25
         return abs(lastFrameTimestamp - timestamp) <= maximumAge
     }
 
