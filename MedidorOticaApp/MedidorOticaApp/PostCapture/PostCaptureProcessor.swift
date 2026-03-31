@@ -41,7 +41,7 @@ final class PostCaptureProcessor {
     }
 
     private enum CentralPointConsensus {
-        static let preferredPointWeightToleranceRatio: CGFloat = 0.08
+        static let preferredPointWeightToleranceRatio: CGFloat = 0.04
     }
 
     // MARK: - Processamento
@@ -112,17 +112,17 @@ final class PostCaptureProcessor {
                                               imageHeight: height,
                                               orientation: orientation)
 
-        // Localiza o dorso do nariz (noseCrest) para definir PC.
-        let nosePoint = resolvedNoseBridgePoint(landmarks: landmarks,
-                                                boundingBox: box,
-                                                imageWidth: width,
-                                                imageHeight: height,
-                                                orientation: orientation)
-
         let averagePupilY = resolvedCentralY(rightPupilPoint: rightPupilPoint,
                                              leftPupilPoint: leftPupilPoint,
                                              preferredCentralPoint: preferredCentralPoint,
                                              normalizedBounds: normalizedBounds)
+        // Localiza o dorso do nariz (noseCrest) exatamente na altura media das pupilas.
+        let nosePoint = resolvedNoseBridgePoint(landmarks: landmarks,
+                                                boundingBox: box,
+                                                imageWidth: width,
+                                                imageHeight: height,
+                                                orientation: orientation,
+                                                targetY: averagePupilY)
         let centralX = resolvedCentralX(nosePoint: nosePoint,
                                         preferredCentralPoint: preferredCentralPoint,
                                         rightPupilPoint: rightPupilPoint,
@@ -187,26 +187,31 @@ final class PostCaptureProcessor {
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
-        let consensusX = resolvedConsensusCentralX(nosePoint: nosePoint,
-                                                   rightPupilPoint: rightPupilPoint,
-                                                   leftPupilPoint: leftPupilPoint,
-                                                   normalizedBounds: normalizedBounds)
-        if let preferredX = validatedPreferredCentralX(nosePoint: nosePoint,
-                                                       preferredCentralPoint: preferredCentralPoint,
-                                                       rightPupilPoint: rightPupilPoint,
-                                                       leftPupilPoint: leftPupilPoint,
+        if let nosePoint {
+            let bridgeX = nosePoint.x
+            if let preferredX = validatedPreferredCentralX(preferredCentralPoint: preferredCentralPoint,
+                                                           normalizedBounds: normalizedBounds,
+                                                           consensusX: bridgeX) {
+                return (bridgeX + preferredX) / 2
+            }
+            return bridgeX
+        }
+
+        if let pupilMidlineX = resolvedPupilMidlineX(rightPupilPoint: rightPupilPoint,
+                                                     leftPupilPoint: leftPupilPoint) {
+            return pupilMidlineX
+        }
+
+        if let preferredX = validatedPreferredCentralX(preferredCentralPoint: preferredCentralPoint,
                                                        normalizedBounds: normalizedBounds,
-                                                       consensusX: consensusX) {
+                                                       consensusX: normalizedBounds.x + (normalizedBounds.width / 2)) {
             return preferredX
         }
 
-        return consensusX
+        return normalizedBounds.x + (normalizedBounds.width / 2)
     }
 
-    private func validatedPreferredCentralX(nosePoint: CGPoint?,
-                                            preferredCentralPoint: NormalizedPoint?,
-                                            rightPupilPoint: CGPoint?,
-                                            leftPupilPoint: CGPoint?,
+    private func validatedPreferredCentralX(preferredCentralPoint: NormalizedPoint?,
                                             normalizedBounds: NormalizedRect,
                                             consensusX: CGFloat) -> CGFloat? {
         guard let preferredCentralPoint,
@@ -223,35 +228,12 @@ final class PostCaptureProcessor {
         return preferredCentralPoint.x
     }
 
-    private func resolvedConsensusCentralX(nosePoint: CGPoint?,
-                                           rightPupilPoint: CGPoint?,
-                                           leftPupilPoint: CGPoint?,
-                                           normalizedBounds: NormalizedRect) -> CGFloat {
-        var candidates: [CGFloat] = []
-        let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
-        candidates.append(faceMidlineX)
-
+    private func resolvedPupilMidlineX(rightPupilPoint: CGPoint?,
+                                       leftPupilPoint: CGPoint?) -> CGFloat? {
         if let rightPupilPoint, let leftPupilPoint {
-            candidates.append((rightPupilPoint.x + leftPupilPoint.x) / 2)
+            return (rightPupilPoint.x + leftPupilPoint.x) / 2
         }
-
-        if let nosePoint {
-            candidates.append(nosePoint.x)
-        }
-
-        return robustMedian(of: candidates) ?? faceMidlineX
-    }
-
-    private func robustMedian(of values: [CGFloat]) -> CGFloat? {
-        let valid = values.filter { $0.isFinite }.sorted()
-        guard !valid.isEmpty else { return nil }
-        let middleIndex = valid.count / 2
-
-        if valid.count.isMultiple(of: 2) {
-            return (valid[middleIndex - 1] + valid[middleIndex]) / 2
-        }
-
-        return valid[middleIndex]
+        return nil
     }
 
     private func resolvedEyePoint(pupilRegion: VNFaceLandmarkRegion2D?,
@@ -280,7 +262,8 @@ final class PostCaptureProcessor {
                                          boundingBox: CGRect,
                                          imageWidth: Int,
                                          imageHeight: Int,
-                                         orientation: CGImagePropertyOrientation) -> CGPoint? {
+                                         orientation: CGImagePropertyOrientation,
+                                         targetY: CGFloat) -> CGPoint? {
         let crestPoints = VisionGeometryHelper.normalizedPoints(from: landmarks?.noseCrest,
                                                                 boundingBox: boundingBox,
                                                                 imageWidth: imageWidth,
@@ -289,11 +272,35 @@ final class PostCaptureProcessor {
         let ordered = crestPoints.sorted { $0.y < $1.y }
         guard !ordered.isEmpty else { return nil }
 
-        let sampleCount = min(max(ordered.count / 2, 1), 3)
-        let bridgePoints = Array(ordered.prefix(sampleCount))
-        let averageX = bridgePoints.map(\.x).reduce(0, +) / CGFloat(bridgePoints.count)
-        let averageY = bridgePoints.map(\.y).reduce(0, +) / CGFloat(bridgePoints.count)
-        return CGPoint(x: averageX, y: averageY)
+        if let interpolatedPoint = interpolatedBridgePoint(from: ordered, targetY: targetY) {
+            return interpolatedPoint
+        }
+
+        let nearest = ordered.min { abs($0.y - targetY) < abs($1.y - targetY) }
+        return nearest
+    }
+
+    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
+    private func interpolatedBridgePoint(from orderedPoints: [CGPoint],
+                                         targetY: CGFloat) -> CGPoint? {
+        guard orderedPoints.count >= 2 else { return orderedPoints.first }
+
+        for index in 0..<(orderedPoints.count - 1) {
+            let first = orderedPoints[index]
+            let second = orderedPoints[index + 1]
+            let minimumY = min(first.y, second.y)
+            let maximumY = max(first.y, second.y)
+            guard targetY >= minimumY, targetY <= maximumY else { continue }
+
+            let deltaY = second.y - first.y
+            guard abs(deltaY) > .ulpOfOne else { continue }
+
+            let progress = (targetY - first.y) / deltaY
+            let interpolatedX = first.x + ((second.x - first.x) * progress)
+            return CGPoint(x: interpolatedX, y: targetY)
+        }
+
+        return nil
     }
 
     private func mirroredPoint(_ point: CGPoint,
