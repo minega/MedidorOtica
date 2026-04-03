@@ -14,10 +14,11 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 
 ## 🆕 Novidades
 
-- Verificações simplificadas focadas apenas em rosto, distância e alinhamento.
+- Verificações simplificadas focadas em rosto, distância, centralização pelo `PC` e alinhamento.
 - Captura automática com contagem regressiva quando todas as verificações estão verdes, podendo ser desativada pelo botão de timer.
-- Requisitos mínimos atualizados para Swift 5.9.
-- Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições (horizontal maior, vertical maior, ponte, DNP e altura pupilar).
+- Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições.
+- A calibração local agora usa a malha útil completa do `TrueDepth`, ponto a ponto, para compensar deformações e perspectiva.
+- O `PC` final da pós-captura combina a geometria da foto com a linha média facial e o suporte 3D do `TrueDepth`.
 
 ## 📂 Estrutura do Projeto
 
@@ -57,16 +58,16 @@ O aplicativo executa verificações em sequência para garantir medições preci
    - Suporte a TrueDepth (frontal) e LiDAR (traseira)
 
 2. **Distância**
-   - Distância ideal: 25-50 cm do sensor
-   - Ajustes em tempo real
+   - Distância ideal: 30-40 cm do sensor
+   - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
 
 3. **Centralização**
-   - Tolerância de 0.5cm
-   - Garante posicionamento correto
+   - Tolerância de ±0,35 cm
+   - A câmera precisa ficar alinhada com o `PC`
 
 4. **Alinhamento da Cabeça**
-   - Tolerância de ±3.0°
-   - Verifica inclinação e rotação com referência à câmera
+   - Tolerância de ±2,0°
+   - Verifica `pitch`, `yaw` e `roll` com referência à câmera
 
 ## 🛠️ Requisitos Técnicos
 
@@ -86,10 +87,20 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 | Verificação | Tolerância |
 |-------------|------------|
-| Distância | 25-50cm |
-| Centralização | ±0.5cm |
-| Alinhamento | ±3.0° |
-| Olhar | 0.001 |
+| Distância | 30-40cm |
+| Centralização | ±0,35cm |
+| Alinhamento | ±2,0° |
+| Estabilidade | 6 frames válidos seguidos |
+
+## 🔒 Invariantes de Precisão
+
+- Não permitir medições frontais sem `TrueDepth` ativo.
+- Não resumir a malha local válida do `TrueDepth` em poucos pontos quando a calibração da foto estiver disponível.
+- O `PC` deve usar:
+  - eixo `Y`: média da altura das pupilas
+  - eixo `X`: linha média facial corrigida pelo `TrueDepth`, usando o dorso do nariz apenas quando coerente com a simetria do rosto
+- A pós-captura deve preferir a geometria da própria foto, mas pode usar o `PC` 3D da captura como apoio quando ele concorda com a simetria facial.
+- Mudanças em calibração local, `PC` ou `DNP` exigem teste de regressão e atualização desta documentação.
 
 ## 📏 Fluxo Pós-Captura
 

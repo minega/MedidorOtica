@@ -312,6 +312,12 @@ extension CGImagePropertyOrientation {
 
 // MARK: - Helpers geometricos
 private extension VerificationManager {
+    struct ProjectedBridgeSample {
+        let camera: SIMD3<Float>
+        let projected: CGPoint
+        let localX: Float
+    }
+
     /// Escolhe um ponto da malha no dorso do nariz, na altura das pupilas.
     func bridgeMeasurementCandidate(vertices: [simd_float3],
                                     faceAnchor: ARFaceAnchor,
@@ -323,74 +329,141 @@ private extension VerificationManager {
         let midlineThreshold: Float = 0.0045
         let verticalTolerance = max(viewportSize.height * 0.08, 24)
         let horizontalTolerance = max(viewportSize.width * 0.12, 36)
-        var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
+        let midlineSamples = bridgeMeasurementSamples(vertices: vertices,
+                                                      faceAnchor: faceAnchor,
+                                                      frame: frame,
+                                                      uiOrientation: uiOrientation,
+                                                      viewportSize: viewportSize,
+                                                      worldToCamera: worldToCamera,
+                                                      midlineThreshold: midlineThreshold)
 
-        for vertex in vertices {
-            guard abs(vertex.x) <= midlineThreshold else { continue }
+        if let interpolated = interpolatedBridgeMeasurementCandidate(from: midlineSamples,
+                                                                     targetPoint: targetPoint,
+                                                                     verticalTolerance: verticalTolerance,
+                                                                     horizontalTolerance: horizontalTolerance) {
+            return interpolated
+        }
+
+        if let projectedMidline = bestBridgeMeasurementCandidate(from: midlineSamples,
+                                                                 targetPoint: targetPoint,
+                                                                 verticalTolerance: verticalTolerance,
+                                                                 horizontalTolerance: horizontalTolerance) {
+            return projectedMidline
+        }
+
+        let allSamples = bridgeMeasurementSamples(vertices: vertices,
+                                                  faceAnchor: faceAnchor,
+                                                  frame: frame,
+                                                  uiOrientation: uiOrientation,
+                                                  viewportSize: viewportSize,
+                                                  worldToCamera: worldToCamera,
+                                                  midlineThreshold: nil)
+        return allSamples.min { current, next in
+            squaredPixelDistance(from: current.projected, to: targetPoint) <
+                squaredPixelDistance(from: next.projected, to: targetPoint)
+        }.map { sample in
+            (sample.camera,
+             sample.projected,
+             squaredPixelDistance(from: sample.projected, to: targetPoint))
+        }
+    }
+
+    /// Converte os vertices uteis da malha em amostras projetadas para o eixo do PC.
+    func bridgeMeasurementSamples(vertices: [simd_float3],
+                                  faceAnchor: ARFaceAnchor,
+                                  frame: ARFrame,
+                                  uiOrientation: UIInterfaceOrientation,
+                                  viewportSize: CGSize,
+                                  worldToCamera: simd_float4x4,
+                                  midlineThreshold: Float?) -> [ProjectedBridgeSample] {
+        vertices.compactMap { vertex in
+            if let midlineThreshold, abs(vertex.x) > midlineThreshold {
+                return nil
+            }
 
             let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
             let projected = frame.camera.projectPoint(worldPoint,
                                                       orientation: uiOrientation,
                                                       viewportSize: viewportSize)
-            guard projected.x.isFinite, projected.y.isFinite else { continue }
+            guard projected.x.isFinite, projected.y.isFinite else { return nil }
 
-            let projectedPoint = CGPoint(x: CGFloat(projected.x),
-                                         y: CGFloat(projected.y))
-            let verticalDistance = abs(projectedPoint.y - targetPoint.y)
-            guard verticalDistance <= verticalTolerance else { continue }
+            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
+                                                           worldToCamera: worldToCamera)
+            guard cameraPoint.x.isFinite,
+                  cameraPoint.y.isFinite,
+                  cameraPoint.z.isFinite else {
+                return nil
+            }
 
-            let horizontalDistance = abs(projectedPoint.x - targetPoint.x)
+            return ProjectedBridgeSample(camera: cameraPoint,
+                                         projected: CGPoint(x: CGFloat(projected.x),
+                                                            y: CGFloat(projected.y)),
+                                         localX: vertex.x)
+        }
+    }
+
+    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
+    func interpolatedBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                                targetPoint: CGPoint,
+                                                verticalTolerance: CGFloat,
+                                                horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let ordered = samples.sorted { $0.projected.y < $1.projected.y }
+        guard ordered.count >= 2 else { return nil }
+
+        var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
+        for index in 0..<(ordered.count - 1) {
+            let first = ordered[index]
+            let second = ordered[index + 1]
+            let minimumY = min(first.projected.y, second.projected.y)
+            let maximumY = max(first.projected.y, second.projected.y)
+            guard targetPoint.y >= minimumY, targetPoint.y <= maximumY else { continue }
+
+            let deltaY = second.projected.y - first.projected.y
+            guard abs(deltaY) > .ulpOfOne else { continue }
+
+            let progress = (targetPoint.y - first.projected.y) / deltaY
+            let interpolatedX = first.projected.x + ((second.projected.x - first.projected.x) * progress)
+            let horizontalDistance = abs(interpolatedX - targetPoint.x)
             guard horizontalDistance <= horizontalTolerance else { continue }
 
-            let distance = (verticalDistance * verticalDistance * 5) +
-                (horizontalDistance * horizontalDistance * 0.35) +
-                (CGFloat(abs(vertex.x)) * 4000)
-            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
-                                                           worldToCamera: worldToCamera)
-            guard cameraPoint.x.isFinite,
-                  cameraPoint.y.isFinite,
-                  cameraPoint.z.isFinite else {
+            let interpolatedCamera = simd_mix(first.camera, second.camera, Float(progress))
+            let averageLocalX = (abs(first.localX) + abs(second.localX)) * 0.5
+            let distance = (horizontalDistance * horizontalDistance * 0.35) +
+                (CGFloat(averageLocalX) * 4000)
+            let candidate = (camera: interpolatedCamera,
+                             projected: CGPoint(x: interpolatedX, y: targetPoint.y),
+                             distance: distance)
+
+            if let current = bestCandidate, current.distance <= candidate.distance {
                 continue
             }
-
-            if let current = bestCandidate, current.distance <= distance {
-                continue
-            }
-
-            bestCandidate = (cameraPoint, projectedPoint, distance)
-        }
-
-        if let bestCandidate {
-            return bestCandidate
-        }
-
-        for vertex in vertices {
-            let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
-            let projected = frame.camera.projectPoint(worldPoint,
-                                                      orientation: uiOrientation,
-                                                      viewportSize: viewportSize)
-            guard projected.x.isFinite, projected.y.isFinite else { continue }
-
-            let projectedPoint = CGPoint(x: CGFloat(projected.x),
-                                         y: CGFloat(projected.y))
-            let distance = squaredPixelDistance(from: projectedPoint,
-                                                to: targetPoint)
-            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
-                                                           worldToCamera: worldToCamera)
-            guard cameraPoint.x.isFinite,
-                  cameraPoint.y.isFinite,
-                  cameraPoint.z.isFinite else {
-                continue
-            }
-
-            if let current = bestCandidate, current.distance <= distance {
-                continue
-            }
-
-            bestCandidate = (cameraPoint, projectedPoint, distance)
+            bestCandidate = candidate
         }
 
         return bestCandidate
+    }
+
+    /// Usa um vertice real da malha quando a interpolacao nao encontrar um par valido.
+    func bestBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                        targetPoint: CGPoint,
+                                        verticalTolerance: CGFloat,
+                                        horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        samples.compactMap { sample in
+            let verticalDistance = abs(sample.projected.y - targetPoint.y)
+            guard verticalDistance <= verticalTolerance else { return nil }
+
+            let horizontalDistance = abs(sample.projected.x - targetPoint.x)
+            guard horizontalDistance <= horizontalTolerance else { return nil }
+
+            let distance = (verticalDistance * verticalDistance * 5) +
+                (horizontalDistance * horizontalDistance * 0.35) +
+                (CGFloat(abs(sample.localX)) * 4000)
+            return (camera: sample.camera,
+                    projected: sample.projected,
+                    distance: distance)
+        }.min { current, next in
+            current.distance < next.distance
+        }
     }
 
     /// Converte um vetor homogeneo em coordenadas usuais da camera.

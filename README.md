@@ -9,13 +9,14 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 ## Novidades
 
 - Novo fluxo pós-captura com três etapas interativas (pupila, horizontal e vertical) para cada olho.
-- Divisão automática da imagem pelo ponto central (nariz) com detecção inicial via Vision.
+- Divisão automática da imagem pelo ponto central (PC) com análise da foto e suporte geométrico do TrueDepth.
 - Ajuste manual com barras arrastáveis para medir largura, altura, ponte, DNP e altura pupilar.
 - Tela final exibe resumo completo, permite compartilhar e salvar/editar medições no histórico.
 - Captura automática com contagem regressiva após todas as verificações básicas, com opção de desativar pelo botão "timer".
+- A calibração local usa a malha útil completa do TrueDepth, ponto a ponto, para reduzir deformações de perspectiva.
 - Todas as verificações utilizam as revisões mais recentes do Vision.
 - Correção da orientação e do recorte ao salvar a foto.
-- Instruções na câmera foram condensadas e usam pares de emojis (ator + direção) para guiar os ajustes.
+- Instruções na câmera usam pares fixos de emojis (ator + direção) para guiar os ajustes.
 
 ## Requisitos
 
@@ -32,7 +33,15 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
 - Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
-- As verificações de rosto, distância (25-50 cm), centralização e alinhamento (±3°) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+- As verificações de rosto, distância (`30-40 cm`), centralização e alinhamento (`±2°`) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+
+## Invariantes de Precisao
+
+- Nunca liberar medições frontais sem `TrueDepth` ativo.
+- Nunca resumir a malha local útil do `TrueDepth` em uma grade grosseira quando a foto final estiver sendo calibrada.
+- O `PC` do pós-captura deve usar `Y` na média das pupilas e `X` corrigido pela linha média facial com suporte do `TrueDepth`.
+- As variações de `DP/DNP` exibidas no resumo servem para auditoria do eixo `X`; diferenças grandes entre elas indicam que o `PC` precisa ser revisto.
+- Mudanças nesses pontos devem vir acompanhadas de atualização da documentação e de testes de regressão.
 
 ## Como contribuir
 

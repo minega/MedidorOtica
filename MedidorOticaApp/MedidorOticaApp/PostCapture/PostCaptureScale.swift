@@ -151,6 +151,7 @@ struct LocalFaceScaleCalibration: Codable, Equatable {
         guard !samples.isEmpty else { return fallback }
 
         let clampedPoint = point.clamped()
+        // Usa toda a malha valida para reduzir aberrações locais na escala.
         var nearestSample: LocalFaceScaleSample?
         var nearestDistance = Double.greatestFiniteMagnitude
         var weightedSum = 0.0

@@ -12,7 +12,7 @@ import simd
 /// Limites globais de distancia em centimetros.
 struct DistanceLimits {
     static let minCm: Float = 30.0
-    static let maxCm: Float = 38.0
+    static let maxCm: Float = 40.0
 }
 
 // MARK: - Distancia

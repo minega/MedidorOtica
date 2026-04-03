@@ -830,6 +830,7 @@ final class TrueDepthCalibrationEstimator {
         let filteredSamples = filteredLocalSamples(from: samples)
         guard filteredSamples.count >= Constants.minimumLocalSamples else { return nil }
 
+        // Mantem a malha valida inteira para preservar a escala ponto a ponto.
         return LocalFaceScaleCalibration(samples: filteredSamples.sorted { first, second in
             first.point.y == second.point.y ? first.point.x < second.point.x : first.point.y < second.point.y
         })

@@ -35,15 +35,6 @@ final class PostCaptureProcessor {
     static let shared = PostCaptureProcessor()
     private init() {}
 
-    private enum CentralPointTolerance {
-        static let minimumTolerance: CGFloat = 0.025
-        static let widthRatio: CGFloat = 0.12
-    }
-
-    private enum CentralPointConsensus {
-        static let preferredPointWeightToleranceRatio: CGFloat = 0.04
-    }
-
     // MARK: - Processamento
     /// Executa a análise assíncrona retornando as posições normalizadas de interesse.
     /// - Parameters:
@@ -187,45 +178,16 @@ final class PostCaptureProcessor {
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
-        if let nosePoint {
-            let bridgeX = nosePoint.x
-            if let preferredX = validatedPreferredCentralX(preferredCentralPoint: preferredCentralPoint,
-                                                           normalizedBounds: normalizedBounds,
-                                                           consensusX: bridgeX) {
-                return (bridgeX + preferredX) / 2
-            }
-            return bridgeX
-        }
-
-        if let pupilMidlineX = resolvedPupilMidlineX(rightPupilPoint: rightPupilPoint,
-                                                     leftPupilPoint: leftPupilPoint) {
-            return pupilMidlineX
-        }
-
-        if let preferredX = validatedPreferredCentralX(preferredCentralPoint: preferredCentralPoint,
-                                                       normalizedBounds: normalizedBounds,
-                                                       consensusX: normalizedBounds.x + (normalizedBounds.width / 2)) {
-            return preferredX
-        }
-
-        return normalizedBounds.x + (normalizedBounds.width / 2)
-    }
-
-    private func validatedPreferredCentralX(preferredCentralPoint: NormalizedPoint?,
-                                            normalizedBounds: NormalizedRect,
-                                            consensusX: CGFloat) -> CGFloat? {
-        guard let preferredCentralPoint,
-              (normalizedBounds.x...(normalizedBounds.x + normalizedBounds.width)).contains(preferredCentralPoint.x) else {
-            return nil
-        }
-
-        let tolerance = max(normalizedBounds.width * CentralPointConsensus.preferredPointWeightToleranceRatio,
-                            CentralPointTolerance.minimumTolerance)
-        guard abs(preferredCentralPoint.x - consensusX) <= tolerance else {
-            return nil
-        }
-
-        return preferredCentralPoint.x
+        let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
+        let candidates = PostCaptureCentralPointResolver.Candidates(
+            bridgeX: nosePoint?.x,
+            captureX: preferredCentralPoint?.x,
+            pupilMidlineX: resolvedPupilMidlineX(rightPupilPoint: rightPupilPoint,
+                                                 leftPupilPoint: leftPupilPoint),
+            faceMidlineX: faceMidlineX
+        )
+        return PostCaptureCentralPointResolver.resolveX(using: candidates,
+                                                        within: normalizedBounds)
     }
 
     private func resolvedPupilMidlineX(rightPupilPoint: CGPoint?,
