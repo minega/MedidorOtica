@@ -92,6 +92,7 @@ struct PostCaptureFarDNPResolverTests {
                             gazeCamera: CodableVector3(SIMD3<Float>(-0.10, 0.0, 0.995)),
                             projection: rightProjection),
             pcCameraPosition: CodableVector3(SIMD3<Float>(0.0, 0.0, -0.34)),
+            faceForwardCamera: CodableVector3(SIMD3<Float>(0.0, 0.0, 1.0)),
             fixationConfidence: fixationConfidence,
             fixationConfidenceReason: fixationConfidenceReason,
             strongestGazeDeviation: 0.1

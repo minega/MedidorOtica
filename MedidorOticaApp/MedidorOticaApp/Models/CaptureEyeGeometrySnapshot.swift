@@ -63,6 +63,7 @@ struct CaptureEyeGeometrySnapshot: Codable, Equatable {
     var leftEye: EyeSnapshot
     var rightEye: EyeSnapshot
     var pcCameraPosition: CodableVector3
+    var faceForwardCamera: CodableVector3?
     var fixationConfidence: Double
     var fixationConfidenceReason: String?
     var strongestGazeDeviation: Double

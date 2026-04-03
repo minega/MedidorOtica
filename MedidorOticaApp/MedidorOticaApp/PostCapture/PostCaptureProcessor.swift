@@ -156,7 +156,6 @@ final class PostCaptureProcessor {
                                             normalizedBounds: NormalizedRect,
                                             averagePupilY: CGFloat,
                                             resolvedCentralPoint: NormalizedPoint) -> PostCaptureAnalysisResult.CentralPointCandidates {
-        let bridgeX = axisPoints.bridge?.x ?? axisPoints.medianLine?.x ?? resolvedCentralPoint.x
         let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
         let pupilMidlineX: CGFloat
         if let rightPupilPoint, let leftPupilPoint {
@@ -164,12 +163,54 @@ final class PostCaptureProcessor {
         } else {
             pupilMidlineX = resolvedCentralPoint.x
         }
+        let medianLineX = axisPoints.medianLine?.x ?? faceMidlineX
+        let bridgeX = resolvedBridgeCandidateX(bridgeX: axisPoints.bridge?.x,
+                                               medianLineX: axisPoints.medianLine?.x,
+                                               pupilMidlineX: pupilMidlineX,
+                                               faceMidlineX: faceMidlineX,
+                                               normalizedBounds: normalizedBounds)
+        let opticalFaceMidlineX = resolvedOpticalFaceMidlineX(medianLineX: axisPoints.medianLine?.x,
+                                                              pupilMidlineX: pupilMidlineX,
+                                                              faceMidlineX: faceMidlineX,
+                                                              normalizedBounds: normalizedBounds)
 
         return PostCaptureAnalysisResult.CentralPointCandidates(
             bridge: NormalizedPoint(x: bridgeX, y: averagePupilY).clamped(),
-            faceMidline: NormalizedPoint(x: faceMidlineX, y: averagePupilY).clamped(),
+            faceMidline: NormalizedPoint(x: opticalFaceMidlineX, y: averagePupilY).clamped(),
             pupilMidline: NormalizedPoint(x: pupilMidlineX, y: averagePupilY).clamped()
         )
+    }
+
+    /// Resolve a ponte nasal com filtros de simetria para nao deixar nariz torto dominar o eixo.
+    private func resolvedBridgeCandidateX(bridgeX: CGFloat?,
+                                          medianLineX: CGFloat?,
+                                          pupilMidlineX: CGFloat,
+                                          faceMidlineX: CGFloat,
+                                          normalizedBounds: NormalizedRect) -> CGFloat {
+        let tolerance = max(normalizedBounds.width * 0.03, 0.01)
+        let baseline = ((pupilMidlineX * 2) + faceMidlineX) / 3
+
+        guard let bridgeX else {
+            return medianLineX ?? baseline
+        }
+
+        let supportLine = medianLineX ?? baseline
+        guard abs(bridgeX - supportLine) <= tolerance else {
+            return supportLine
+        }
+
+        let blended = (bridgeX * 0.35) + (supportLine * 0.65)
+        return min(max(blended, normalizedBounds.x), normalizedBounds.x + normalizedBounds.width)
+    }
+
+    /// Resolve o meio do rosto usando a linha mediana facial na mesma banda optica das pupilas.
+    private func resolvedOpticalFaceMidlineX(medianLineX: CGFloat?,
+                                             pupilMidlineX: CGFloat,
+                                             faceMidlineX: CGFloat,
+                                             normalizedBounds: NormalizedRect) -> CGFloat {
+        let baseline = (pupilMidlineX + faceMidlineX) * 0.5
+        let resolved = medianLineX.map { ($0 + baseline) * 0.5 } ?? baseline
+        return min(max(resolved, normalizedBounds.x), normalizedBounds.x + normalizedBounds.width)
     }
 
     private func resolvedCentralX(axisPoints: (bridge: CGPoint?, medianLine: CGPoint?),

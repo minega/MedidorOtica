@@ -179,6 +179,11 @@ struct PostCaptureFarDNPResolver {
 
     /// Resolve a direcao de longe preservando a pose media da cabeca sem convergencia de perto.
     private static func resolvedFarDirection(using eyeGeometry: CaptureEyeGeometrySnapshot) -> SIMD3<Float> {
+        if let faceForward = eyeGeometry.faceForwardCamera?.simdValue,
+           let normalizedFaceForward = normalized(faceForward) {
+            return normalizedFaceForward
+        }
+
         let leftGaze = eyeGeometry.leftEye.gazeCamera.simdValue
         let rightGaze = eyeGeometry.rightEye.gazeCamera.simdValue
         let meanGaze = normalized(leftGaze + rightGaze)

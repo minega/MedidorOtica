@@ -208,6 +208,8 @@ extension CameraManager {
 
         let leftEyeCenter = cameraTranslation(from: leftEyeCameraTransform)
         let rightEyeCenter = cameraTranslation(from: rightEyeCameraTransform)
+        let faceForward = resolvedFaceForward(from: faceInCamera,
+                                              referencePoint: reference.pcCameraPosition)
 
         guard let leftGaze = resolvedEyeGaze(from: leftEyeCameraTransform, eyeCenter: leftEyeCenter) ??
                 normalizedVector(-leftEyeCenter),
@@ -240,6 +242,7 @@ extension CameraManager {
                             gazeCamera: CodableVector3(rightGaze),
                             projection: rightProjection),
             pcCameraPosition: CodableVector3(reference.pcCameraPosition),
+            faceForwardCamera: faceForward.map(CodableVector3.init),
             fixationConfidence: fixation.confidence,
             fixationConfidenceReason: fixation.reason,
             strongestGazeDeviation: strongestDeviation
@@ -250,6 +253,23 @@ extension CameraManager {
     private func cameraTranslation(from transform: simd_float4x4) -> SIMD3<Float> {
         let translation = transform.columns.3
         return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+
+    /// Resolve o eixo frontal da face no referencial da camera, escolhendo o sinal coerente com o usuario olhando para a camera.
+    private func resolvedFaceForward(from faceCameraTransform: simd_float4x4,
+                                     referencePoint: SIMD3<Float>) -> SIMD3<Float>? {
+        let forwardAxis = SIMD3<Float>(faceCameraTransform.columns.2.x,
+                                       faceCameraTransform.columns.2.y,
+                                       faceCameraTransform.columns.2.z)
+        guard let normalizedForward = normalizedVector(forwardAxis),
+              let directionToCamera = normalizedVector(-referencePoint) else {
+            return nil
+        }
+
+        let invertedAxis = -normalizedForward
+        let directAlignment = simd_dot(normalizedForward, directionToCamera)
+        let invertedAlignment = simd_dot(invertedAxis, directionToCamera)
+        return directAlignment >= invertedAlignment ? normalizedForward : invertedAxis
     }
 
     /// Lineariza a projecao 3D -> imagem ao redor do centro do olho para reaproveitar a mesma captura no pos-processamento.
