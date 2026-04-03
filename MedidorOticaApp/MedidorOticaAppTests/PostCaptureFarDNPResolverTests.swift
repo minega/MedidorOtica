@@ -2,7 +2,7 @@
 //  PostCaptureFarDNPResolverTests.swift
 //  MedidorOticaAppTests
 //
-//  Protege a conversao geometrica de DNP perto para DNP longe.
+//  Protege a reprojecao geometrica de DNP perto para DNP longe.
 //
 
 import Testing
@@ -11,68 +11,87 @@ import simd
 
 struct PostCaptureFarDNPResolverTests {
     @Test func fallsBackToNearValuesWhenEyeGeometryIsMissing() async throws {
-        let result = PostCaptureFarDNPResolver.resolve(rightDNPNear: 31.4,
-                                                       leftDNPNear: 30.9,
+        let scale = PostCaptureScale(calibration: .init(horizontalReferenceMM: 100,
+                                                        verticalReferenceMM: 80))
+        let result = PostCaptureFarDNPResolver.resolve(rightPupilNear: NormalizedPoint(x: 0.65, y: 0.50),
+                                                       leftPupilNear: NormalizedPoint(x: 0.35, y: 0.50),
+                                                       centralPoint: NormalizedPoint(x: 0.50, y: 0.50),
+                                                       scale: scale,
                                                        eyeGeometry: nil)
 
-        #expect(result.rightDNPFar == 31.4)
-        #expect(result.leftDNPFar == 30.9)
+        #expect(result.rightDNPFar == 15.0)
+        #expect(result.leftDNPFar == 15.0)
         #expect(result.confidence == 0)
         #expect(result.confidenceReason != nil)
     }
 
-    @Test func deconvergenceIncreasesTotalDNPUsingSameCaptureGeometry() async throws {
-        let snapshot = makeSnapshot(leftEyeCenter: SIMD3<Float>(-0.031, 0.0, -0.30),
-                                    rightEyeCenter: SIMD3<Float>(0.031, 0.0, -0.30),
-                                    leftGaze: SIMD3<Float>(0.08, 0.0, -1.0),
-                                    rightGaze: SIMD3<Float>(-0.08, 0.0, -1.0),
-                                    pcCameraPosition: SIMD3<Float>(0.0, 0.0, -0.36),
+    @Test func deconvergenceProducesMeaningfulFarOffset() async throws {
+        let scale = PostCaptureScale(calibration: .init(horizontalReferenceMM: 100,
+                                                        verticalReferenceMM: 80))
+        let snapshot = makeSnapshot(leftProjectedCenter: NormalizedPoint(x: 0.34, y: 0.50),
+                                    rightProjectedCenter: NormalizedPoint(x: 0.66, y: 0.50),
+                                    xScalePerMeter: 8.0,
                                     fixationConfidence: 0.92,
                                     fixationConfidenceReason: nil)
 
-        let result = PostCaptureFarDNPResolver.resolve(rightDNPNear: 31.2,
-                                                       leftDNPNear: 30.8,
+        let result = PostCaptureFarDNPResolver.resolve(rightPupilNear: NormalizedPoint(x: 0.65, y: 0.50),
+                                                       leftPupilNear: NormalizedPoint(x: 0.35, y: 0.50),
+                                                       centralPoint: NormalizedPoint(x: 0.50, y: 0.50),
+                                                       scale: scale,
                                                        eyeGeometry: snapshot)
 
-        #expect(result.rightDNPFar >= 31.2)
-        #expect(result.leftDNPFar >= 30.8)
-        #expect((result.rightDNPFar + result.leftDNPFar) > 62.0)
+        #expect(result.rightDNPFar > 15.5)
+        #expect(result.leftDNPFar > 15.5)
+        #expect((result.rightDNPFar + result.leftDNPFar) > 31.5)
         #expect(result.confidence == 0.92)
         #expect(result.confidenceReason == nil)
     }
 
-    @Test func preservesFarMeasurementButFlagsLowConfidenceFixation() async throws {
-        let snapshot = makeSnapshot(leftEyeCenter: SIMD3<Float>(-0.03, 0.0, -0.30),
-                                    rightEyeCenter: SIMD3<Float>(0.03, 0.0, -0.30),
-                                    leftGaze: SIMD3<Float>(0.06, 0.0, -1.0),
-                                    rightGaze: SIMD3<Float>(-0.06, 0.0, -1.0),
-                                    pcCameraPosition: SIMD3<Float>(0.0, 0.0, -0.35),
+    @Test func keepsFarMeasurementVisibleWithLowConfidenceFixation() async throws {
+        let scale = PostCaptureScale(calibration: .init(horizontalReferenceMM: 100,
+                                                        verticalReferenceMM: 80))
+        let snapshot = makeSnapshot(leftProjectedCenter: NormalizedPoint(x: 0.34, y: 0.50),
+                                    rightProjectedCenter: NormalizedPoint(x: 0.66, y: 0.50),
+                                    xScalePerMeter: 8.0,
                                     fixationConfidence: 0.40,
                                     fixationConfidenceReason: "Fixacao oscilou.")
 
-        let result = PostCaptureFarDNPResolver.resolve(rightDNPNear: 31.0,
-                                                       leftDNPNear: 31.0,
+        let result = PostCaptureFarDNPResolver.resolve(rightPupilNear: NormalizedPoint(x: 0.65, y: 0.50),
+                                                       leftPupilNear: NormalizedPoint(x: 0.35, y: 0.50),
+                                                       centralPoint: NormalizedPoint(x: 0.50, y: 0.50),
+                                                       scale: scale,
                                                        eyeGeometry: snapshot)
 
-        #expect(result.rightDNPFar > 31.0)
-        #expect(result.leftDNPFar > 31.0)
+        #expect(result.rightDNPFar > 15.0)
+        #expect(result.leftDNPFar > 15.0)
         #expect(result.confidence == 0.40)
         #expect(result.confidenceReason == "Fixacao oscilou.")
     }
 
-    private func makeSnapshot(leftEyeCenter: SIMD3<Float>,
-                              rightEyeCenter: SIMD3<Float>,
-                              leftGaze: SIMD3<Float>,
-                              rightGaze: SIMD3<Float>,
-                              pcCameraPosition: SIMD3<Float>,
+    private func makeSnapshot(leftProjectedCenter: NormalizedPoint,
+                              rightProjectedCenter: NormalizedPoint,
+                              xScalePerMeter: Float,
                               fixationConfidence: Double,
                               fixationConfidenceReason: String?) -> CaptureEyeGeometrySnapshot {
-        CaptureEyeGeometrySnapshot(
-            leftEye: .init(centerCamera: CodableVector3(leftEyeCenter),
-                           gazeCamera: CodableVector3(leftGaze)),
-            rightEye: .init(centerCamera: CodableVector3(rightEyeCenter),
-                            gazeCamera: CodableVector3(rightGaze)),
-            pcCameraPosition: CodableVector3(pcCameraPosition),
+        let leftProjection = CaptureEyeGeometrySnapshot.LinearizedProjection(
+            projectedCenter: leftProjectedCenter,
+            normalizedXPerMeter: CodableVector3(SIMD3<Float>(xScalePerMeter, 0, 0)),
+            normalizedYPerMeter: CodableVector3(SIMD3<Float>(0, 1.5, 0))
+        )
+        let rightProjection = CaptureEyeGeometrySnapshot.LinearizedProjection(
+            projectedCenter: rightProjectedCenter,
+            normalizedXPerMeter: CodableVector3(SIMD3<Float>(xScalePerMeter, 0, 0)),
+            normalizedYPerMeter: CodableVector3(SIMD3<Float>(0, 1.5, 0))
+        )
+
+        return CaptureEyeGeometrySnapshot(
+            leftEye: .init(centerCamera: CodableVector3(SIMD3<Float>(-0.031, 0.0, -0.30)),
+                           gazeCamera: CodableVector3(SIMD3<Float>(0.10, 0.0, 0.995)),
+                           projection: leftProjection),
+            rightEye: .init(centerCamera: CodableVector3(SIMD3<Float>(0.031, 0.0, -0.30)),
+                            gazeCamera: CodableVector3(SIMD3<Float>(-0.10, 0.0, 0.995)),
+                            projection: rightProjection),
+            pcCameraPosition: CodableVector3(SIMD3<Float>(0.0, 0.0, -0.34)),
             fixationConfidence: fixationConfidence,
             fixationConfidenceReason: fixationConfidenceReason,
             strongestGazeDeviation: 0.1

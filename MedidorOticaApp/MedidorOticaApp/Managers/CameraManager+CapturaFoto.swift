@@ -176,7 +176,9 @@ extension CameraManager {
             .trueDepthMeasurementReference(faceAnchor: context.faceAnchor, frame: context.frame)?
             .pcNormalizedPoint
         let eyeGeometrySnapshot = buildEyeGeometrySnapshot(from: context.faceAnchor,
-                                                           frame: context.frame)
+                                                           frame: context.frame,
+                                                           cgOrientation: context.cgOrientation,
+                                                           uiOrientation: context.uiOrientation)
         let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
         let photo = CapturedPhoto(image: image,
                                   calibration: calibration.global,
@@ -191,7 +193,9 @@ extension CameraManager {
 
     /// Persiste a geometria 3D dos olhos no frame final para calcular DNP longe sem tabela fixa.
     private func buildEyeGeometrySnapshot(from faceAnchor: ARFaceAnchor,
-                                          frame: ARFrame) -> CaptureEyeGeometrySnapshot? {
+                                          frame: ARFrame,
+                                          cgOrientation: CGImagePropertyOrientation,
+                                          uiOrientation: UIInterfaceOrientation) -> CaptureEyeGeometrySnapshot? {
         guard let reference = VerificationManager.shared.trueDepthMeasurementReference(faceAnchor: faceAnchor,
                                                                                        frame: frame) else {
             return nil
@@ -212,6 +216,15 @@ extension CameraManager {
             return nil
         }
 
+        let leftProjection = buildLinearizedProjection(eyeCenter: leftEyeCenter,
+                                                       frame: frame,
+                                                       cgOrientation: cgOrientation,
+                                                       uiOrientation: uiOrientation)
+        let rightProjection = buildLinearizedProjection(eyeCenter: rightEyeCenter,
+                                                        frame: frame,
+                                                        cgOrientation: cgOrientation,
+                                                        uiOrientation: uiOrientation)
+
         let strongestDeviation = Double(strongestGazeDeviation(in: faceAnchor.blendShapes))
         let fixation = makeFixationAssessment(leftEyeCenter: leftEyeCenter,
                                               rightEyeCenter: rightEyeCenter,
@@ -221,9 +234,11 @@ extension CameraManager {
 
         return CaptureEyeGeometrySnapshot(
             leftEye: .init(centerCamera: CodableVector3(leftEyeCenter),
-                           gazeCamera: CodableVector3(leftGaze)),
+                           gazeCamera: CodableVector3(leftGaze),
+                           projection: leftProjection),
             rightEye: .init(centerCamera: CodableVector3(rightEyeCenter),
-                            gazeCamera: CodableVector3(rightGaze)),
+                            gazeCamera: CodableVector3(rightGaze),
+                            projection: rightProjection),
             pcCameraPosition: CodableVector3(reference.pcCameraPosition),
             fixationConfidence: fixation.confidence,
             fixationConfidenceReason: fixation.reason,
@@ -235,6 +250,94 @@ extension CameraManager {
     private func cameraTranslation(from transform: simd_float4x4) -> SIMD3<Float> {
         let translation = transform.columns.3
         return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+
+    /// Lineariza a projecao 3D -> imagem ao redor do centro do olho para reaproveitar a mesma captura no pos-processamento.
+    private func buildLinearizedProjection(eyeCenter: SIMD3<Float>,
+                                           frame: ARFrame,
+                                           cgOrientation: CGImagePropertyOrientation,
+                                           uiOrientation: UIInterfaceOrientation) -> CaptureEyeGeometrySnapshot.LinearizedProjection? {
+        let viewportSize = orientedCaptureViewportSize(for: frame.camera.imageResolution,
+                                                       orientation: cgOrientation)
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+
+        let epsilon: Float = 0.005
+        let projectedCenter = projectedNormalizedPoint(for: eyeCenter,
+                                                       frame: frame,
+                                                       uiOrientation: uiOrientation,
+                                                       viewportSize: viewportSize)
+        let projectedX = projectedNormalizedPoint(for: eyeCenter + SIMD3<Float>(epsilon, 0, 0),
+                                                  frame: frame,
+                                                  uiOrientation: uiOrientation,
+                                                  viewportSize: viewportSize)
+        let projectedY = projectedNormalizedPoint(for: eyeCenter + SIMD3<Float>(0, epsilon, 0),
+                                                  frame: frame,
+                                                  uiOrientation: uiOrientation,
+                                                  viewportSize: viewportSize)
+        let projectedZ = projectedNormalizedPoint(for: eyeCenter + SIMD3<Float>(0, 0, epsilon),
+                                                  frame: frame,
+                                                  uiOrientation: uiOrientation,
+                                                  viewportSize: viewportSize)
+
+        guard let projectedCenter,
+              let projectedX,
+              let projectedY,
+              let projectedZ else {
+            return nil
+        }
+
+        let inverseEpsilon = 1.0 / Double(epsilon)
+        let normalizedXPerMeter = SIMD3<Float>(
+            Float(Double(projectedX.x - projectedCenter.x) * inverseEpsilon),
+            Float(Double(projectedY.x - projectedCenter.x) * inverseEpsilon),
+            Float(Double(projectedZ.x - projectedCenter.x) * inverseEpsilon)
+        )
+        let normalizedYPerMeter = SIMD3<Float>(
+            Float(Double(projectedX.y - projectedCenter.y) * inverseEpsilon),
+            Float(Double(projectedY.y - projectedCenter.y) * inverseEpsilon),
+            Float(Double(projectedZ.y - projectedCenter.y) * inverseEpsilon)
+        )
+
+        return CaptureEyeGeometrySnapshot.LinearizedProjection(
+            projectedCenter: projectedCenter,
+            normalizedXPerMeter: CodableVector3(normalizedXPerMeter),
+            normalizedYPerMeter: CodableVector3(normalizedYPerMeter)
+        )
+    }
+
+    /// Projeta um ponto no espaco da camera para a imagem final orientada da captura.
+    private func projectedNormalizedPoint(for cameraPoint: SIMD3<Float>,
+                                          frame: ARFrame,
+                                          uiOrientation: UIInterfaceOrientation,
+                                          viewportSize: CGSize) -> NormalizedPoint? {
+        let worldPoint4 = simd_mul(frame.camera.transform,
+                                   SIMD4<Float>(cameraPoint.x, cameraPoint.y, cameraPoint.z, 1))
+        guard abs(worldPoint4.w) > .ulpOfOne else { return nil }
+        let worldPoint = simd_float3(worldPoint4.x / worldPoint4.w,
+                                     worldPoint4.y / worldPoint4.w,
+                                     worldPoint4.z / worldPoint4.w)
+        let projected = frame.camera.projectPoint(worldPoint,
+                                                  orientation: uiOrientation,
+                                                  viewportSize: viewportSize)
+        guard projected.x.isFinite,
+              projected.y.isFinite else {
+            return nil
+        }
+
+        return NormalizedPoint.fromAbsolute(CGPoint(x: CGFloat(projected.x),
+                                                    y: CGFloat(projected.y)),
+                                            size: viewportSize).clamped()
+    }
+
+    /// Resolve o tamanho efetivo da imagem orientada entregue ao pos-captura.
+    private func orientedCaptureViewportSize(for resolution: CGSize,
+                                             orientation: CGImagePropertyOrientation) -> CGSize {
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return CGSize(width: resolution.height, height: resolution.width)
+        default:
+            return resolution
+        }
     }
 
     /// Reexecuta a captura quando a falha for transitória e ainda houver tentativas disponíveis.

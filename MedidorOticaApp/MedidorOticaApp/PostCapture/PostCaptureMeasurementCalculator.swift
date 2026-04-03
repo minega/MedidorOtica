@@ -99,8 +99,10 @@ struct PostCaptureMeasurementCalculator {
                                                 verticalMaior: leftVertical,
                                                 dnp: leftDNP,
                                                 alturaPupilar: leftAltura)
-        let farDNP = PostCaptureFarDNPResolver.resolve(rightDNPNear: rightDNP,
-                                                       leftDNPNear: leftDNP,
+        let farDNP = PostCaptureFarDNPResolver.resolve(rightPupilNear: normalizedRight.pupil,
+                                                       leftPupilNear: normalizedLeft.pupil,
+                                                       centralPoint: centralPoint,
+                                                       scale: scale,
                                                        eyeGeometry: eyeGeometrySnapshot)
 
         let metrics = PostCaptureMetrics(rightEye: rightSummary,

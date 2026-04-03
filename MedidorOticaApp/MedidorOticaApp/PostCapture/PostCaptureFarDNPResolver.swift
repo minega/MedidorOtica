@@ -2,7 +2,7 @@
 //  PostCaptureFarDNPResolver.swift
 //  MedidorOticaApp
 //
-//  Converte DNP perto em DNP longe usando a geometria ocular real da mesma captura.
+//  Reprojeta a pupila no proprio frame capturado para calcular DNP perto e longe.
 //
 
 import Foundation
@@ -18,160 +18,239 @@ struct PostCaptureFarDNPResult: Equatable {
 }
 
 // MARK: - Resolver da DNP longe
-/// Recalcula a DNP de longe removendo apenas a componente convergente da captura.
+/// Recalcula a DNP de longe reprojetando a pupila no mesmo frame da captura.
 struct PostCaptureFarDNPResolver {
-    private enum Constants {
-        /// Evita divisao por zero ao interceptar o plano do PC.
-        static let minimumPlaneDirectionZ: Float = 0.02
-        /// Mantem a conversao dentro de um intervalo optico plausivel por olho.
-        static let minimumDNP: Double = 10
-        static let maximumDNP: Double = 45
-        /// Peso minimo para nao perder completamente um lado em situacoes assimetricas.
-        static let minimumWeight = 0.2
-        /// Garante um deslocamento minimo detectavel quando o frame estiver muito plano.
-        static let minimumFarDeltaMM: Double = 0.15
+    private struct ReprojectedEyeState {
+        let pupilDepthMeters: Float
+        let nearProjectedPupil: NormalizedPoint
+        let farProjectedPupil: NormalizedPoint
     }
 
-    /// Resolve a DNP de longe usando a mesma captura e sem tabela fixa.
-    static func resolve(rightDNPNear: Double,
-                        leftDNPNear: Double,
+    private enum Constants {
+        /// Profundidade otica plausivel entre o centro do olho e o centro aparente da pupila.
+        static let minimumPupilDepthMeters: Float = 0.006
+        static let maximumPupilDepthMeters: Float = 0.018
+        static let defaultPupilDepthMeters: Float = 0.0115
+        /// Evita divisao por zero quando a projecao local fica muito plana.
+        static let minimumProjectionMagnitude: Double = 1e-6
+        /// Mantem a DNP dentro da faixa clinica esperada.
+        static let minimumDNP: Double = 10
+        static let maximumDNP: Double = 45
+        /// Garante uma abertura minima entre perto e longe para nao colapsar as medidas.
+        static let minimumTotalFarDeltaMM: Double = 0.8
+    }
+
+    /// Resolve a DNP de longe a partir dos pontos reais da mesma foto.
+    static func resolve(rightPupilNear: NormalizedPoint,
+                        leftPupilNear: NormalizedPoint,
+                        centralPoint: NormalizedPoint,
+                        scale: PostCaptureScale,
                         eyeGeometry: CaptureEyeGeometrySnapshot?) -> PostCaptureFarDNPResult {
+        let near = nearDNP(rightPupil: rightPupilNear,
+                           leftPupil: leftPupilNear,
+                           centralPoint: centralPoint,
+                           scale: scale)
+
         guard let eyeGeometry else {
-            return PostCaptureFarDNPResult(rightDNPFar: rightDNPNear,
-                                           leftDNPFar: leftDNPNear,
+            return PostCaptureFarDNPResult(rightDNPFar: near.right,
+                                           leftDNPFar: near.left,
                                            confidence: 0,
                                            confidenceReason: "Geometria ocular 3D indisponivel nesta captura.")
         }
 
-        guard let nearGeometry = nearGeometricDNP(using: eyeGeometry),
-              let farGeometry = farGeometricDNP(using: eyeGeometry) else {
-            return PostCaptureFarDNPResult(rightDNPFar: rightDNPNear,
-                                           leftDNPFar: leftDNPNear,
+        let farDirection = resolvedFarDirection(using: eyeGeometry)
+        let rightState = reprojectedEyeState(eye: eyeGeometry.rightEye,
+                                             observedPupil: rightPupilNear,
+                                             fallbackDepth: nil,
+                                             farDirection: farDirection)
+        let leftState = reprojectedEyeState(eye: eyeGeometry.leftEye,
+                                            observedPupil: leftPupilNear,
+                                            fallbackDepth: rightState?.pupilDepthMeters,
+                                            farDirection: farDirection)
+        let stabilizedRightState = stabilizedState(primary: rightState,
+                                                   fallbackDepth: leftState?.pupilDepthMeters,
+                                                   eye: eyeGeometry.rightEye,
+                                                   observedPupil: rightPupilNear,
+                                                   farDirection: farDirection)
+        let stabilizedLeftState = stabilizedState(primary: leftState,
+                                                  fallbackDepth: rightState?.pupilDepthMeters,
+                                                  eye: eyeGeometry.leftEye,
+                                                  observedPupil: leftPupilNear,
+                                                  farDirection: farDirection)
+
+        guard let rightState = stabilizedRightState,
+              let leftState = stabilizedLeftState else {
+            return PostCaptureFarDNPResult(rightDNPFar: near.right,
+                                           leftDNPFar: near.left,
                                            confidence: eyeGeometry.fixationConfidence,
-                                           confidenceReason: "Nao foi possivel reconstruir a vergencia com confianca.")
+                                           confidenceReason: "Nao foi possivel reprojetar a pupila com confianca.")
         }
 
-        let rawRightDelta = farGeometry.right - nearGeometry.right
-        let rawLeftDelta = farGeometry.left - nearGeometry.left
-        let rawTotalDelta = rawRightDelta + rawLeftDelta
-        let fallbackTotalDelta = fallbackGeometricDelta(using: eyeGeometry)
-        let appliedTotalDelta = max(rawTotalDelta, fallbackTotalDelta, Constants.minimumFarDeltaMM)
-        let rightWeight = normalizedWeight(primary: rawRightDelta,
-                                           secondary: rawLeftDelta)
-        let leftWeight = 1 - rightWeight
-
-        let correctedRight = clampedDNP(rightDNPNear + (appliedTotalDelta * rightWeight))
-        let correctedLeft = clampedDNP(leftDNPNear + (appliedTotalDelta * leftWeight))
-
+        let rawFar = nearDNP(rightPupil: rightState.farProjectedPupil,
+                             leftPupil: leftState.farProjectedPupil,
+                             centralPoint: centralPoint,
+                             scale: scale)
+        let correctedFar = enforceMinimumFarDelta(near: near,
+                                                  far: rawFar,
+                                                  rightNearPoint: rightPupilNear,
+                                                  leftNearPoint: leftPupilNear,
+                                                  centralPoint: centralPoint,
+                                                  scale: scale)
         let confidenceReason = eyeGeometry.isFixationReliable ? nil :
             (eyeGeometry.fixationConfidenceReason ?? "Fixacao na camera com confianca reduzida.")
 
-        return PostCaptureFarDNPResult(rightDNPFar: correctedRight,
-                                       leftDNPFar: correctedLeft,
+        return PostCaptureFarDNPResult(rightDNPFar: correctedFar.right,
+                                       leftDNPFar: correctedFar.left,
                                        confidence: eyeGeometry.fixationConfidence,
                                        confidenceReason: confidenceReason)
     }
 
-    // MARK: - Conversao geometrica
-    /// Mede a DNP geometrica de perto assumindo fixacao no ponto da camera.
-    private static func nearGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
-        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
-        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
+    // MARK: - Reprojecao da pupila
+    /// Reconstrui a profundidade da pupila observada e reprojeta o mesmo olho para longe.
+    private static func reprojectedEyeState(eye: CaptureEyeGeometrySnapshot.EyeSnapshot,
+                                            observedPupil: NormalizedPoint,
+                                            fallbackDepth: Float?,
+                                            farDirection: SIMD3<Float>) -> ReprojectedEyeState? {
+        guard let projection = eye.projection else { return nil }
+        let gaze = eye.gazeCamera.simdValue
+        guard let normalizedGaze = normalized(gaze) else { return nil }
 
-        return geometricDNP(using: eyeGeometry,
-                            leftDirection: -leftEyeCenter,
-                            rightDirection: -rightEyeCenter)
+        let pupilDepth = resolvedPupilDepthMeters(projection: projection,
+                                                  observedPupil: observedPupil,
+                                                  gaze: normalizedGaze,
+                                                  fallbackDepth: fallbackDepth)
+        let nearDelta = normalizedGaze * pupilDepth
+        let farDelta = farDirection * pupilDepth
+
+        return ReprojectedEyeState(pupilDepthMeters: pupilDepth,
+                                   nearProjectedPupil: projection.projectedPoint(for: nearDelta),
+                                   farProjectedPupil: projection.projectedPoint(for: farDelta))
     }
 
-    /// Mede a DNP geometrica em condicao de longe removendo a convergencia e mantendo os eixos paralelos.
-    private static func farGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
-        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
-        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
-        let eyeMidpoint = (leftEyeCenter + rightEyeCenter) * 0.5
+    /// Garante um estado valido mesmo quando um dos olhos falhar na solucao principal.
+    private static func stabilizedState(primary: ReprojectedEyeState?,
+                                        fallbackDepth: Float?,
+                                        eye: CaptureEyeGeometrySnapshot.EyeSnapshot,
+                                        observedPupil: NormalizedPoint,
+                                        farDirection: SIMD3<Float>) -> ReprojectedEyeState? {
+        if let primary {
+            return primary
+        }
 
-        guard let parallelDirection = normalized(-eyeMidpoint) else { return nil }
-
-        return geometricDNP(using: eyeGeometry,
-                            leftDirection: parallelDirection,
-                            rightDirection: parallelDirection)
-    }
-
-    /// Mede as DNPs geometricas no plano do PC usando os vetores indicados.
-    private static func geometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot,
-                                     leftDirection: SIMD3<Float>,
-                                     rightDirection: SIMD3<Float>) -> (right: Double, left: Double)? {
-        let planePoint = eyeGeometry.pcCameraPosition.simdValue
-        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
-        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
-
-        guard let leftIntersection = intersectionWithPCPlane(from: leftEyeCenter,
-                                                             direction: leftDirection,
-                                                             planePoint: planePoint),
-              let rightIntersection = intersectionWithPCPlane(from: rightEyeCenter,
-                                                              direction: rightDirection,
-                                                              planePoint: planePoint) else {
+        guard let projection = eye.projection,
+              let normalizedGaze = normalized(eye.gazeCamera.simdValue) else {
             return nil
         }
 
-        let rightDNP = abs(Double(rightIntersection.x - planePoint.x)) * 1000.0
-        let leftDNP = abs(Double(leftIntersection.x - planePoint.x)) * 1000.0
-
-        guard rightDNP.isFinite, leftDNP.isFinite else { return nil }
-        return (right: rightDNP, left: leftDNP)
+        let depth = clampedPupilDepth(fallbackDepth ?? Constants.defaultPupilDepthMeters)
+        let nearDelta = normalizedGaze * depth
+        let farDelta = farDirection * depth
+        return ReprojectedEyeState(pupilDepthMeters: depth,
+                                   nearProjectedPupil: observedPupil.clamped(),
+                                   farProjectedPupil: projection.projectedPoint(for: farDelta))
     }
 
-    /// Intercepta a linha visual com o plano do PC, que e paralelo ao plano da imagem.
-    private static func intersectionWithPCPlane(from eyeCenter: SIMD3<Float>,
-                                                direction: SIMD3<Float>,
-                                                planePoint: SIMD3<Float>) -> SIMD3<Float>? {
-        guard let normalizedDirection = normalized(direction),
-              abs(normalizedDirection.z) >= Constants.minimumPlaneDirectionZ else {
-            return nil
+    /// Resolve a profundidade aparente da pupila a partir da propria imagem observada.
+    private static func resolvedPupilDepthMeters(projection: CaptureEyeGeometrySnapshot.LinearizedProjection,
+                                                 observedPupil: NormalizedPoint,
+                                                 gaze: SIMD3<Float>,
+                                                 fallbackDepth: Float?) -> Float {
+        let clampedObserved = observedPupil.clamped()
+        let projectedCenter = projection.projectedCenter
+        let observedDelta = SIMD2<Double>(Double(clampedObserved.x - projectedCenter.x),
+                                          Double(clampedObserved.y - projectedCenter.y))
+        let projectedGazeDelta = SIMD2<Double>(
+            Double(simd_dot(projection.normalizedXPerMeter.simdValue, gaze)),
+            Double(simd_dot(projection.normalizedYPerMeter.simdValue, gaze))
+        )
+
+        let denominator = simd_dot(projectedGazeDelta, projectedGazeDelta)
+        guard denominator.isFinite, denominator >= Constants.minimumProjectionMagnitude else {
+            return clampedPupilDepth(fallbackDepth ?? Constants.defaultPupilDepthMeters)
         }
 
-        let t = (planePoint.z - eyeCenter.z) / normalizedDirection.z
-        guard t.isFinite, t >= 0 else { return nil }
-        return eyeCenter + (normalizedDirection * t)
+        let solvedDepth = Float(simd_dot(observedDelta, projectedGazeDelta) / denominator)
+        guard solvedDepth.isFinite else {
+            return clampedPupilDepth(fallbackDepth ?? Constants.defaultPupilDepthMeters)
+        }
+
+        return clampedPupilDepth(solvedDepth)
+    }
+
+    /// Resolve a direcao de longe preservando a pose media da cabeca sem convergencia de perto.
+    private static func resolvedFarDirection(using eyeGeometry: CaptureEyeGeometrySnapshot) -> SIMD3<Float> {
+        let leftGaze = eyeGeometry.leftEye.gazeCamera.simdValue
+        let rightGaze = eyeGeometry.rightEye.gazeCamera.simdValue
+        let meanGaze = normalized(leftGaze + rightGaze)
+
+        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
+        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
+        let midpointDirection = normalized(-((leftEyeCenter + rightEyeCenter) * 0.5))
+
+        if let meanGaze, let midpointDirection {
+            return normalized(meanGaze + midpointDirection) ?? midpointDirection
+        }
+
+        return meanGaze ?? midpointDirection ?? SIMD3<Float>(0, 0, 1)
+    }
+
+    // MARK: - Medicao
+    /// Mede as DNPs monoculares no plano optico atual.
+    private static func nearDNP(rightPupil: NormalizedPoint,
+                                leftPupil: NormalizedPoint,
+                                centralPoint: NormalizedPoint,
+                                scale: PostCaptureScale) -> (right: Double, left: Double) {
+        let rightMidY = midpoint(rightPupil.y, centralPoint.y)
+        let leftMidY = midpoint(leftPupil.y, centralPoint.y)
+        let right = clampedDNP(scale.horizontalMillimeters(between: rightPupil.x,
+                                                           and: centralPoint.x,
+                                                           at: rightMidY))
+        let left = clampedDNP(scale.horizontalMillimeters(between: leftPupil.x,
+                                                          and: centralPoint.x,
+                                                          at: leftMidY))
+        return (right, left)
+    }
+
+    /// Evita que a DNP longe colapse novamente para o mesmo valor da DNP perto.
+    private static func enforceMinimumFarDelta(near: (right: Double, left: Double),
+                                               far: (right: Double, left: Double),
+                                               rightNearPoint: NormalizedPoint,
+                                               leftNearPoint: NormalizedPoint,
+                                               centralPoint: NormalizedPoint,
+                                               scale: PostCaptureScale) -> (right: Double, left: Double) {
+        let currentTotalDelta = max((far.right + far.left) - (near.right + near.left), 0)
+        guard currentTotalDelta < Constants.minimumTotalFarDeltaMM else {
+            return (clampedDNP(far.right), clampedDNP(far.left))
+        }
+
+        let missingDelta = Constants.minimumTotalFarDeltaMM - currentTotalDelta
+        let rightDistance = abs(rightNearPoint.x - centralPoint.x)
+        let leftDistance = abs(leftNearPoint.x - centralPoint.x)
+        let totalDistance = max(rightDistance + leftDistance, .ulpOfOne)
+        let rightWeight = Double(rightDistance / totalDistance)
+        let leftWeight = 1 - rightWeight
+
+        let correctedRight = clampedDNP(far.right + (missingDelta * rightWeight))
+        let correctedLeft = clampedDNP(far.left + (missingDelta * leftWeight))
+        return (correctedRight, correctedLeft)
     }
 
     // MARK: - Helpers
-    /// Estima um delta total usando apenas a profundidade real do PC e a posicao dos olhos.
-    private static func fallbackGeometricDelta(using eyeGeometry: CaptureEyeGeometrySnapshot) -> Double {
-        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
-        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
-        let planePoint = eyeGeometry.pcCameraPosition.simdValue
-        let meanEyeCenter = (leftEyeCenter + rightEyeCenter) * 0.5
-
-        let fixationDistance = max(Double(simd_length(meanEyeCenter)) * 1000.0, 1)
-        let planeAdvance = abs(Double(planePoint.z - meanEyeCenter.z)) * 1000.0
-        let interpupillaryDistance = abs(Double(rightEyeCenter.x - leftEyeCenter.x)) * 1000.0
-        let estimated = interpupillaryDistance * (planeAdvance / fixationDistance)
-        guard estimated.isFinite else { return 0 }
-        return max(estimated, 0)
-    }
-
-    /// Normaliza um vetor retornando `nil` quando a magnitude for invalida.
     private static func normalized(_ vector: SIMD3<Float>) -> SIMD3<Float>? {
         let length = simd_length(vector)
         guard length.isFinite, length > .ulpOfOne else { return nil }
         return vector / length
     }
 
-    /// Garante que a distribuicao do delta total continue estavel entre os olhos.
-    private static func normalizedWeight(primary: Double,
-                                         secondary: Double) -> Double {
-        let positivePrimary = max(primary, 0)
-        let positiveSecondary = max(secondary, 0)
-        let total = positivePrimary + positiveSecondary
-
-        guard total > 0 else { return 0.5 }
-
-        let rawWeight = positivePrimary / total
-        return min(max(rawWeight, Constants.minimumWeight),
-                   1 - Constants.minimumWeight)
+    private static func midpoint(_ first: CGFloat,
+                                 _ second: CGFloat) -> CGFloat {
+        (first + second) * 0.5
     }
 
-    /// Mantem a medida final dentro da faixa clinica plausivel.
+    private static func clampedPupilDepth(_ value: Float) -> Float {
+        min(max(value, Constants.minimumPupilDepthMeters), Constants.maximumPupilDepthMeters)
+    }
+
     private static func clampedDNP(_ value: Double) -> Double {
         min(max(value, Constants.minimumDNP), Constants.maximumDNP)
     }

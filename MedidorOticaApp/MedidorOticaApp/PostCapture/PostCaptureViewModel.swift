@@ -533,8 +533,10 @@ final class PostCaptureViewModel: ObservableObject {
         let leftDNPNear = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
                                                                            and: point.x,
                                                                            at: leftY))
-        let farDNP = PostCaptureFarDNPResolver.resolve(rightDNPNear: rightDNPNear,
-                                                       leftDNPNear: leftDNPNear,
+        let farDNP = PostCaptureFarDNPResolver.resolve(rightPupilNear: configuration.rightEye.pupil,
+                                                       leftPupilNear: configuration.leftEye.pupil,
+                                                       centralPoint: point,
+                                                       scale: scale,
                                                        eyeGeometry: eyeGeometrySnapshot)
         return PostCaptureDNPCandidate(id: id,
                                        title: title,

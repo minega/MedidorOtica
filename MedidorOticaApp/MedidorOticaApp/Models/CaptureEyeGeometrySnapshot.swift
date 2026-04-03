@@ -38,10 +38,26 @@ struct CodableVector3: Codable, Equatable {
 // MARK: - Snapshot ocular
 /// Geometria ocular do frame final usada para converter DNP perto em DNP longe.
 struct CaptureEyeGeometrySnapshot: Codable, Equatable {
+    /// Aproximacao linear da projecao 3D -> imagem ao redor do centro do olho.
+    struct LinearizedProjection: Codable, Equatable {
+        var projectedCenter: NormalizedPoint
+        var normalizedXPerMeter: CodableVector3
+        var normalizedYPerMeter: CodableVector3
+
+        /// Projeta um deslocamento 3D pequeno no espaco da imagem normalizada.
+        func projectedPoint(for delta: SIMD3<Float>) -> NormalizedPoint {
+            let xDelta = simd_dot(normalizedXPerMeter.simdValue, delta)
+            let yDelta = simd_dot(normalizedYPerMeter.simdValue, delta)
+            return NormalizedPoint(x: projectedCenter.x + CGFloat(xDelta),
+                                   y: projectedCenter.y + CGFloat(yDelta)).clamped()
+        }
+    }
+
     /// Geometria de um olho individual no referencial da camera.
     struct EyeSnapshot: Codable, Equatable {
         var centerCamera: CodableVector3
         var gazeCamera: CodableVector3
+        var projection: LinearizedProjection?
     }
 
     var leftEye: EyeSnapshot
