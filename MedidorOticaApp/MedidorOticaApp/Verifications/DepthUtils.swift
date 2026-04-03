@@ -426,7 +426,7 @@ private extension VerificationManager {
             let horizontalDistance = abs(interpolatedX - targetPoint.x)
             guard horizontalDistance <= horizontalTolerance else { continue }
 
-            let interpolatedCamera = simd_mix(first.camera, second.camera, Float(progress))
+            let interpolatedCamera = first.camera + ((second.camera - first.camera) * Float(progress))
             let averageLocalX = (abs(first.localX) + abs(second.localX)) * 0.5
             let distance = (horizontalDistance * horizontalDistance * 0.35) +
                 (CGFloat(averageLocalX) * 4000)
