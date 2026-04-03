@@ -2,13 +2,13 @@
 //  PostCaptureCentralPointResolver.swift
 //  MedidorOticaApp
 //
-//  Resolve o eixo X do PC usando a linha média facial útil na altura óptica das pupilas.
+//  Resolve o eixo X do PC usando a melhor referencia geometrica disponivel.
 //
 
 import CoreGraphics
 
-// MARK: - Resolução do PC
-/// Decide o eixo X do PC combinando linha média facial, simetria pupilar e ponte nasal.
+// MARK: - Resolucao do PC
+/// Decide o eixo X do PC combinando simetria facial, pupilas e ponte nasal.
 struct PostCaptureCentralPointResolver {
     // MARK: - Tipos auxiliares
     struct Candidates {
@@ -20,22 +20,20 @@ struct PostCaptureCentralPointResolver {
     }
 
     private enum Constants {
-        /// Mantém a ponte apenas como refinamento quando ela concorda fortemente com a linha média.
-        static let bridgeToleranceRatio: CGFloat = 0.022
-        /// Evita tolerâncias pequenas demais em rostos muito estreitos.
-        static let minimumTolerance: CGFloat = 0.006
-        /// A linha média anatômica é a referência principal do eixo X do PC.
-        static let medianLineWeight: CGFloat = 4
-        /// As pupilas corrigem a linha média quando a foto vier muito simétrica.
+        /// Mantem a ponte apenas como refinamento quando ela concorda com a simetria facial.
+        static let bridgeToleranceRatio: CGFloat = 0.03
+        /// Evita tolerancias pequenas demais em rostos muito estreitos.
+        static let minimumTolerance: CGFloat = 0.008
+        /// Mantem a linha principal mais fiel ao eixo optico das pupilas.
         static let pupilWeight: CGFloat = 2
-        /// O contorno geral do rosto entra apenas como estabilizador fraco.
-        static let faceWeight: CGFloat = 1
-        /// A ponte apenas refina o eixo final, nunca domina o PC.
-        static let bridgeBlendFactor: CGFloat = 0.18
+        /// A linha mediana so ajuda quando as pupilas nao conseguem estabilizar o eixo.
+        static let medianLineWeight: CGFloat = 1
+        /// A ponte refina sem voltar a dominar o PC.
+        static let bridgeBlendFactor: CGFloat = 0.25
     }
 
     // MARK: - Interface principal
-    /// Resolve o eixo X final do PC priorizando a linha média facial corrigida pela própria foto.
+    /// Resolve o eixo X final do PC priorizando a propria foto e usando a ponte apenas como refinamento.
     static func resolveX(using candidates: Candidates,
                          within normalizedBounds: NormalizedRect) -> CGFloat {
         let fallbackX = normalizedBounds.x + (normalizedBounds.width * 0.5)
@@ -63,45 +61,44 @@ struct PostCaptureCentralPointResolver {
         }
 
         let refinedX = geometricBaseline + ((bridgeX - geometricBaseline) * Constants.bridgeBlendFactor)
-        return clamped(candidate: refinedX, within: normalizedBounds, fallback: geometricBaseline)
+        return clamped(candidate: refinedX,
+                       within: normalizedBounds,
+                       fallback: geometricBaseline)
     }
 
-    // MARK: - Baselines geométricos
-    /// Gera a linha média principal a partir da banda óptica da própria foto.
+    // MARK: - Baselines geometricos
+    /// Gera a linha media principal a partir da propria foto, sem deixar a ponte dominar o eixo.
     private static func resolvedGeometricBaseline(faceMidlineX: CGFloat,
                                                   pupilMidlineX: CGFloat?,
                                                   medianLineX: CGFloat?,
                                                   normalizedBounds: NormalizedRect) -> CGFloat {
-        let weightedBaseline = weightedMean(faceMidlineX: faceMidlineX,
-                                            pupilMidlineX: pupilMidlineX,
-                                            medianLineX: medianLineX)
-        return clamped(candidate: weightedBaseline ?? faceMidlineX,
+        let fallbackX = normalizedBounds.x + (normalizedBounds.width * 0.5)
+        let twoDimensionalBaseline = resolvedTwoDimensionalBaseline(faceMidlineX: faceMidlineX,
+                                                                    pupilMidlineX: pupilMidlineX,
+                                                                    medianLineX: medianLineX)
+        return clamped(candidate: twoDimensionalBaseline ?? faceMidlineX,
                        within: normalizedBounds,
-                       fallback: faceMidlineX)
+                       fallback: fallbackX)
     }
 
-    /// Combina linha média anatômica, pupilas e contorno geral do rosto.
-    private static func weightedMean(faceMidlineX: CGFloat,
-                                     pupilMidlineX: CGFloat?,
-                                     medianLineX: CGFloat?) -> CGFloat? {
-        var weightedSum = faceMidlineX * Constants.faceWeight
-        var totalWeight = Constants.faceWeight
+    /// Combina simetria facial e pupilas, usando a linha mediana apenas como apoio.
+    private static func resolvedTwoDimensionalBaseline(faceMidlineX: CGFloat,
+                                                       pupilMidlineX: CGFloat?,
+                                                       medianLineX: CGFloat?) -> CGFloat? {
+        if let pupilMidlineX {
+            return ((pupilMidlineX * Constants.pupilWeight) + faceMidlineX) /
+                (Constants.pupilWeight + 1)
+        }
 
         if let medianLineX {
-            weightedSum += medianLineX * Constants.medianLineWeight
-            totalWeight += Constants.medianLineWeight
+            return ((medianLineX * Constants.medianLineWeight) + faceMidlineX) /
+                (Constants.medianLineWeight + 1)
         }
 
-        if let pupilMidlineX {
-            weightedSum += pupilMidlineX * Constants.pupilWeight
-            totalWeight += Constants.pupilWeight
-        }
-
-        guard totalWeight > 0 else { return nil }
-        return weightedSum / totalWeight
+        return faceMidlineX
     }
 
-    // MARK: - Validações
+    // MARK: - Validacoes
     /// Garante que o candidato esteja dentro do rosto recortado.
     private static func validated(candidate: CGFloat?,
                                   within normalizedBounds: NormalizedRect) -> CGFloat? {

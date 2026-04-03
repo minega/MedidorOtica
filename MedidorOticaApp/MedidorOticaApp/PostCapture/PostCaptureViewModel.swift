@@ -527,17 +527,24 @@ final class PostCaptureViewModel: ObservableObject {
                                   point: NormalizedPoint) -> PostCaptureDNPCandidate {
         let rightY = (configuration.rightEye.pupil.y + point.y) * 0.5
         let leftY = (configuration.leftEye.pupil.y + point.y) * 0.5
-        let rightDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
-                                                                        and: point.x,
-                                                                        at: rightY))
-        let leftDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
-                                                                       and: point.x,
-                                                                       at: leftY))
+        let rightDNPNear = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
+                                                                            and: point.x,
+                                                                            at: rightY))
+        let leftDNPNear = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
+                                                                           and: point.x,
+                                                                           at: leftY))
+        let farDNP = PostCaptureFarDNPResolver.resolve(rightDNPNear: rightDNPNear,
+                                                       leftDNPNear: leftDNPNear,
+                                                       eyeGeometry: eyeGeometrySnapshot)
         return PostCaptureDNPCandidate(id: id,
                                        title: title,
                                        point: point,
-                                       rightDNP: rightDNP,
-                                       leftDNP: leftDNP)
+                                       rightDNPNear: rightDNPNear,
+                                       leftDNPNear: leftDNPNear,
+                                       rightDNPFar: farDNP.rightDNPFar,
+                                       leftDNPFar: farDNP.leftDNPFar,
+                                       farConfidence: farDNP.confidence,
+                                       farConfidenceReason: farDNP.confidenceReason)
     }
 
     private func sanitizedMillimeters(_ value: Double) -> Double {

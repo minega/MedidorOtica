@@ -2,14 +2,14 @@
 //  PostCaptureFarDNPResolver.swift
 //  MedidorOticaApp
 //
-//  Converte DNP perto em DNP longe usando a geometria ocular 3D da mesma captura.
+//  Converte DNP perto em DNP longe usando a geometria ocular real da mesma captura.
 //
 
 import Foundation
 import simd
 
 // MARK: - Resultado da DNP longe
-/// Resultado consolidado da conversão geométrica de DNP perto para longe.
+/// Resultado consolidado da conversao geometrica de DNP perto para longe.
 struct PostCaptureFarDNPResult: Equatable {
     let rightDNPFar: Double
     let leftDNPFar: Double
@@ -18,16 +18,18 @@ struct PostCaptureFarDNPResult: Equatable {
 }
 
 // MARK: - Resolver da DNP longe
-/// Recalcula a DNP de longe removendo a componente convergente de perto da mesma captura.
+/// Recalcula a DNP de longe removendo apenas a componente convergente da captura.
 struct PostCaptureFarDNPResolver {
     private enum Constants {
-        /// Evita divisão por zero ao interceptar o plano do PC.
+        /// Evita divisao por zero ao interceptar o plano do PC.
         static let minimumPlaneDirectionZ: Float = 0.02
-        /// Mantém a conversão dentro de um intervalo óptico plausível por olho.
+        /// Mantem a conversao dentro de um intervalo optico plausivel por olho.
         static let minimumDNP: Double = 10
         static let maximumDNP: Double = 45
-        /// Peso mínimo para não perder completamente um lado em situações assimétricas.
+        /// Peso minimo para nao perder completamente um lado em situacoes assimetricas.
         static let minimumWeight = 0.2
+        /// Garante um deslocamento minimo detectavel quando o frame estiver muito plano.
+        static let minimumFarDeltaMM: Double = 0.15
     }
 
     /// Resolve a DNP de longe usando a mesma captura e sem tabela fixa.
@@ -38,21 +40,22 @@ struct PostCaptureFarDNPResolver {
             return PostCaptureFarDNPResult(rightDNPFar: rightDNPNear,
                                            leftDNPFar: leftDNPNear,
                                            confidence: 0,
-                                           confidenceReason: "Geometria ocular 3D indisponível nesta captura.")
+                                           confidenceReason: "Geometria ocular 3D indisponivel nesta captura.")
         }
 
-        guard let currentNear = currentGeometricDNP(using: eyeGeometry),
-              let currentFar = farGeometricDNP(using: eyeGeometry) else {
+        guard let nearGeometry = nearGeometricDNP(using: eyeGeometry),
+              let farGeometry = farGeometricDNP(using: eyeGeometry) else {
             return PostCaptureFarDNPResult(rightDNPFar: rightDNPNear,
                                            leftDNPFar: leftDNPNear,
                                            confidence: eyeGeometry.fixationConfidence,
-                                           confidenceReason: "Não foi possível reconstruir a vergência com confiança.")
+                                           confidenceReason: "Nao foi possivel reconstruir a vergencia com confianca.")
         }
 
-        let rawRightDelta = currentFar.right - currentNear.right
-        let rawLeftDelta = currentFar.left - currentNear.left
+        let rawRightDelta = farGeometry.right - nearGeometry.right
+        let rawLeftDelta = farGeometry.left - nearGeometry.left
         let rawTotalDelta = rawRightDelta + rawLeftDelta
-        let appliedTotalDelta = max(rawTotalDelta, 0)
+        let fallbackTotalDelta = fallbackGeometricDelta(using: eyeGeometry)
+        let appliedTotalDelta = max(rawTotalDelta, fallbackTotalDelta, Constants.minimumFarDeltaMM)
         let rightWeight = normalizedWeight(primary: rawRightDelta,
                                            secondary: rawLeftDelta)
         let leftWeight = 1 - rightWeight
@@ -61,7 +64,7 @@ struct PostCaptureFarDNPResolver {
         let correctedLeft = clampedDNP(leftDNPNear + (appliedTotalDelta * leftWeight))
 
         let confidenceReason = eyeGeometry.isFixationReliable ? nil :
-            (eyeGeometry.fixationConfidenceReason ?? "Fixação na câmera com confiança reduzida.")
+            (eyeGeometry.fixationConfidenceReason ?? "Fixacao na camera com confianca reduzida.")
 
         return PostCaptureFarDNPResult(rightDNPFar: correctedRight,
                                        leftDNPFar: correctedLeft,
@@ -69,26 +72,31 @@ struct PostCaptureFarDNPResolver {
                                        confidenceReason: confidenceReason)
     }
 
-    // MARK: - Conversão geométrica
-    /// Mede a DNP geométrica atual pela interseção da linha de visão com o plano do PC.
-    private static func currentGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
-        geometricDNP(using: eyeGeometry,
-                     leftDirection: eyeGeometry.leftEye.gazeCamera.simdValue,
-                     rightDirection: eyeGeometry.rightEye.gazeCamera.simdValue)
-    }
-
-    /// Mede a DNP geométrica em condição de longe removendo apenas a convergência.
-    private static func farGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
-        let averageDirection = normalized(eyeGeometry.leftEye.gazeCamera.simdValue +
-                                          eyeGeometry.rightEye.gazeCamera.simdValue)
-        guard let averageDirection else { return nil }
+    // MARK: - Conversao geometrica
+    /// Mede a DNP geometrica de perto assumindo fixacao no ponto da camera.
+    private static func nearGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
+        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
+        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
 
         return geometricDNP(using: eyeGeometry,
-                            leftDirection: averageDirection,
-                            rightDirection: averageDirection)
+                            leftDirection: -leftEyeCenter,
+                            rightDirection: -rightEyeCenter)
     }
 
-    /// Mede as DNPs geométricas no plano do PC usando os vetores indicados.
+    /// Mede a DNP geometrica em condicao de longe removendo a convergencia e mantendo os eixos paralelos.
+    private static func farGeometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot) -> (right: Double, left: Double)? {
+        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
+        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
+        let eyeMidpoint = (leftEyeCenter + rightEyeCenter) * 0.5
+
+        guard let parallelDirection = normalized(-eyeMidpoint) else { return nil }
+
+        return geometricDNP(using: eyeGeometry,
+                            leftDirection: parallelDirection,
+                            rightDirection: parallelDirection)
+    }
+
+    /// Mede as DNPs geometricas no plano do PC usando os vetores indicados.
     private static func geometricDNP(using eyeGeometry: CaptureEyeGeometrySnapshot,
                                      leftDirection: SIMD3<Float>,
                                      rightDirection: SIMD3<Float>) -> (right: Double, left: Double)? {
@@ -112,7 +120,7 @@ struct PostCaptureFarDNPResolver {
         return (right: rightDNP, left: leftDNP)
     }
 
-    /// Intercepta a linha visual com o plano do PC, que é paralelo ao plano da imagem.
+    /// Intercepta a linha visual com o plano do PC, que e paralelo ao plano da imagem.
     private static func intersectionWithPCPlane(from eyeCenter: SIMD3<Float>,
                                                 direction: SIMD3<Float>,
                                                 planePoint: SIMD3<Float>) -> SIMD3<Float>? {
@@ -122,19 +130,34 @@ struct PostCaptureFarDNPResolver {
         }
 
         let t = (planePoint.z - eyeCenter.z) / normalizedDirection.z
-        guard t.isFinite else { return nil }
+        guard t.isFinite, t >= 0 else { return nil }
         return eyeCenter + (normalizedDirection * t)
     }
 
     // MARK: - Helpers
-    /// Normaliza um vetor retornando `nil` quando a magnitude for inválida.
+    /// Estima um delta total usando apenas a profundidade real do PC e a posicao dos olhos.
+    private static func fallbackGeometricDelta(using eyeGeometry: CaptureEyeGeometrySnapshot) -> Double {
+        let leftEyeCenter = eyeGeometry.leftEye.centerCamera.simdValue
+        let rightEyeCenter = eyeGeometry.rightEye.centerCamera.simdValue
+        let planePoint = eyeGeometry.pcCameraPosition.simdValue
+        let meanEyeCenter = (leftEyeCenter + rightEyeCenter) * 0.5
+
+        let fixationDistance = max(Double(simd_length(meanEyeCenter)) * 1000.0, 1)
+        let planeAdvance = abs(Double(planePoint.z - meanEyeCenter.z)) * 1000.0
+        let interpupillaryDistance = abs(Double(rightEyeCenter.x - leftEyeCenter.x)) * 1000.0
+        let estimated = interpupillaryDistance * (planeAdvance / fixationDistance)
+        guard estimated.isFinite else { return 0 }
+        return max(estimated, 0)
+    }
+
+    /// Normaliza um vetor retornando `nil` quando a magnitude for invalida.
     private static func normalized(_ vector: SIMD3<Float>) -> SIMD3<Float>? {
         let length = simd_length(vector)
         guard length.isFinite, length > .ulpOfOne else { return nil }
         return vector / length
     }
 
-    /// Garante que a distribuição do delta total continue estável entre os olhos.
+    /// Garante que a distribuicao do delta total continue estavel entre os olhos.
     private static func normalizedWeight(primary: Double,
                                          secondary: Double) -> Double {
         let positivePrimary = max(primary, 0)
@@ -148,7 +171,7 @@ struct PostCaptureFarDNPResolver {
                    1 - Constants.minimumWeight)
     }
 
-    /// Mantém a medida final dentro da faixa clínica plausível.
+    /// Mantem a medida final dentro da faixa clinica plausivel.
     private static func clampedDNP(_ value: Double) -> Double {
         min(max(value, Constants.minimumDNP), Constants.maximumDNP)
     }

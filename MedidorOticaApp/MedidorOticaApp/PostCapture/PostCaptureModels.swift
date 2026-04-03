@@ -293,11 +293,19 @@ struct PostCaptureDNPCandidate: Equatable, Identifiable {
     let id: String
     let title: String
     let point: NormalizedPoint
-    let rightDNP: Double
-    let leftDNP: Double
+    let rightDNPNear: Double
+    let leftDNPNear: Double
+    let rightDNPFar: Double
+    let leftDNPFar: Double
+    let farConfidence: Double
+    let farConfidenceReason: String?
 
-    var totalDNP: Double {
-        rightDNP + leftDNP
+    var totalDNPNear: Double {
+        rightDNPNear + leftDNPNear
+    }
+
+    var totalDNPFar: Double {
+        rightDNPFar + leftDNPFar
     }
 }
 

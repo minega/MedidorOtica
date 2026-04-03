@@ -620,10 +620,27 @@ private struct DNPCandidateSection: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
 
-                    HStack(spacing: 12) {
-                        SummaryValueChip(text: "OD \(formatted(candidate.rightDNP))")
-                        SummaryValueChip(text: "OE \(formatted(candidate.leftDNP))")
-                        SummaryValueChip(text: "Total \(formatted(candidate.totalDNP))")
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            SummaryValueChip(text: "Perto")
+                            SummaryValueChip(text: "OD \(formatted(candidate.rightDNPNear))")
+                            SummaryValueChip(text: "OE \(formatted(candidate.leftDNPNear))")
+                            SummaryValueChip(text: "Total \(formatted(candidate.totalDNPNear))")
+                        }
+
+                        HStack(spacing: 12) {
+                            SummaryValueChip(text: candidate.farConfidence < 0.65 ? "Longe baixa" : "Longe")
+                            SummaryValueChip(text: "OD \(formatted(candidate.rightDNPFar))")
+                            SummaryValueChip(text: "OE \(formatted(candidate.leftDNPFar))")
+                            SummaryValueChip(text: "Total \(formatted(candidate.totalDNPFar))")
+                        }
+                    }
+
+                    if let farConfidenceReason = candidate.farConfidenceReason,
+                       candidate.farConfidence < 0.65 {
+                        Text("Obs.: \(farConfidenceReason)")
+                            .font(.footnote)
+                            .foregroundColor(.orange)
                     }
                 }
                 .padding(18)

@@ -205,8 +205,10 @@ extension CameraManager {
         let leftEyeCenter = cameraTranslation(from: leftEyeCameraTransform)
         let rightEyeCenter = cameraTranslation(from: rightEyeCameraTransform)
 
-        guard let leftGaze = resolvedEyeGaze(from: leftEyeCameraTransform, eyeCenter: leftEyeCenter),
-              let rightGaze = resolvedEyeGaze(from: rightEyeCameraTransform, eyeCenter: rightEyeCenter) else {
+        guard let leftGaze = resolvedEyeGaze(from: leftEyeCameraTransform, eyeCenter: leftEyeCenter) ??
+                normalizedVector(-leftEyeCenter),
+              let rightGaze = resolvedEyeGaze(from: rightEyeCameraTransform, eyeCenter: rightEyeCenter) ??
+                normalizedVector(-rightEyeCenter) else {
             return nil
         }
 
