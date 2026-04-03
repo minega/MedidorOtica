@@ -2,7 +2,7 @@
 //  PostCaptureFarDNPResolverTests.swift
 //  MedidorOticaAppTests
 //
-//  Protege a reprojecao geometrica de DNP perto para DNP longe.
+//  Protege a conversao geometrica estavel de DNP perto para DNP longe.
 //
 
 import Testing
@@ -45,6 +45,29 @@ struct PostCaptureFarDNPResolverTests {
         #expect((result.rightDNPFar + result.leftDNPFar) > 31.5)
         #expect(result.confidence == 0.92)
         #expect(result.confidenceReason == nil)
+    }
+
+    @Test func keepsFarOffsetInsideStableClinicalBand() async throws {
+        let scale = PostCaptureScale(calibration: .init(horizontalReferenceMM: 100,
+                                                        verticalReferenceMM: 80))
+        let snapshot = makeSnapshot(leftProjectedCenter: NormalizedPoint(x: 0.34, y: 0.50),
+                                    rightProjectedCenter: NormalizedPoint(x: 0.66, y: 0.50),
+                                    xScalePerMeter: 8.0,
+                                    fixationConfidence: 0.90,
+                                    fixationConfidenceReason: nil)
+
+        let result = PostCaptureFarDNPResolver.resolve(rightPupilNear: NormalizedPoint(x: 0.65, y: 0.50),
+                                                       leftPupilNear: NormalizedPoint(x: 0.35, y: 0.50),
+                                                       centralPoint: NormalizedPoint(x: 0.50, y: 0.50),
+                                                       scale: scale,
+                                                       eyeGeometry: snapshot)
+
+        let rightDelta = result.rightDNPFar - 15.0
+        let leftDelta = result.leftDNPFar - 15.0
+        #expect(rightDelta >= 0.4)
+        #expect(rightDelta <= 2.0)
+        #expect(leftDelta >= 0.4)
+        #expect(leftDelta <= 2.0)
     }
 
     @Test func keepsFarMeasurementVisibleWithLowConfidenceFixation() async throws {
