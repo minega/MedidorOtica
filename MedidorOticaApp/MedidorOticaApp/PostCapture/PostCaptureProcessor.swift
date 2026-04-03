@@ -107,8 +107,8 @@ final class PostCaptureProcessor {
                                              leftPupilPoint: leftPupilPoint,
                                              preferredCentralPoint: preferredCentralPoint,
                                              normalizedBounds: normalizedBounds)
-        // Localiza o dorso do nariz (noseCrest) exatamente na altura media das pupilas.
-        let nosePoint = resolvedNoseBridgePoint(landmarks: landmarks,
+        // Localiza o eixo nasal na altura media das pupilas combinando dorso do nariz e linha mediana.
+        let nosePoint = resolvedBridgeAxisPoint(landmarks: landmarks,
                                                 boundingBox: box,
                                                 imageWidth: width,
                                                 imageHeight: height,
@@ -220,7 +220,7 @@ final class PostCaptureProcessor {
                                                     orientation: orientation)
     }
 
-    private func resolvedNoseBridgePoint(landmarks: VNFaceLandmarks2D?,
+    private func resolvedBridgeAxisPoint(landmarks: VNFaceLandmarks2D?,
                                          boundingBox: CGRect,
                                          imageWidth: Int,
                                          imageHeight: Int,
@@ -231,20 +231,44 @@ final class PostCaptureProcessor {
                                                                 imageWidth: imageWidth,
                                                                 imageHeight: imageHeight,
                                                                 orientation: orientation)
-        let ordered = crestPoints.sorted { $0.y < $1.y }
-        guard !ordered.isEmpty else { return nil }
+        let medianPoints = VisionGeometryHelper.normalizedPoints(from: landmarks?.medianLine,
+                                                                 boundingBox: boundingBox,
+                                                                 imageWidth: imageWidth,
+                                                                 imageHeight: imageHeight,
+                                                                 orientation: orientation)
 
-        if let interpolatedPoint = interpolatedBridgePoint(from: ordered, targetY: targetY) {
+        let crestPoint = resolvedAxisPoint(from: crestPoints, targetY: targetY)
+        let medianPoint = resolvedAxisPoint(from: medianPoints, targetY: targetY)
+
+        switch (crestPoint, medianPoint) {
+        case let (crest?, median?):
+            let blendedX = (crest.x * 0.7) + (median.x * 0.3)
+            return CGPoint(x: blendedX, y: targetY)
+        case let (crest?, nil):
+            return crest
+        case let (nil, median?):
+            return median
+        default:
+            return nil
+        }
+    }
+
+    /// Resolve um ponto ao longo de uma linha de landmarks na altura indicada.
+    private func resolvedAxisPoint(from points: [CGPoint],
+                                   targetY: CGFloat) -> CGPoint? {
+        let orderedPoints = points.sorted { $0.y < $1.y }
+        guard !orderedPoints.isEmpty else { return nil }
+
+        if let interpolatedPoint = interpolatedAxisPoint(from: orderedPoints, targetY: targetY) {
             return interpolatedPoint
         }
 
-        let nearest = ordered.min { abs($0.y - targetY) < abs($1.y - targetY) }
-        return nearest
+        return orderedPoints.min { abs($0.y - targetY) < abs($1.y - targetY) }
     }
 
-    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
-    private func interpolatedBridgePoint(from orderedPoints: [CGPoint],
-                                         targetY: CGFloat) -> CGPoint? {
+    /// Interpola a linha de referencia exatamente na altura media das pupilas.
+    private func interpolatedAxisPoint(from orderedPoints: [CGPoint],
+                                       targetY: CGFloat) -> CGPoint? {
         guard orderedPoints.count >= 2 else { return orderedPoints.first }
 
         for index in 0..<(orderedPoints.count - 1) {

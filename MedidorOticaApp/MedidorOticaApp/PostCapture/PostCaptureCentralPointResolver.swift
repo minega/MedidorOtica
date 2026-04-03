@@ -20,13 +20,13 @@ struct PostCaptureCentralPointResolver {
 
     private enum Constants {
         /// Mantem a ponte apenas como refinamento quando ela concorda fortemente com a simetria facial.
-        static let bridgeToleranceRatio: CGFloat = 0.02
+        static let bridgeToleranceRatio: CGFloat = 0.03
         /// Evita tolerancias pequenas demais em rostos muito estreitos.
         static let minimumTolerance: CGFloat = 0.008
         /// Mantem a linha principal mais fiel ao eixo optico das pupilas.
         static let pupilWeight: CGFloat = 2
-        /// A ponte so refina levemente quando concorda com a geometria da foto.
-        static let bridgeBlendFactor: CGFloat = 0.2
+        /// A ponte refina o suficiente para devolver assimetria anatomica sem desestabilizar o PC.
+        static let bridgeBlendFactor: CGFloat = 0.4
     }
 
     // MARK: - Interface principal

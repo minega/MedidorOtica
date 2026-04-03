@@ -56,4 +56,20 @@ struct PostCaptureCentralPointResolverTests {
         #expect(abs(resolved - 0.5067) < 0.005)
         #expect(abs(resolved - 0.56) > 0.04)
     }
+
+    @Test func appliesBridgeAsymmetryWhenItMatchesPhotoGeometry() async throws {
+        let bounds = NormalizedRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
+        let candidates = PostCaptureCentralPointResolver.Candidates(
+            bridgeX: 0.514,
+            captureX: 0.56,
+            pupilMidlineX: 0.51,
+            faceMidlineX: 0.50
+        )
+
+        let resolved = PostCaptureCentralPointResolver.resolveX(using: candidates,
+                                                                within: bounds)
+
+        #expect(resolved > 0.5067)
+        #expect(resolved < 0.514)
+    }
 }
