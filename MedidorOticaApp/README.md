@@ -19,6 +19,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições.
 - A calibração local agora usa a malha útil completa do `TrueDepth`, ponto a ponto, para compensar deformações e perspectiva.
 - O `PC` final da pós-captura combina a geometria da foto com a linha média facial e o suporte 3D do `TrueDepth`.
+- O resultado final exibe `DNP perto` e `DNP longe` na mesma tela, calculadas a partir da mesma captura sem tabela fixa.
 
 ## 📂 Estrutura do Projeto
 
@@ -58,8 +59,8 @@ O aplicativo executa verificações em sequência para garantir medições preci
    - Suporte a TrueDepth (frontal) e LiDAR (traseira)
 
 2. **Distância**
-   - Distância ideal: 30-40 cm do sensor
-   - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
+  - Distância ideal: 30-40 cm do sensor
+  - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
 
 3. **Centralização**
    - Tolerância de ±0,35 cm
@@ -100,6 +101,8 @@ O aplicativo executa verificações em sequência para garantir medições preci
   - eixo `Y`: média da altura das pupilas
   - eixo `X`: linha média facial corrigida pelo `TrueDepth`, usando o dorso do nariz apenas quando coerente com a simetria do rosto
 - A pós-captura deve preferir a geometria da própria foto, mas pode usar o `PC` 3D da captura como apoio quando ele concorda com a simetria facial.
+- A `DNP longe` deve ser derivada da mesma captura via geometria 3D dos olhos e deconvergência, nunca por tabela fixa.
+- A faixa frontal `30-40 cm` é requisito funcional; mudanças futuras não podem voltar a bloquear por tamanho do rosto no oval.
 - Mudanças em calibração local, `PC` ou `DNP` exigem teste de regressão e atualização desta documentação.
 
 ## 📏 Fluxo Pós-Captura
@@ -128,7 +131,7 @@ Após a captura, o aplicativo abre a etapa de pós-processamento com a imagem re
    - O usuário revisa e ajusta se necessário (apenas por garantia).
 
 6. **Resumo Final**
-   - A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, DNP (OD/OE) e altura pupilar (OD/OE), além da DP total.
+   - A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, `DNP perto` (OD/OE/total), `DNP longe` (OD/OE/total) e altura pupilar (OD/OE).
    - É possível compartilhar a composição ou salvar no histórico informando o nome do cliente.
    - Cada item salvo pode ser reaberto posteriormente para editar novamente as etapas.
 

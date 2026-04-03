@@ -274,10 +274,18 @@ struct PostCaptureFlowView: View {
 
             if let metrics = viewModel.metrics {
                 SummaryMetricsSection(metrics: metrics)
+
+                if let confidenceReason = metrics.farDNPConfidenceReason,
+                   metrics.farDNPConfidence < 0.65 {
+                    Text("Obs.: \(confidenceReason)")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
-            if !viewModel.dpCandidates.isEmpty {
-                DPCandidateSection(candidates: viewModel.dpCandidates)
+            if !viewModel.dnpCandidates.isEmpty {
+                DNPCandidateSection(candidates: viewModel.dnpCandidates)
             }
 
             summaryFormFields
@@ -519,7 +527,7 @@ private struct SummaryMetricsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Valores em mm — OD / OE")
+            Text("Valores em mm — OD / OE / total")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.65))
 
@@ -574,6 +582,10 @@ private struct SummaryMetricsSection: View {
                     if let value = entry.leftValue.map(formattedMetricValue) {
                         SummaryValueChip(text: value)
                     }
+
+                    if let value = entry.totalValue.map(formattedMetricValue) {
+                        SummaryValueChip(text: "Total \(value)")
+                    }
                 }
             } else if let value = entry.singleValue.map(formattedMetricValue) {
                 SummaryValueChip(text: value)
@@ -591,13 +603,13 @@ private struct SummaryMetricsSection: View {
     }
 }
 
-/// Exibe variantes do eixo X do PC para comparar qual DP fica mais fiel.
-private struct DPCandidateSection: View {
-    let candidates: [PostCaptureDPCandidate]
+/// Exibe variantes do eixo X do PC para comparar qual DNP fica mais fiel.
+private struct DNPCandidateSection: View {
+    let candidates: [PostCaptureDNPCandidate]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Comparacao de DP")
+            Text("Comparacao de DNP")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.65))
 
@@ -611,7 +623,7 @@ private struct DPCandidateSection: View {
                     HStack(spacing: 12) {
                         SummaryValueChip(text: "OD \(formatted(candidate.rightDNP))")
                         SummaryValueChip(text: "OE \(formatted(candidate.leftDNP))")
-                        SummaryValueChip(text: "DP \(formatted(candidate.totalDP))")
+                        SummaryValueChip(text: "Total \(formatted(candidate.totalDNP))")
                     }
                 }
                 .padding(18)

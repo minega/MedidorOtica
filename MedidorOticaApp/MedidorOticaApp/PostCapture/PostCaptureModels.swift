@@ -215,22 +215,88 @@ struct PostCaptureMetrics: Codable, Equatable {
     var rightEye: EyeMeasurementSummary
     var leftEye: EyeMeasurementSummary
     var ponte: Double
+    var rightDNPFar: Double
+    var leftDNPFar: Double
+    var farDNPConfidence: Double
+    var farDNPConfidenceReason: String?
 
-    /// Retorna a distância pupilar total somando OD e OE.
+    /// Inicializa o resumo final preservando compatibilidade com históricos antigos.
+    init(rightEye: EyeMeasurementSummary,
+         leftEye: EyeMeasurementSummary,
+         ponte: Double,
+         rightDNPFar: Double? = nil,
+         leftDNPFar: Double? = nil,
+         farDNPConfidence: Double = 0,
+         farDNPConfidenceReason: String? = nil) {
+        self.rightEye = rightEye
+        self.leftEye = leftEye
+        self.ponte = ponte
+        self.rightDNPFar = rightDNPFar ?? rightEye.dnp
+        self.leftDNPFar = leftDNPFar ?? leftEye.dnp
+        self.farDNPConfidence = farDNPConfidence
+        self.farDNPConfidenceReason = farDNPConfidenceReason
+    }
+
+    /// Retorna a DNP total de perto somando OD e OE.
     var distanciaPupilarTotal: Double {
         rightEye.dnp + leftEye.dnp
     }
+
+    /// Retorna a DNP total equivalente para longe.
+    var distanciaPupilarTotalFar: Double {
+        rightDNPFar + leftDNPFar
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rightEye
+        case leftEye
+        case ponte
+        case rightDNPFar
+        case leftDNPFar
+        case farDNPConfidence
+        case farDNPConfidenceReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rightEye = try container.decode(EyeMeasurementSummary.self, forKey: .rightEye)
+        let leftEye = try container.decode(EyeMeasurementSummary.self, forKey: .leftEye)
+        let ponte = try container.decode(Double.self, forKey: .ponte)
+        let rightDNPFar = try container.decodeIfPresent(Double.self, forKey: .rightDNPFar)
+        let leftDNPFar = try container.decodeIfPresent(Double.self, forKey: .leftDNPFar)
+        let farDNPConfidence = try container.decodeIfPresent(Double.self, forKey: .farDNPConfidence) ?? 0
+        let farDNPConfidenceReason = try container.decodeIfPresent(String.self, forKey: .farDNPConfidenceReason)
+
+        self.init(rightEye: rightEye,
+                  leftEye: leftEye,
+                  ponte: ponte,
+                  rightDNPFar: rightDNPFar,
+                  leftDNPFar: leftDNPFar,
+                  farDNPConfidence: farDNPConfidence,
+                  farDNPConfidenceReason: farDNPConfidenceReason)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rightEye, forKey: .rightEye)
+        try container.encode(leftEye, forKey: .leftEye)
+        try container.encode(ponte, forKey: .ponte)
+        try container.encode(rightDNPFar, forKey: .rightDNPFar)
+        try container.encode(leftDNPFar, forKey: .leftDNPFar)
+        try container.encode(farDNPConfidence, forKey: .farDNPConfidence)
+        try container.encodeIfPresent(farDNPConfidenceReason, forKey: .farDNPConfidenceReason)
+    }
 }
 
-/// Compara variantes do eixo X do PC apenas para a DP final.
-struct PostCaptureDPCandidate: Equatable, Identifiable {
+/// Compara variantes do eixo X do PC apenas para a DNP final.
+struct PostCaptureDNPCandidate: Equatable, Identifiable {
     let id: String
     let title: String
     let point: NormalizedPoint
     let rightDNP: Double
     let leftDNP: Double
 
-    var totalDP: Double {
+    var totalDNP: Double {
         rightDNP + leftDNP
     }
 }
@@ -244,6 +310,7 @@ extension PostCaptureMetrics {
         let rightValue: Double?
         let leftValue: Double?
         let singleValue: Double?
+        let totalValue: Double?
 
         /// Indica quando o item possui valores para ambos os olhos.
         var hasPair: Bool {
@@ -268,27 +335,38 @@ extension PostCaptureMetrics {
                                title: "Horizontal maior",
                                rightValue: rightEye.horizontalMaior,
                                leftValue: leftEye.horizontalMaior,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: nil),
             SummaryMetricEntry(id: "verticalMaior",
                                title: "Vertical maior",
                                rightValue: rightEye.verticalMaior,
                                leftValue: leftEye.verticalMaior,
-                               singleValue: nil),
-            SummaryMetricEntry(id: "dnp",
-                               title: "DNP",
+                               singleValue: nil,
+                               totalValue: nil),
+            SummaryMetricEntry(id: "dnpPerto",
+                               title: "DNP perto",
                                rightValue: rightEye.dnp,
                                leftValue: leftEye.dnp,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: distanciaPupilarTotal),
+            SummaryMetricEntry(id: "dnpLonge",
+                               title: farDNPConfidence < 0.65 ? "DNP longe (conf. baixa)" : "DNP longe",
+                               rightValue: rightDNPFar,
+                               leftValue: leftDNPFar,
+                               singleValue: nil,
+                               totalValue: distanciaPupilarTotalFar),
             SummaryMetricEntry(id: "alturaPupilar",
                                title: "Altura pupilar",
                                rightValue: rightEye.alturaPupilar,
                                leftValue: leftEye.alturaPupilar,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: nil),
             SummaryMetricEntry(id: "ponte",
                                title: "Ponte",
                                rightValue: nil,
                                leftValue: nil,
-                               singleValue: ponte)
+                               singleValue: ponte,
+                               totalValue: nil)
         ]
     }
 
@@ -323,8 +401,11 @@ extension PostCaptureMetrics {
             lines.append("OS: \(trimmedOrder)")
         }
 
-        lines.append("Valores em mm — OD / OE")
+        lines.append("Valores em mm — OD / OE / total")
         lines.append(contentsOf: compactSummaryLines())
+        if let farDNPConfidenceReason, farDNPConfidence < 0.65 {
+            lines.append("Obs.: \(farDNPConfidenceReason)")
+        }
 
         return lines.joined(separator: "\n")
     }
@@ -345,9 +426,12 @@ extension PostCaptureMetrics.SummaryMetricEntry {
 
         let rightText = rightValue.map(format)
         let leftText = leftValue.map(format)
+        let totalText = totalValue.map(format)
 
-        switch (rightText, leftText) {
-        case let (right?, left?):
+        switch (rightText, leftText, totalText) {
+        case let (right?, left?, total?):
+            return "\(right) / \(left) / \(total)"
+        case let (right?, left?, nil):
             return "\(right) / \(left)"
         case let (right?, nil):
             return right

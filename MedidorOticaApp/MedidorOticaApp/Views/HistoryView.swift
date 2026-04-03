@@ -83,7 +83,8 @@ struct HistoryView: View {
                 let photo = CapturedPhoto(image: image,
                                           calibration: measurement.postCaptureCalibration,
                                           localCalibration: measurement.postCaptureLocalCalibration ?? .empty,
-                                          captureCentralPoint: measurement.postCaptureCaptureCentralPoint)
+                                          captureCentralPoint: measurement.postCaptureCaptureCentralPoint,
+                                          eyeGeometrySnapshot: measurement.postCaptureEyeGeometrySnapshot)
                 PostCaptureFlowView(capturedPhoto: photo,
                                     existingMeasurement: measurement,
                                     onRetake: {
@@ -141,7 +142,7 @@ struct MeasurementRow: View {
                         .foregroundColor(.gray)
                 }
 
-                Text("DP: \(measurement.formattedDistanciaPupilar)")
+                Text("DNP total: \(measurement.formattedDistanciaPupilar)")
                     .font(.subheadline)
                     .foregroundColor(.blue)
 
@@ -214,9 +215,9 @@ struct MeasurementDetailView: View {
                         
                         Divider()
                         
-                        // Distância pupilar
+                        // DNP total
                         HStack {
-                            Text("Distância Pupilar:")
+                            Text("DNP Total:")
                                 .font(.headline)
                                 .foregroundColor(.gray)
 
@@ -268,11 +269,22 @@ struct MeasurementDetailView: View {
                                 metricRow(title: "Vertical Maior OD", value: metrics.rightEye.verticalMaior)
                                 metricRow(title: "Vertical Maior OE", value: metrics.leftEye.verticalMaior)
                                 metricRow(title: "Ponte da Armação", value: metrics.ponte)
-                                metricRow(title: "DNP OD", value: metrics.rightEye.dnp)
-                                metricRow(title: "DNP OE", value: metrics.leftEye.dnp)
+                                metricRow(title: "DNP Perto OD", value: metrics.rightEye.dnp)
+                                metricRow(title: "DNP Perto OE", value: metrics.leftEye.dnp)
+                                metricRow(title: "DNP Longe OD", value: metrics.rightDNPFar)
+                                metricRow(title: "DNP Longe OE", value: metrics.leftDNPFar)
                                 metricRow(title: "Altura Pupilar OD", value: metrics.rightEye.alturaPupilar)
                                 metricRow(title: "Altura Pupilar OE", value: metrics.leftEye.alturaPupilar)
-                                metricRow(title: "DP Total", value: metrics.distanciaPupilarTotal)
+                                metricRow(title: "DNP Total Perto", value: metrics.distanciaPupilarTotal)
+                                metricRow(title: "DNP Total Longe", value: metrics.distanciaPupilarTotalFar)
+
+                                if let confidenceReason = metrics.farDNPConfidenceReason,
+                                   metrics.farDNPConfidence < 0.65 {
+                                    Text("Obs.: \(confidenceReason)")
+                                        .font(.footnote)
+                                        .foregroundColor(.orange)
+                                        .multilineTextAlignment(.leading)
+                                }
                             }
                             .padding(.horizontal)
                         }
@@ -383,7 +395,7 @@ fileprivate struct MeasurementShareFormatter {
             lines.append("OS: \(measurement.orderNumber)")
         }
 
-        lines.append("Distância Pupilar: \(measurement.formattedDistanciaPupilar)")
+        lines.append("DNP total: \(measurement.formattedDistanciaPupilar)")
         lines.append("Data: \(measurement.formattedDate)")
 
         if let metrics = measurement.postCaptureMetrics {

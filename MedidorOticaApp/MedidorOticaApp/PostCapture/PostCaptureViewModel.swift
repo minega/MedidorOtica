@@ -48,7 +48,7 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var faceBounds: NormalizedRect = NormalizedRect()
     /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
     @Published var previewBounds: NormalizedRect = NormalizedRect()
-    @Published var dpCandidates: [PostCaptureDPCandidate] = []
+    @Published var dnpCandidates: [PostCaptureDNPCandidate] = []
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -60,6 +60,7 @@ final class PostCaptureViewModel: ObservableObject {
     /// Aviso opcional gerado no momento da captura para orientar a revisão manual.
     let captureWarning: String?
     let captureCentralPoint: NormalizedPoint?
+    let eyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
     let scale: PostCaptureScale
 
@@ -77,6 +78,7 @@ final class PostCaptureViewModel: ObservableObject {
         self.localCalibration = existingMeasurement?.postCaptureLocalCalibration ?? photo.localCalibration
         self.captureWarning = photo.captureWarning
         self.captureCentralPoint = existingMeasurement?.postCaptureCaptureCentralPoint ?? photo.captureCentralPoint
+        self.eyeGeometrySnapshot = existingMeasurement?.postCaptureEyeGeometrySnapshot ?? photo.eyeGeometrySnapshot
         self.scale = PostCaptureScale(calibration: self.calibration,
                                       localCalibration: self.localCalibration)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
@@ -167,7 +169,7 @@ final class PostCaptureViewModel: ObservableObject {
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
                 self.previewBounds = preview.bounds
-                self.dpCandidates = self.makeDPCandidates()
+                self.dnpCandidates = self.makeDNPCandidates()
                 self.isProcessing = false
             }
         } catch {
@@ -190,7 +192,7 @@ final class PostCaptureViewModel: ObservableObject {
             self.faceBounds = storedConfiguration.faceBounds
             self.facePreview = preview.image
             self.previewBounds = preview.bounds
-            self.dpCandidates = self.makeDPCandidates()
+            self.dnpCandidates = self.makeDNPCandidates()
             self.isProcessing = false
             self.errorMessage = nil
         }
@@ -376,9 +378,10 @@ final class PostCaptureViewModel: ObservableObject {
         // Utiliza a calculadora dedicada para garantir que todas as medidas usem a calibração correta.
         let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
                                                          centralPoint: configuration.centralPoint,
-                                                         scale: scale)
+                                                         scale: scale,
+                                                         eyeGeometrySnapshot: eyeGeometrySnapshot)
         metrics = try calculator.makeMetrics()
-        dpCandidates = makeDPCandidates()
+        dnpCandidates = makeDNPCandidates()
     }
 
     // MARK: - Construção de Measurement
@@ -399,6 +402,7 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureCalibration: calibration,
                            postCaptureLocalCalibration: localCalibration,
                            postCaptureCaptureCentralPoint: captureCentralPoint,
+                           postCaptureEyeGeometrySnapshot: eyeGeometrySnapshot,
                            id: identifier,
                            date: date)
     }
@@ -509,18 +513,18 @@ final class PostCaptureViewModel: ObservableObject {
         )
     }
 
-    private func makeDPCandidates() -> [PostCaptureDPCandidate] {
+    private func makeDNPCandidates() -> [PostCaptureDNPCandidate] {
         let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
         return [
-            makeDPCandidate(id: "bridge", title: "DP ponte", point: candidates.bridge),
-            makeDPCandidate(id: "faceMidline", title: "DP meio do rosto", point: candidates.faceMidline),
-            makeDPCandidate(id: "pupilMidline", title: "DP media das pupilas", point: candidates.pupilMidline)
+            makeDNPCandidate(id: "bridge", title: "DNP ponte", point: candidates.bridge),
+            makeDNPCandidate(id: "faceMidline", title: "DNP meio do rosto", point: candidates.faceMidline),
+            makeDNPCandidate(id: "pupilMidline", title: "DNP media das pupilas", point: candidates.pupilMidline)
         ]
     }
 
-    private func makeDPCandidate(id: String,
-                                 title: String,
-                                 point: NormalizedPoint) -> PostCaptureDPCandidate {
+    private func makeDNPCandidate(id: String,
+                                  title: String,
+                                  point: NormalizedPoint) -> PostCaptureDNPCandidate {
         let rightY = (configuration.rightEye.pupil.y + point.y) * 0.5
         let leftY = (configuration.leftEye.pupil.y + point.y) * 0.5
         let rightDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
@@ -529,11 +533,11 @@ final class PostCaptureViewModel: ObservableObject {
         let leftDNP = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
                                                                        and: point.x,
                                                                        at: leftY))
-        return PostCaptureDPCandidate(id: id,
-                                      title: title,
-                                      point: point,
-                                      rightDNP: rightDNP,
-                                      leftDNP: leftDNP)
+        return PostCaptureDNPCandidate(id: id,
+                                       title: title,
+                                       point: point,
+                                       rightDNP: rightDNP,
+                                       leftDNP: leftDNP)
     }
 
     private func sanitizedMillimeters(_ value: Double) -> Double {

@@ -16,6 +16,7 @@ struct PostCaptureCentralPointResolverTests {
             bridgeX: 0.58,
             captureX: 0.56,
             pupilMidlineX: 0.49,
+            medianLineX: 0.501,
             faceMidlineX: 0.50
         )
 
@@ -32,6 +33,7 @@ struct PostCaptureCentralPointResolverTests {
             bridgeX: 0.505,
             captureX: 0.540,
             pupilMidlineX: 0.495,
+            medianLineX: 0.502,
             faceMidlineX: 0.500
         )
 
@@ -47,6 +49,7 @@ struct PostCaptureCentralPointResolverTests {
             bridgeX: nil,
             captureX: 0.56,
             pupilMidlineX: 0.51,
+            medianLineX: nil,
             faceMidlineX: 0.50
         )
 
@@ -63,6 +66,7 @@ struct PostCaptureCentralPointResolverTests {
             bridgeX: 0.514,
             captureX: 0.56,
             pupilMidlineX: 0.51,
+            medianLineX: 0.512,
             faceMidlineX: 0.50
         )
 

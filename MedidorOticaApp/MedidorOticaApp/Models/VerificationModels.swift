@@ -58,7 +58,7 @@ enum VerificationType: Int, CaseIterable, Identifiable {
         case .faceDetection:
             return "Rosto"
         case .distance:
-            return "28-45 cm"
+            return "\(Int(DistanceLimits.minCm))-\(Int(DistanceLimits.maxCm)) cm"
         case .centering:
             return "Nariz"
         case .headAlignment:

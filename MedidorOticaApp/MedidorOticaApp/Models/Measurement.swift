@@ -26,6 +26,8 @@ struct Measurement: Identifiable, Codable {
     var postCaptureLocalCalibration: LocalFaceScaleCalibration?
     /// PC projetado no frame capturado para reduzir vies lateral ao reabrir a medicao.
     var postCaptureCaptureCentralPoint: NormalizedPoint?
+    /// Snapshot ocular 3D persistido para recalcular DNP perto e longe.
+    var postCaptureEyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
 
     // MARK: - Computados
     var formattedDate: String {
@@ -37,8 +39,12 @@ struct Measurement: Identifiable, Codable {
     }
 
     var formattedDistanciaPupilar: String {
-        let value = postCaptureMetrics?.distanciaPupilarTotal ?? distanciaPupilar
-        return String(format: "%.1f mm", value)
+        let nearValue = postCaptureMetrics?.distanciaPupilarTotal ?? distanciaPupilar
+        guard let farValue = postCaptureMetrics?.distanciaPupilarTotalFar else {
+            return String(format: "%.1f mm", nearValue)
+        }
+
+        return String(format: "P %.1f / L %.1f mm", nearValue, farValue)
     }
 
     var formattedBridge: String {
@@ -66,6 +72,7 @@ struct Measurement: Identifiable, Codable {
          postCaptureCalibration: PostCaptureCalibration,
          postCaptureLocalCalibration: LocalFaceScaleCalibration? = nil,
          postCaptureCaptureCentralPoint: NormalizedPoint? = nil,
+         postCaptureEyeGeometrySnapshot: CaptureEyeGeometrySnapshot? = nil,
          id: UUID = UUID(),
          date: Date = Date()) {
         self.id = id
@@ -78,6 +85,7 @@ struct Measurement: Identifiable, Codable {
         self.postCaptureCalibration = postCaptureCalibration
         self.postCaptureLocalCalibration = postCaptureLocalCalibration
         self.postCaptureCaptureCentralPoint = postCaptureCaptureCentralPoint
+        self.postCaptureEyeGeometrySnapshot = postCaptureEyeGeometrySnapshot
         self.imageData = capturedImage.jpegData(compressionQuality: ImageQuality.jpegCompressionQuality)
     }
 
@@ -94,6 +102,7 @@ struct Measurement: Identifiable, Codable {
         case postCaptureCalibration
         case postCaptureLocalCalibration
         case postCaptureCaptureCentralPoint
+        case postCaptureEyeGeometrySnapshot
     }
 
     init(from decoder: Decoder) throws {
@@ -114,6 +123,8 @@ struct Measurement: Identifiable, Codable {
                                                                     forKey: .postCaptureLocalCalibration)
         postCaptureCaptureCentralPoint = try container.decodeIfPresent(NormalizedPoint.self,
                                                                        forKey: .postCaptureCaptureCentralPoint)
+        postCaptureEyeGeometrySnapshot = try container.decodeIfPresent(CaptureEyeGeometrySnapshot.self,
+                                                                       forKey: .postCaptureEyeGeometrySnapshot)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -129,5 +140,6 @@ struct Measurement: Identifiable, Codable {
         try container.encode(postCaptureCalibration, forKey: .postCaptureCalibration)
         try container.encodeIfPresent(postCaptureLocalCalibration, forKey: .postCaptureLocalCalibration)
         try container.encodeIfPresent(postCaptureCaptureCentralPoint, forKey: .postCaptureCaptureCentralPoint)
+        try container.encodeIfPresent(postCaptureEyeGeometrySnapshot, forKey: .postCaptureEyeGeometrySnapshot)
     }
 }

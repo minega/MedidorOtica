@@ -12,9 +12,9 @@ import Testing
 struct CaptureReadinessEngineTests {
     @Test func distanceVerificationDescriptionReflectsTighterRange() async throws {
         #expect(DistanceLimits.minCm == 30.0)
-        #expect(DistanceLimits.maxCm == 38.0)
+        #expect(DistanceLimits.maxCm == 40.0)
         #expect(VerificationType.distance.description.contains("30cm"))
-        #expect(VerificationType.distance.description.contains("38cm"))
+        #expect(VerificationType.distance.description.contains("40cm"))
     }
 
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
@@ -23,7 +23,7 @@ struct CaptureReadinessEngineTests {
 
     @Test func verificationMenuTitlesReflectDetailedFlow() async throws {
         #expect(VerificationType.faceDetection.menuTitle == "Rosto")
-        #expect(VerificationType.distance.menuTitle == "28-45 cm")
+        #expect(VerificationType.distance.menuTitle == "30-40 cm")
         #expect(VerificationType.centering.menuTitle == "Nariz")
         #expect(VerificationType.headAlignment.menuTitle == "Cabeca")
     }

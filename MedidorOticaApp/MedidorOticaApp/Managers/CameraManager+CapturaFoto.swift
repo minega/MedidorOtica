@@ -175,15 +175,58 @@ extension CameraManager {
         let captureCentralPoint = VerificationManager.shared
             .trueDepthMeasurementReference(faceAnchor: context.faceAnchor, frame: context.frame)?
             .pcNormalizedPoint
+        let eyeGeometrySnapshot = buildEyeGeometrySnapshot(from: context.faceAnchor,
+                                                           frame: context.frame)
         let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
         let photo = CapturedPhoto(image: image,
                                   calibration: calibration.global,
                                   localCalibration: calibration.local,
                                   captureCentralPoint: captureCentralPoint,
+                                  eyeGeometrySnapshot: eyeGeometrySnapshot,
                                   frameTimestamp: context.frame.timestamp,
                                   orientation: context.cgOrientation,
                                   captureWarning: makeCaptureWarning(from: context.faceAnchor))
         return .success(photo)
+    }
+
+    /// Persiste a geometria 3D dos olhos no frame final para calcular DNP longe sem tabela fixa.
+    private func buildEyeGeometrySnapshot(from faceAnchor: ARFaceAnchor,
+                                          frame: ARFrame) -> CaptureEyeGeometrySnapshot? {
+        guard let reference = VerificationManager.shared.trueDepthMeasurementReference(faceAnchor: faceAnchor,
+                                                                                       frame: frame) else {
+            return nil
+        }
+
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let faceInCamera = simd_mul(worldToCamera, faceAnchor.transform)
+        let leftEyeCameraTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
+        let rightEyeCameraTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
+
+        let leftEyeCenter = cameraTranslation(from: leftEyeCameraTransform)
+        let rightEyeCenter = cameraTranslation(from: rightEyeCameraTransform)
+
+        guard let leftGaze = resolvedEyeGaze(from: leftEyeCameraTransform, eyeCenter: leftEyeCenter),
+              let rightGaze = resolvedEyeGaze(from: rightEyeCameraTransform, eyeCenter: rightEyeCenter) else {
+            return nil
+        }
+
+        let strongestDeviation = Double(strongestGazeDeviation(in: faceAnchor.blendShapes))
+        let fixation = makeFixationAssessment(leftEyeCenter: leftEyeCenter,
+                                              rightEyeCenter: rightEyeCenter,
+                                              leftGaze: leftGaze,
+                                              rightGaze: rightGaze,
+                                              strongestDeviation: strongestDeviation)
+
+        return CaptureEyeGeometrySnapshot(
+            leftEye: .init(centerCamera: CodableVector3(leftEyeCenter),
+                           gazeCamera: CodableVector3(leftGaze)),
+            rightEye: .init(centerCamera: CodableVector3(rightEyeCenter),
+                            gazeCamera: CodableVector3(rightGaze)),
+            pcCameraPosition: CodableVector3(reference.pcCameraPosition),
+            fixationConfidence: fixation.confidence,
+            fixationConfidenceReason: fixation.reason,
+            strongestGazeDeviation: strongestDeviation
+        )
     }
 
     /// Reexecuta a captura quando a falha for transitória e ainda houver tentativas disponiveis.
@@ -438,5 +481,68 @@ extension CameraManager {
         return monitoredLocations
             .map { blendShapes[$0]?.floatValue ?? 0 }
             .max() ?? 0
+    }
+
+    /// Resolve o eixo visual do olho escolhendo automaticamente o sinal coerente com a camera.
+    private func resolvedEyeGaze(from eyeCameraTransform: simd_float4x4,
+                                 eyeCenter: SIMD3<Float>) -> SIMD3<Float>? {
+        let forwardAxis = SIMD3<Float>(eyeCameraTransform.columns.2.x,
+                                       eyeCameraTransform.columns.2.y,
+                                       eyeCameraTransform.columns.2.z)
+        guard let normalizedForward = normalizedVector(forwardAxis),
+              let directionToCamera = normalizedVector(-eyeCenter) else {
+            return nil
+        }
+
+        let invertedAxis = -normalizedForward
+        let directAlignment = simd_dot(normalizedForward, directionToCamera)
+        let invertedAlignment = simd_dot(invertedAxis, directionToCamera)
+        return directAlignment >= invertedAlignment ? normalizedForward : invertedAxis
+    }
+
+    /// Avalia a confianca da fixacao na camera para graduar a DNP de longe.
+    private func makeFixationAssessment(leftEyeCenter: SIMD3<Float>,
+                                        rightEyeCenter: SIMD3<Float>,
+                                        leftGaze: SIMD3<Float>,
+                                        rightGaze: SIMD3<Float>,
+                                        strongestDeviation: Double) -> (confidence: Double, reason: String?) {
+        guard let leftToCamera = normalizedVector(-leftEyeCenter),
+              let rightToCamera = normalizedVector(-rightEyeCenter) else {
+            return (0, "Nao foi possivel validar a direcao do olhar no frame final.")
+        }
+
+        let leftAngle = angleBetween(leftGaze, leftToCamera)
+        let rightAngle = angleBetween(rightGaze, rightToCamera)
+        let meanAngle = (leftAngle + rightAngle) * 0.5
+        let anglePenalty = min(max(meanAngle / 14.0, 0), 1)
+        let blendPenalty = min(max(strongestDeviation / Double(CaptureWarningConstants.gazeDeviationThreshold), 0), 1)
+        let confidence = max(0, min(1, 1 - ((anglePenalty * 0.7) + (blendPenalty * 0.3))))
+
+        guard confidence < 0.65 else { return (confidence, nil) }
+
+        if meanAngle >= 10 {
+            return (confidence, "Fixaçao na camera com angulo ocular alto no frame final.")
+        }
+
+        if strongestDeviation >= Double(CaptureWarningConstants.gazeDeviationThreshold) {
+            return (confidence, "Fixaçao na camera oscilou pouco antes da captura.")
+        }
+
+        return (confidence, "Fixaçao na camera com confianca reduzida nesta foto.")
+    }
+
+    /// Normaliza um vetor 3D retornando `nil` quando a magnitude for invalida.
+    private func normalizedVector(_ vector: SIMD3<Float>) -> SIMD3<Float>? {
+        let length = simd_length(vector)
+        guard length.isFinite, length > .ulpOfOne else { return nil }
+        return vector / length
+    }
+
+    /// Mede o angulo entre dois vetores em graus.
+    private func angleBetween(_ first: SIMD3<Float>,
+                              _ second: SIMD3<Float>) -> Double {
+        let dot = simd_dot(first, second)
+        let clampedDot = min(max(dot, -1), 1)
+        return Double(acos(clampedDot)) * 180.0 / .pi
     }
 }

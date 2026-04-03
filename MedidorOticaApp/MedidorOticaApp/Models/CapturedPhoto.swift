@@ -18,6 +18,8 @@ struct CapturedPhoto {
     let localCalibration: LocalFaceScaleCalibration
     /// PC projetado no frame capturado para reduzir vies lateral no pos-captura.
     let captureCentralPoint: NormalizedPoint?
+    /// Snapshot 3D dos olhos utilizado para converter DNP perto em DNP longe.
+    let eyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
     /// Timestamp do frame utilizado na captura.
     let frameTimestamp: TimeInterval
     /// Orientacao aplicada ao frame final entregue para o pos-captura.
@@ -30,6 +32,7 @@ struct CapturedPhoto {
          calibration: PostCaptureCalibration,
          localCalibration: LocalFaceScaleCalibration = .empty,
          captureCentralPoint: NormalizedPoint? = nil,
+         eyeGeometrySnapshot: CaptureEyeGeometrySnapshot? = nil,
          frameTimestamp: TimeInterval = 0,
          orientation: CGImagePropertyOrientation = .up,
          captureWarning: String? = nil) {
@@ -37,6 +40,7 @@ struct CapturedPhoto {
         self.calibration = calibration
         self.localCalibration = localCalibration
         self.captureCentralPoint = captureCentralPoint
+        self.eyeGeometrySnapshot = eyeGeometrySnapshot
         self.frameTimestamp = frameTimestamp
         self.orientation = orientation
         self.captureWarning = captureWarning

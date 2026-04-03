@@ -107,20 +107,19 @@ final class PostCaptureProcessor {
                                              leftPupilPoint: leftPupilPoint,
                                              preferredCentralPoint: preferredCentralPoint,
                                              normalizedBounds: normalizedBounds)
-        // Localiza o eixo nasal na altura media das pupilas combinando dorso do nariz e linha mediana.
-        let nosePoint = resolvedBridgeAxisPoint(landmarks: landmarks,
-                                                boundingBox: box,
-                                                imageWidth: width,
-                                                imageHeight: height,
-                                                orientation: orientation,
-                                                targetY: averagePupilY)
-        let centralX = resolvedCentralX(nosePoint: nosePoint,
-                                        preferredCentralPoint: preferredCentralPoint,
+        // Resolve a banda optica do PC na altura media das pupilas.
+        let axisPoints = resolvedCentralAxisPoints(landmarks: landmarks,
+                                                   boundingBox: box,
+                                                   imageWidth: width,
+                                                   imageHeight: height,
+                                                   orientation: orientation,
+                                                   targetY: averagePupilY)
+        let centralX = resolvedCentralX(axisPoints: axisPoints,
                                         rightPupilPoint: rightPupilPoint,
                                         leftPupilPoint: leftPupilPoint,
                                         normalizedBounds: normalizedBounds)
         let centralPoint = NormalizedPoint(x: centralX, y: averagePupilY).clamped()
-        let centralCandidates = makeCentralPointCandidates(nosePoint: nosePoint,
+        let centralCandidates = makeCentralPointCandidates(axisPoints: axisPoints,
                                                            rightPupilPoint: rightPupilPoint,
                                                            leftPupilPoint: leftPupilPoint,
                                                            normalizedBounds: normalizedBounds,
@@ -151,13 +150,13 @@ final class PostCaptureProcessor {
         return (configuration, detected, centralCandidates)
     }
 
-    private func makeCentralPointCandidates(nosePoint: CGPoint?,
+    private func makeCentralPointCandidates(axisPoints: (bridge: CGPoint?, medianLine: CGPoint?),
                                             rightPupilPoint: CGPoint?,
                                             leftPupilPoint: CGPoint?,
                                             normalizedBounds: NormalizedRect,
                                             averagePupilY: CGFloat,
                                             resolvedCentralPoint: NormalizedPoint) -> PostCaptureAnalysisResult.CentralPointCandidates {
-        let bridgeX = nosePoint?.x ?? resolvedCentralPoint.x
+        let bridgeX = axisPoints.bridge?.x ?? axisPoints.medianLine?.x ?? resolvedCentralPoint.x
         let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
         let pupilMidlineX: CGFloat
         if let rightPupilPoint, let leftPupilPoint {
@@ -173,17 +172,17 @@ final class PostCaptureProcessor {
         )
     }
 
-    private func resolvedCentralX(nosePoint: CGPoint?,
-                                  preferredCentralPoint: NormalizedPoint?,
+    private func resolvedCentralX(axisPoints: (bridge: CGPoint?, medianLine: CGPoint?),
                                   rightPupilPoint: CGPoint?,
                                   leftPupilPoint: CGPoint?,
                                   normalizedBounds: NormalizedRect) -> CGFloat {
         let faceMidlineX = normalizedBounds.x + (normalizedBounds.width / 2)
         let candidates = PostCaptureCentralPointResolver.Candidates(
-            bridgeX: nosePoint?.x,
-            captureX: preferredCentralPoint?.x,
+            bridgeX: axisPoints.bridge?.x,
+            captureX: nil,
             pupilMidlineX: resolvedPupilMidlineX(rightPupilPoint: rightPupilPoint,
                                                  leftPupilPoint: leftPupilPoint),
+            medianLineX: axisPoints.medianLine?.x,
             faceMidlineX: faceMidlineX
         )
         return PostCaptureCentralPointResolver.resolveX(using: candidates,
@@ -220,12 +219,12 @@ final class PostCaptureProcessor {
                                                     orientation: orientation)
     }
 
-    private func resolvedBridgeAxisPoint(landmarks: VNFaceLandmarks2D?,
-                                         boundingBox: CGRect,
-                                         imageWidth: Int,
-                                         imageHeight: Int,
-                                         orientation: CGImagePropertyOrientation,
-                                         targetY: CGFloat) -> CGPoint? {
+    private func resolvedCentralAxisPoints(landmarks: VNFaceLandmarks2D?,
+                                           boundingBox: CGRect,
+                                           imageWidth: Int,
+                                           imageHeight: Int,
+                                           orientation: CGImagePropertyOrientation,
+                                           targetY: CGFloat) -> (bridge: CGPoint?, medianLine: CGPoint?) {
         let crestPoints = VisionGeometryHelper.normalizedPoints(from: landmarks?.noseCrest,
                                                                 boundingBox: boundingBox,
                                                                 imageWidth: imageWidth,
@@ -240,17 +239,7 @@ final class PostCaptureProcessor {
         let crestPoint = resolvedAxisPoint(from: crestPoints, targetY: targetY)
         let medianPoint = resolvedAxisPoint(from: medianPoints, targetY: targetY)
 
-        switch (crestPoint, medianPoint) {
-        case let (crest?, median?):
-            let blendedX = (crest.x * 0.7) + (median.x * 0.3)
-            return CGPoint(x: blendedX, y: targetY)
-        case let (crest?, nil):
-            return crest
-        case let (nil, median?):
-            return median
-        default:
-            return nil
-        }
+        return (bridge: crestPoint, medianLine: medianPoint)
     }
 
     /// Resolve um ponto ao longo de uma linha de landmarks na altura indicada.
