@@ -14,7 +14,7 @@ struct PostCaptureCentralPointResolverTests {
         let bounds = NormalizedRect(x: 0.2, y: 0.1, width: 0.6, height: 0.8)
         let candidates = PostCaptureCentralPointResolver.Candidates(
             bridgeX: 0.58,
-            captureX: 0.50,
+            captureX: 0.56,
             pupilMidlineX: 0.49,
             faceMidlineX: 0.50
         )
@@ -30,7 +30,7 @@ struct PostCaptureCentralPointResolverTests {
         let bounds = NormalizedRect(x: 0.2, y: 0.1, width: 0.6, height: 0.8)
         let candidates = PostCaptureCentralPointResolver.Candidates(
             bridgeX: 0.505,
-            captureX: 0.500,
+            captureX: 0.540,
             pupilMidlineX: 0.495,
             faceMidlineX: 0.500
         )
@@ -41,11 +41,11 @@ struct PostCaptureCentralPointResolverTests {
         #expect(abs(resolved - 0.50) < 0.01)
     }
 
-    @Test func prefersCaptureSupportWhenItAgreesWithPhotoGeometry() async throws {
+    @Test func ignoresCaptureBiasWhenPhotoGeometryIsAvailable() async throws {
         let bounds = NormalizedRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
         let candidates = PostCaptureCentralPointResolver.Candidates(
             bridgeX: nil,
-            captureX: 0.52,
+            captureX: 0.56,
             pupilMidlineX: 0.51,
             faceMidlineX: 0.50
         )
@@ -53,7 +53,7 @@ struct PostCaptureCentralPointResolverTests {
         let resolved = PostCaptureCentralPointResolver.resolveX(using: candidates,
                                                                 within: bounds)
 
-        #expect(resolved > 0.51)
-        #expect(resolved < 0.52)
+        #expect(abs(resolved - 0.5067) < 0.005)
+        #expect(abs(resolved - 0.56) > 0.04)
     }
 }

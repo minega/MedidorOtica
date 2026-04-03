@@ -19,12 +19,14 @@ struct PostCaptureCentralPointResolver {
     }
 
     private enum Constants {
-        /// Mantem a ponte apenas como refinamento quando ela concorda com a simetria facial.
-        static let bridgeToleranceRatio: CGFloat = 0.05
+        /// Mantem a ponte apenas como refinamento quando ela concorda fortemente com a simetria facial.
+        static let bridgeToleranceRatio: CGFloat = 0.02
         /// Evita tolerancias pequenas demais em rostos muito estreitos.
-        static let minimumTolerance: CGFloat = 0.02
-        /// O ponto 3D do TrueDepth recebe mais peso quando concorda com a geometria 2D.
-        static let captureWeight: CGFloat = 2
+        static let minimumTolerance: CGFloat = 0.008
+        /// Mantem a linha principal mais fiel ao eixo optico das pupilas.
+        static let pupilWeight: CGFloat = 2
+        /// A ponte so refina levemente quando concorda com a geometria da foto.
+        static let bridgeBlendFactor: CGFloat = 0.2
     }
 
     // MARK: - Interface principal
@@ -35,14 +37,11 @@ struct PostCaptureCentralPointResolver {
                                    within: normalizedBounds)
         let pupilMidlineX = validated(candidate: candidates.pupilMidlineX,
                                       within: normalizedBounds)
-        let captureX = validated(candidate: candidates.captureX,
-                                 within: normalizedBounds)
         let bridgeX = validated(candidate: candidates.bridgeX,
                                 within: normalizedBounds)
 
         let geometricBaseline = resolvedGeometricBaseline(faceMidlineX: faceMidlineX,
                                                           pupilMidlineX: pupilMidlineX,
-                                                          captureX: captureX,
                                                           normalizedBounds: normalizedBounds)
 
         guard let bridgeX else { return geometricBaseline }
@@ -53,41 +52,29 @@ struct PostCaptureCentralPointResolver {
             return geometricBaseline
         }
 
-        return (bridgeX + geometricBaseline) * 0.5
+        let refinedX = geometricBaseline + ((bridgeX - geometricBaseline) * Constants.bridgeBlendFactor)
+        return clamped(candidate: refinedX, within: normalizedBounds)
     }
 
     // MARK: - Baselines geometricos
-    /// Gera a linha media principal a partir do rosto, pupilas e suporte 3D coerente.
+    /// Gera a linha media principal a partir da propria foto, sem deixar a captura herdada enviesar o eixo X.
     private static func resolvedGeometricBaseline(faceMidlineX: CGFloat,
                                                   pupilMidlineX: CGFloat?,
-                                                  captureX: CGFloat?,
                                                   normalizedBounds: NormalizedRect) -> CGFloat {
         let fallbackX = normalizedBounds.x + (normalizedBounds.width * 0.5)
         let twoDimensionalBaseline = resolvedTwoDimensionalBaseline(faceMidlineX: faceMidlineX,
                                                                     pupilMidlineX: pupilMidlineX)
-
-        guard let captureX else {
-            return twoDimensionalBaseline ?? faceMidlineX
-        }
-
-        guard let twoDimensionalBaseline else { return captureX }
-
-        let tolerance = max(normalizedBounds.width * Constants.bridgeToleranceRatio,
-                            Constants.minimumTolerance)
-        guard abs(captureX - twoDimensionalBaseline) <= tolerance else {
-            return twoDimensionalBaseline
-        }
-
-        let weighted = (twoDimensionalBaseline + (captureX * Constants.captureWeight)) /
-            (1 + Constants.captureWeight)
-        return clamped(candidate: weighted, within: normalizedBounds, fallback: fallbackX)
+        return clamped(candidate: twoDimensionalBaseline ?? faceMidlineX,
+                       within: normalizedBounds,
+                       fallback: fallbackX)
     }
 
-    /// Combina rosto e pupilas sem deixar um unico landmark dominar a linha media.
+    /// Combina simetria facial e pupilas, dando mais peso ao eixo optico dos olhos.
     private static func resolvedTwoDimensionalBaseline(faceMidlineX: CGFloat,
                                                        pupilMidlineX: CGFloat?) -> CGFloat? {
         guard let pupilMidlineX else { return faceMidlineX }
-        return (faceMidlineX + pupilMidlineX) * 0.5
+        return ((pupilMidlineX * Constants.pupilWeight) + faceMidlineX) /
+            (Constants.pupilWeight + 1)
     }
 
     // MARK: - Validacoes
