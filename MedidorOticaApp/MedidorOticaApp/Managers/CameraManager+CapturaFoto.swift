@@ -218,6 +218,9 @@ extension CameraManager {
             return nil
         }
 
+        // Cada olho guarda uma linearizacao local da projecao 3D -> foto. Isso
+        // permite reusar o proprio frame final no pos-processamento sem cair em
+        // aproximacoes 2D puras ou em tabela fixa de DNP longe.
         let leftProjection = buildLinearizedProjection(eyeCenter: leftEyeCenter,
                                                        frame: frame,
                                                        cgOrientation: cgOrientation,

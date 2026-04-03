@@ -57,6 +57,8 @@ struct PostCaptureFarDNPResolver {
                                                  observedPupil: leftPupilNear,
                                                  fallbackDepth: rightDepth)
 
+        // O delta por distancia abre a DNP a partir da diferenca entre a captura de perto
+        // e um estado de fixacao a longe no mesmo olho, sem usar tabela populacional.
         let rightFixationDistanceMM = max(Double(simd_length(eyeGeometry.rightEye.centerCamera.simdValue)) * 1000.0, 1)
         let leftFixationDistanceMM = max(Double(simd_length(eyeGeometry.leftEye.centerCamera.simdValue)) * 1000.0, 1)
         let rightFactor = distanceToFarFactor(fixationDistanceMM: rightFixationDistanceMM,
@@ -66,6 +68,9 @@ struct PostCaptureFarDNPResolver {
         let rightDistanceDelta = near.right * (rightFactor - 1.0)
         let leftDistanceDelta = near.left * (leftFactor - 1.0)
 
+        // O delta angular corrige casos em que a distancia sozinha nao explica a convergencia
+        // observada no frame final. Ele usa o angulo horizontal entre o olhar capturado e o
+        // eixo frontal da face, mantendo o calculo estavel e limitado.
         let rightAngleDelta = convergenceDeltaMM(for: eyeGeometry.rightEye,
                                                  faceForward: eyeGeometry.faceForwardCamera?.simdValue,
                                                  pupilDepthMeters: rightDepth)
@@ -191,6 +196,8 @@ struct PostCaptureFarDNPResolver {
 
     private static func resolvedFarDelta(distanceDelta: Double,
                                          angularDelta: Double) -> Double {
+        // O maior delta vence para evitar que a DNP longe colapse, mas a abertura
+        // continua limitada para nao explodir em frames ruidosos.
         let stabilizedAngular = angularDelta * 0.9
         let resolvedDelta = max(distanceDelta, stabilizedAngular)
         guard resolvedDelta.isFinite else { return 0 }

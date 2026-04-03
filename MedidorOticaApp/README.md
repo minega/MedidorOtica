@@ -50,6 +50,24 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 | `Models/VerificationModels.swift` | Define `VerificationType` e `Verification` |
 | `Models/Measurement.swift` | Estrutura para armazenar dados de medição |
 
+## 🗺️ Mapa Rápido do Pipeline de Precisão
+
+Se uma conversa nova precisar se localizar rápido, leia nesta ordem:
+
+1. `../docs/pipeline-precisao.md`
+2. `MedidorOticaApp/PostCapture/PostCaptureProcessor.swift`
+3. `MedidorOticaApp/PostCapture/PostCaptureCentralPointResolver.swift`
+4. `MedidorOticaApp/PostCapture/PostCaptureFarDNPResolver.swift`
+5. `MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
+6. `MedidorOticaApp/Verifications/DepthUtils.swift`
+
+Esses arquivos concentram o que hoje define:
+
+- faixa de captura `30–40 cm`;
+- `PC` na captura e no pós-captura;
+- escala local ponto a ponto do `TrueDepth`;
+- `DNP perto` e `DNP longe`.
+
 ## 🔍 Fluxo de Verificações
 
 O aplicativo executa verificações em sequência para garantir medições precisas:
@@ -104,6 +122,14 @@ O aplicativo executa verificações em sequência para garantir medições preci
 - A `DNP longe` deve ser derivada da mesma captura via geometria 3D dos olhos e deconvergência, nunca por tabela fixa.
 - A faixa frontal `30-40 cm` é requisito funcional; mudanças futuras não podem voltar a bloquear por tamanho do rosto no oval.
 - Mudanças em calibração local, `PC` ou `DNP` exigem teste de regressão e atualização desta documentação.
+
+## 🧭 Situação Atual do Cálculo
+
+- `PC.y`: média da altura das pupilas.
+- `PC.x`: linha média facial na banda óptica, com simetria pupilar como reforço e ponte nasal apenas como refinamento fraco.
+- `DNP perto`: medida monocular no plano do `PC`.
+- `DNP longe`: conversão geométrica da mesma captura, usando distância real do olho até a câmera, profundidade aparente da pupila e diferença angular entre o olhar capturado e o eixo frontal da face.
+- O resumo final mostra `DNP perto` e `DNP longe`, além das variantes auxiliares para auditoria do eixo `X`.
 
 ## 📏 Fluxo Pós-Captura
 
@@ -241,5 +267,5 @@ MedidorOticaApp/
 - Mantenha o dispositivo estável durante a captura
 
 ## 📈 Versão
-*Última atualização: 01/07/2025*
-*Versão: 2.0.0*
+*Última atualização: 03/04/2026*
+*Versão: 2.1.0*

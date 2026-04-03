@@ -47,6 +47,9 @@ struct PostCaptureCentralPointResolver {
         let bridgeX = validated(candidate: candidates.bridgeX,
                                 within: normalizedBounds)
 
+        // A base do eixo X precisa nascer da foto e da simetria facial. A ponte
+        // entra so depois, como refinamento fraco, para nao puxar o PC quando o
+        // nariz estiver torto ou lateralizado.
         let geometricBaseline = resolvedGeometricBaseline(faceMidlineX: faceMidlineX,
                                                           pupilMidlineX: pupilMidlineX,
                                                           medianLineX: medianLineX,
