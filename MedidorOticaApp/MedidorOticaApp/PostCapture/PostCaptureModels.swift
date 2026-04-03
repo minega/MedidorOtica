@@ -433,9 +433,9 @@ extension PostCaptureMetrics.SummaryMetricEntry {
             return "\(right) / \(left) / \(total)"
         case let (right?, left?, nil):
             return "\(right) / \(left)"
-        case let (right?, nil):
+        case let (right?, nil, nil):
             return right
-        case let (nil, left?):
+        case let (nil, left?, nil):
             return left
         default:
             return "-"

@@ -107,7 +107,7 @@ extension CameraManager {
             return .failure(.sessionNotReady)
         }
 
-        guard let captureEvaluation = resolveCaptureEvaluation(for: frame) else {
+        guard resolveCaptureEvaluation(for: frame) != nil else {
             let staleFrame = !captureReadinessEngine.isFrameFresh(frame.timestamp) &&
                 recentSuccessfulVerification(referenceTimestamp: frame.timestamp) == nil
             return .failure(staleFrame ? .staleFrame : .sessionNotReady)
@@ -229,7 +229,13 @@ extension CameraManager {
         )
     }
 
-    /// Reexecuta a captura quando a falha for transitória e ainda houver tentativas disponiveis.
+    /// Extrai a translacao de uma matriz 4x4 no espaco da camera.
+    private func cameraTranslation(from transform: simd_float4x4) -> SIMD3<Float> {
+        let translation = transform.columns.3
+        return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+
+    /// Reexecuta a captura quando a falha for transitória e ainda houver tentativas disponíveis.
     private func retryOrFailCapture(after error: CameraError,
                                     attempt: Int,
                                     completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
