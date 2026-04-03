@@ -22,12 +22,14 @@ struct PostCaptureFarDNPResult: Equatable {
 struct PostCaptureFarDNPResolver {
     private enum Constants {
         /// Profundidade optica plausivel entre o centro do olho e o centro aparente da pupila.
-        static let minimumPupilDepthMeters: Float = 0.008
-        static let maximumPupilDepthMeters: Float = 0.015
-        static let defaultPupilDepthMeters: Float = 0.0115
+        static let minimumPupilDepthMeters: Float = 0.010
+        static let maximumPupilDepthMeters: Float = 0.020
+        static let defaultPupilDepthMeters: Float = 0.016
         /// Faixa clinica plausivel da DNP monocular.
         static let minimumDNP: Double = 10
         static let maximumDNP: Double = 45
+        /// Limita a abertura da DNP longe para evitar explosoes em frames ruidosos.
+        static let maximumPerEyeFarDeltaMM: Double = 3.5
     }
 
     /// Resolve a DNP de longe usando uma conversao geometrica estavel, sem tabela fixa.
@@ -61,9 +63,20 @@ struct PostCaptureFarDNPResolver {
                                               pupilDepthMM: Double(rightDepth) * 1000.0)
         let leftFactor = distanceToFarFactor(fixationDistanceMM: leftFixationDistanceMM,
                                              pupilDepthMM: Double(leftDepth) * 1000.0)
+        let rightDistanceDelta = near.right * (rightFactor - 1.0)
+        let leftDistanceDelta = near.left * (leftFactor - 1.0)
 
-        let correctedRight = clampedDNP(near.right * rightFactor)
-        let correctedLeft = clampedDNP(near.left * leftFactor)
+        let rightAngleDelta = convergenceDeltaMM(for: eyeGeometry.rightEye,
+                                                 faceForward: eyeGeometry.faceForwardCamera?.simdValue,
+                                                 pupilDepthMeters: rightDepth)
+        let leftAngleDelta = convergenceDeltaMM(for: eyeGeometry.leftEye,
+                                                faceForward: eyeGeometry.faceForwardCamera?.simdValue,
+                                                pupilDepthMeters: leftDepth)
+
+        let correctedRight = clampedDNP(near.right + resolvedFarDelta(distanceDelta: rightDistanceDelta,
+                                                                       angularDelta: rightAngleDelta))
+        let correctedLeft = clampedDNP(near.left + resolvedFarDelta(distanceDelta: leftDistanceDelta,
+                                                                    angularDelta: leftAngleDelta))
         let confidenceReason = eyeGeometry.isFixationReliable ? nil :
             (eyeGeometry.fixationConfidenceReason ?? "Fixacao na camera com confianca reduzida.")
 
@@ -98,6 +111,31 @@ struct PostCaptureFarDNPResolver {
         let factor = fixationDistanceMM / effectiveDistance
         guard factor.isFinite else { return 1.0 }
         return max(factor, 1.0)
+    }
+
+    /// Mede a abertura lateral adicional necessaria para sair do olhar convergente e ir para longe.
+    private static func convergenceDeltaMM(for eye: CaptureEyeGeometrySnapshot.EyeSnapshot,
+                                           faceForward: SIMD3<Float>?,
+                                           pupilDepthMeters: Float) -> Double {
+        guard let normalizedGaze = normalized(eye.gazeCamera.simdValue),
+              let normalizedForward = normalized(faceForward ?? SIMD3<Float>(0, 0, 1)) else {
+            return 0
+        }
+
+        let gazeHorizontal = horizontalDirection(from: normalizedGaze)
+        let forwardHorizontal = horizontalDirection(from: normalizedForward)
+        guard let gazeHorizontal,
+              let forwardHorizontal else {
+            return 0
+        }
+
+        let horizontalAngle = angleBetween(gazeHorizontal, forwardHorizontal)
+        guard horizontalAngle.isFinite, horizontalAngle > 0 else { return 0 }
+
+        let effectiveDepthMM = Double(clampedPupilDepth(pupilDepthMeters)) * 1000.0
+        let rawDelta = tan(horizontalAngle * .pi / 180.0) * effectiveDepthMM
+        guard rawDelta.isFinite else { return 0 }
+        return min(max(rawDelta, 0), Constants.maximumPerEyeFarDeltaMM)
     }
 
     /// Estima a profundidade aparente da pupila usando a propria geometria do frame final.
@@ -135,6 +173,28 @@ struct PostCaptureFarDNPResolver {
         let length = simd_length(vector)
         guard length.isFinite, length > .ulpOfOne else { return nil }
         return vector / length
+    }
+
+    private static func horizontalDirection(from vector: SIMD3<Float>) -> SIMD2<Double>? {
+        let horizontal = SIMD2<Double>(Double(vector.x), Double(vector.z))
+        let magnitude = simd_length(horizontal)
+        guard magnitude.isFinite, magnitude > .ulpOfOne else { return nil }
+        return horizontal / magnitude
+    }
+
+    private static func angleBetween(_ first: SIMD2<Double>,
+                                     _ second: SIMD2<Double>) -> Double {
+        let dot = simd_dot(first, second)
+        let clampedDot = min(max(dot, -1.0), 1.0)
+        return acos(clampedDot) * 180.0 / .pi
+    }
+
+    private static func resolvedFarDelta(distanceDelta: Double,
+                                         angularDelta: Double) -> Double {
+        let stabilizedAngular = angularDelta * 0.9
+        let resolvedDelta = max(distanceDelta, stabilizedAngular)
+        guard resolvedDelta.isFinite else { return 0 }
+        return min(max(resolvedDelta, 0), Constants.maximumPerEyeFarDeltaMM)
     }
 
     private static func midpoint(_ first: CGFloat,
