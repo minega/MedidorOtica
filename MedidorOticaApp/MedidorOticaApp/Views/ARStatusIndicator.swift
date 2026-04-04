@@ -13,20 +13,12 @@ struct ARStatusIndicator: View {
     @ObservedObject var verificationManager: VerificationManager
 
     var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(cameraManager.isUsingARSession ? Color.green : Color.red)
-                .frame(width: 12, height: 12)
-
-            Circle()
-                .fill(sensorColor)
-                .frame(width: 12, height: 12)
-
-            Circle()
-                .fill(verificationManager.faceDetected ? Color.green : Color.red)
-                .frame(width: 12, height: 12)
+        HStack(spacing: 6) {
+            statusDot(color: cameraManager.isUsingARSession ? .green : .red)
+            statusDot(color: sensorColor)
+            statusDot(color: verificationManager.faceDetected ? .green : .red)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
     }
 
     private var sensorColor: Color {
@@ -38,5 +30,15 @@ struct ARStatusIndicator: View {
         default:
             return .red
         }
+    }
+
+    private func statusDot(color: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 11, height: 11)
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.34), lineWidth: 0.6)
+            )
     }
 }

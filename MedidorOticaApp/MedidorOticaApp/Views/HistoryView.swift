@@ -2,72 +2,42 @@
 //  HistoryView.swift
 //  MedidorOticaApp
 //
-//  Tela de histórico que mostra as medições salvas
+//  Tela de historico com cards em vidro para consultar, compartilhar e editar medicoes salvas.
 //
 
 import SwiftUI
 
 struct HistoryView: View {
+    // MARK: - Dependencias
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyManager: HistoryManager
+
+    // MARK: - Estado
     @State private var selectedMeasurement: Measurement?
     @State private var showingDetail = false
     @State private var editingMeasurement: Measurement?
 
+    // MARK: - Tema
+    private let textColor = Color(red: 0.15, green: 0.28, blue: 0.43)
+    private let accentColor = Color(red: 0.28, green: 0.57, blue: 0.91)
+
+    // MARK: - View
     var body: some View {
-        VStack {
-            // Cabeçalho
-            HStack {
-                Text("Histórico de Medições")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Spacer()
-                
-                Button(action: {
-                    dismiss()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.gray)
+        ZStack {
+            historyBackground
+
+            VStack(spacing: 18) {
+                header
+
+                if historyManager.measurements.isEmpty {
+                    emptyState
+                } else {
+                    measurementsList
                 }
             }
-            .padding()
-            
-            if historyManager.measurements.isEmpty {
-                // Mensagem quando não há medições
-                VStack(spacing: 20) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 70))
-                        .foregroundColor(.gray)
-                    
-                    Text("Nenhuma medição salva")
-                        .font(.title3)
-                        .foregroundColor(.gray)
-                    
-                    Text("As medições salvas aparecerão aqui")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                // Lista de medições
-                List {
-                    ForEach(historyManager.measurements) { measurement in
-                        MeasurementRow(measurement: measurement)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedMeasurement = measurement
-                                showingDetail = true
-                            }
-                    }
-                    .onDelete(perform: deleteMeasurement)
-                }
-                .listStyle(PlainListStyle())
-            }
+            .padding(.top, 18)
         }
+        .ignoresSafeArea()
         .sheet(isPresented: $showingDetail) {
             if let measurement = selectedMeasurement {
                 MeasurementDetailView(measurement: measurement) { measurement in
@@ -75,7 +45,7 @@ struct HistoryView: View {
                         editingMeasurement = measurement
                     }
                 }
-                    .environmentObject(historyManager)
+                .environmentObject(historyManager)
             }
         }
         .fullScreenCover(item: $editingMeasurement) { measurement in
@@ -92,15 +62,134 @@ struct HistoryView: View {
                                     })
                 .environmentObject(historyManager)
             } else {
-                Text("Imagem indisponível para edição")
+                Text("Imagem indisponivel para edicao")
                     .foregroundColor(.white)
                     .padding()
                     .background(Color.black)
             }
         }
     }
-    
-    // Remove uma medição do histórico
+}
+
+// MARK: - Layout
+private extension HistoryView {
+    /// Mantem o historico claro e leve, alinhado com a tela inicial.
+    var historyBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.97, green: 0.99, blue: 1.00),
+                    Color(red: 0.91, green: 0.96, blue: 1.00),
+                    Color(red: 0.95, green: 0.99, blue: 0.98)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color.white.opacity(0.96))
+                .frame(width: 380, height: 380)
+                .blur(radius: 56)
+                .offset(x: -120, y: -250)
+
+            Circle()
+                .fill(Color.cyan.opacity(0.18))
+                .frame(width: 320, height: 320)
+                .blur(radius: 82)
+                .offset(x: 150, y: -80)
+
+            Circle()
+                .fill(Color.blue.opacity(0.12))
+                .frame(width: 340, height: 340)
+                .blur(radius: 94)
+                .offset(x: 140, y: 250)
+        }
+    }
+
+    /// Destaca o titulo e mantem o fechamento facil no topo.
+    var header: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("HISTORICO")
+                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .tracking(2.8)
+                    .foregroundStyle(textColor)
+
+                Text("Consulte, compartilhe e reabra medicoes salvas.")
+                    .font(.subheadline)
+                    .foregroundStyle(textColor.opacity(0.72))
+            }
+
+            Spacer()
+
+            Button(action: dismiss.callAsFunction) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(textColor)
+                    .frame(width: 50, height: 50)
+            }
+            .buttonStyle(.plain)
+            .appGlassSurface(cornerRadius: 18,
+                             borderOpacity: 0.70,
+                             tintOpacity: 0.22,
+                             interactive: true)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 36)
+    }
+
+    /// Reaproveita a lista do sistema, mas com cards personalizados e fundo transparente.
+    var measurementsList: some View {
+        List {
+            ForEach(historyManager.measurements) { measurement in
+                Button(action: {
+                    selectedMeasurement = measurement
+                    showingDetail = true
+                }) {
+                    MeasurementRow(measurement: measurement)
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                .listRowBackground(Color.clear)
+            }
+            .onDelete(perform: deleteMeasurement)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 18)
+    }
+
+    /// Exibe um estado vazio mais convidativo quando ainda nao ha medicoes.
+    var emptyState: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundStyle(accentColor)
+
+            Text("Nenhuma medicao salva")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(textColor)
+
+            Text("As medicoes concluidas aparecerao aqui para consulta e nova revisao.")
+                .font(.body)
+                .foregroundStyle(textColor.opacity(0.70))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 34)
+        .appGlassSurface(cornerRadius: 34,
+                         borderOpacity: 0.62,
+                         tintOpacity: 0.22,
+                         interactive: false)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+    }
+
+    /// Remove uma medicao do historico usando o comportamento ja existente.
     private func deleteMeasurement(at offsets: IndexSet) {
         for index in offsets {
             Task { await historyManager.removeMeasurement(at: index) }
@@ -108,237 +197,130 @@ struct HistoryView: View {
     }
 }
 
-// Linha da lista de medições
+// MARK: - Row
 struct MeasurementRow: View {
     let measurement: Measurement
-    
-    var body: some View {
-        HStack(spacing: 15) {
-            // Miniatura da imagem
-            if let image = measurement.getImage() {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 60, height: 60)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .foregroundColor(.gray)
-                    )
-            }
-            
-            // Informações da medição
-            VStack(alignment: .leading, spacing: 4) {
-                Text(measurement.clientName)
-                    .font(.headline)
 
-                if !measurement.orderNumber.isEmpty {
-                    Text("OS: \(measurement.orderNumber)")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+    private let titleColor = Color(red: 0.15, green: 0.28, blue: 0.43)
+    private let accentColor = Color(red: 0.27, green: 0.56, blue: 0.91)
+
+    var body: some View {
+        HStack(spacing: 16) {
+            thumbnail
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Text(measurement.clientName)
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(titleColor)
+                        .lineLimit(2)
+
+                    Spacer(minLength: 8)
+
+                    if !measurement.orderNumber.isEmpty {
+                        HistoryBadge(text: "OS \(measurement.orderNumber)")
+                    }
                 }
 
-                Text("DNP total: \(measurement.formattedDistanciaPupilar)")
-                    .font(.subheadline)
-                    .foregroundColor(.blue)
+                HStack(spacing: 10) {
+                    HistoryAccentBadge(text: measurement.formattedDistanciaPupilar)
 
-                if let metrics = measurement.postCaptureMetrics {
-                    Text("Ponte: \(String(format: "%.1f mm", metrics.ponte))")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    if let metrics = measurement.postCaptureMetrics {
+                        HistoryBadge(text: "Ponte \(String(format: "%.1f mm", metrics.ponte))")
+                    }
                 }
 
                 Text(measurement.formattedDate)
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(titleColor.opacity(0.68))
             }
-            
-            Spacer()
-            
+
             Image(systemName: "chevron.right")
-                .foregroundColor(.gray)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(titleColor.opacity(0.55))
+                .frame(width: 34, height: 34)
+                .background(Color.white.opacity(0.32), in: Circle())
         }
-        .padding(.vertical, 8)
+        .padding(16)
+        .appGlassSurface(cornerRadius: 30,
+                         borderOpacity: 0.56,
+                         tintOpacity: 0.22,
+                         interactive: false)
+        .shadow(color: accentColor.opacity(0.08), radius: 14, x: 0, y: 10)
+    }
+
+    /// Mantem a miniatura nitida e com proporcao agradavel.
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let image = measurement.getImage() {
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 84, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.46), lineWidth: 1)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.38))
+                .frame(width: 84, height: 84)
+                .overlay(
+                    Image(systemName: "photo")
+                        .font(.title2)
+                        .foregroundStyle(titleColor.opacity(0.45))
+                )
+        }
     }
 }
 
-// Tela de detalhes da medição
+// MARK: - Detail
 struct MeasurementDetailView: View {
+    // MARK: - Dependencias
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var historyManager: HistoryManager
+
+    // MARK: - Estado
     @State private var showingShareSheet = false
 
     let measurement: Measurement
     let onEdit: (Measurement) -> Void
-    
+
+    // MARK: - Tema
+    private let textColor = Color(red: 0.15, green: 0.28, blue: 0.43)
+    private let accentColor = Color(red: 0.27, green: 0.56, blue: 0.91)
+
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Imagem da medição
-                    if let image = measurement.getImage() {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .cornerRadius(12)
-                            .padding(.horizontal)
-                    } else {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.3))
-                            .aspectRatio(4/3, contentMode: .fit)
-                            .overlay(
-                                Image(systemName: "photo")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.gray)
-                            )
-                            .padding(.horizontal)
-                    }
-                    
-                    // Informações da medição
-                    VStack(spacing: 15) {
-                        // Nome do cliente
-                        HStack {
-                            Text("Cliente:")
-                                .font(.headline)
-                                .foregroundColor(.gray)
-                            
-                            Spacer()
-                            
-                            Text(measurement.clientName)
-                                .font(.headline)
-                        }
-                        .padding(.horizontal)
-                        
-                        Divider()
-                        
-                        // DNP total
-                        HStack {
-                            Text("DNP Total:")
-                                .font(.headline)
-                                .foregroundColor(.gray)
+        NavigationStack {
+            ZStack {
+                detailBackground
 
-                            Spacer()
-
-                            Text(measurement.formattedDistanciaPupilar)
-                                .font(.headline)
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.horizontal)
-
-                        if !measurement.orderNumber.isEmpty {
-                            Divider()
-
-                            HStack {
-                                Text("Número da OS:")
-                                    .font(.headline)
-                                    .foregroundColor(.gray)
-
-                                Spacer()
-
-                                Text(measurement.orderNumber)
-                                    .font(.headline)
-                            }
-                            .padding(.horizontal)
-                        }
-
-                        Divider()
-
-                        // Data da medição
-                        HStack {
-                            Text("Data:")
-                                .font(.headline)
-                                .foregroundColor(.gray)
-
-                            Spacer()
-
-                            Text(measurement.formattedDate)
-                                .font(.headline)
-                        }
-                        .padding(.horizontal)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        imageCard
+                        summaryCard
 
                         if let metrics = measurement.postCaptureMetrics {
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                metricRow(title: "Horizontal Maior OD", value: metrics.rightEye.horizontalMaior)
-                                metricRow(title: "Horizontal Maior OE", value: metrics.leftEye.horizontalMaior)
-                                metricRow(title: "Vertical Maior OD", value: metrics.rightEye.verticalMaior)
-                                metricRow(title: "Vertical Maior OE", value: metrics.leftEye.verticalMaior)
-                                metricRow(title: "Ponte da Armação", value: metrics.ponte)
-                                metricRow(title: "DNP Perto OD", value: metrics.rightEye.dnp)
-                                metricRow(title: "DNP Perto OE", value: metrics.leftEye.dnp)
-                                metricRow(title: "DNP Longe OD", value: metrics.rightDNPFar)
-                                metricRow(title: "DNP Longe OE", value: metrics.leftDNPFar)
-                                metricRow(title: "Altura Pupilar OD", value: metrics.rightEye.alturaPupilar)
-                                metricRow(title: "Altura Pupilar OE", value: metrics.leftEye.alturaPupilar)
-                                metricRow(title: "DNP Total Perto", value: metrics.distanciaPupilarTotal)
-                                metricRow(title: "DNP Total Longe", value: metrics.distanciaPupilarTotalFar)
-
-                                if let confidenceReason = metrics.farDNPConfidenceReason,
-                                   metrics.farDNPConfidence < 0.65 {
-                                    Text("Obs.: \(confidenceReason)")
-                                        .font(.footnote)
-                                        .foregroundColor(.orange)
-                                        .multilineTextAlignment(.leading)
-                                }
-                            }
-                            .padding(.horizontal)
+                            metricsCard(metrics: metrics)
                         }
-                    }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
-                    
-                    // Botão para compartilhar
-                    Button(action: {
-                        showingShareSheet = true
-                    }) {
-                        HStack {
-                            Image(systemName: "square.and.arrow.up")
-                            Text("Compartilhar")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                    }
 
-                    // Botão para editar etapas
-                    if measurement.getImage() != nil {
-                        Button(action: {
-                            dismiss()
-                            onEdit(measurement)
-                        }) {
-                            HStack {
-                                Image(systemName: "pencil.circle")
-                                Text("Editar etapas")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                            .padding(.horizontal)
-                        }
+                        actionsCard
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 28)
                 }
-                .padding(.vertical)
             }
-            .navigationBarTitle("Detalhes da Medição", displayMode: .inline)
-            .navigationBarItems(
-                trailing: Button(action: {
-                    dismiss()
-                }) {
-                    Text("Fechar")
+            .navigationTitle("Detalhes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fechar", action: dismiss.callAsFunction)
+                        .foregroundStyle(textColor)
                 }
-            )
+            }
             .sheet(isPresented: $showingShareSheet) {
                 if let items = MeasurementShareFormatter().makeItems(for: measurement) {
                     ShareSheet(items: items)
@@ -348,19 +330,209 @@ struct MeasurementDetailView: View {
             }
         }
     }
+}
 
-    private func metricRow(title: String, value: Double) -> some View {
-        HStack {
+// MARK: - Detail Layout
+private extension MeasurementDetailView {
+    /// Mantem o detalhe no mesmo universo claro do historico.
+    var detailBackground: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.97, green: 0.99, blue: 1.00),
+                Color(red: 0.91, green: 0.96, blue: 1.00),
+                Color(red: 0.95, green: 0.99, blue: 0.98)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+
+    /// Destaca a imagem capturada em um painel maior.
+    @ViewBuilder
+    var imageCard: some View {
+        Group {
+            if let image = measurement.getImage() {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(Color.white.opacity(0.32))
+                    .aspectRatio(4 / 3, contentMode: .fit)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 42))
+                            .foregroundStyle(textColor.opacity(0.38))
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(14)
+        .appGlassSurface(cornerRadius: 34,
+                         borderOpacity: 0.58,
+                         tintOpacity: 0.20,
+                         interactive: false)
+        .shadow(color: accentColor.opacity(0.08), radius: 18, x: 0, y: 12)
+    }
+
+    /// Resume os dados principais da medicao em linhas claras.
+    var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Resumo da medicao")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(textColor)
+
+            detailRow(title: "Cliente", value: measurement.clientName)
+            detailRow(title: "DNP total", value: measurement.formattedDistanciaPupilar, emphasize: true)
+
+            if !measurement.orderNumber.isEmpty {
+                detailRow(title: "Numero da OS", value: measurement.orderNumber)
+            }
+
+            detailRow(title: "Data", value: measurement.formattedDate)
+        }
+        .padding(22)
+        .appGlassSurface(cornerRadius: 30,
+                         borderOpacity: 0.56,
+                         tintOpacity: 0.20,
+                         interactive: false)
+    }
+
+    /// Organiza as metricas finais em uma lista longa mas legivel.
+    func metricsCard(metrics: PostCaptureMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Metricas")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(textColor)
+
+            metricRow(title: "Horizontal Maior OD", value: metrics.rightEye.horizontalMaior)
+            metricRow(title: "Horizontal Maior OE", value: metrics.leftEye.horizontalMaior)
+            metricRow(title: "Vertical Maior OD", value: metrics.rightEye.verticalMaior)
+            metricRow(title: "Vertical Maior OE", value: metrics.leftEye.verticalMaior)
+            metricRow(title: "Ponte da Armacao", value: metrics.ponte)
+            metricRow(title: "DNP Perto OD", value: metrics.rightEye.dnp)
+            metricRow(title: "DNP Perto OE", value: metrics.leftEye.dnp)
+            metricRow(title: "DNP Longe OD", value: metrics.rightDNPFar)
+            metricRow(title: "DNP Longe OE", value: metrics.leftDNPFar)
+            metricRow(title: "Altura Pupilar OD", value: metrics.rightEye.alturaPupilar)
+            metricRow(title: "Altura Pupilar OE", value: metrics.leftEye.alturaPupilar)
+            metricRow(title: "DNP Total Perto", value: metrics.distanciaPupilarTotal)
+            metricRow(title: "DNP Total Longe", value: metrics.distanciaPupilarTotalFar)
+
+            if let confidenceReason = metrics.farDNPConfidenceReason,
+               metrics.farDNPConfidence < 0.65 {
+                Text("Obs.: \(confidenceReason)")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(22)
+        .appGlassSurface(cornerRadius: 30,
+                         borderOpacity: 0.56,
+                         tintOpacity: 0.20,
+                         interactive: false)
+    }
+
+    /// Mantem as acoes principais sempre acessiveis no final do detalhe.
+    var actionsCard: some View {
+        VStack(spacing: 12) {
+            Button(action: { showingShareSheet = true }) {
+                Label("Compartilhar", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(textColor)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 58)
+            }
+            .buttonStyle(.plain)
+            .appGlassSurface(cornerRadius: 24,
+                             borderOpacity: 0.72,
+                             tintOpacity: 0.20,
+                             interactive: true)
+
+            if measurement.getImage() != nil {
+                Button(action: {
+                    dismiss()
+                    onEdit(measurement)
+                }) {
+                    Label("Editar etapas", systemImage: "pencil.circle")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(textColor)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 58)
+                }
+                .buttonStyle(.plain)
+                .appGlassSurface(cornerRadius: 24,
+                                 borderOpacity: 0.72,
+                                 tintOpacity: 0.24,
+                                 interactive: true)
+            }
+        }
+    }
+
+    func detailRow(title: String, value: String, emphasize: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.subheadline)
-                .foregroundColor(.gray)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(textColor.opacity(0.70))
 
-            Spacer()
+            Spacer(minLength: 10)
+
+            Text(value)
+                .font(.system(size: emphasize ? 19 : 17,
+                              weight: emphasize ? .bold : .semibold,
+                              design: .rounded))
+                .foregroundStyle(emphasize ? accentColor : textColor)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    func metricRow(title: String, value: Double) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(textColor.opacity(0.72))
+
+            Spacer(minLength: 10)
 
             Text(String(format: "%.1f mm", value))
-                .font(.subheadline)
-                .foregroundColor(.blue)
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(accentColor)
         }
+    }
+}
+
+// MARK: - Badges
+private struct HistoryBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color(red: 0.16, green: 0.28, blue: 0.42))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.46), in: Capsule())
+    }
+}
+
+private struct HistoryAccentBadge: View {
+    let text: String
+
+    var body: some View {
+        Text("DNP \(text)")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Color(red: 0.22, green: 0.46, blue: 0.83))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Color.blue.opacity(0.10), in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+            )
     }
 }
 
@@ -372,18 +544,18 @@ struct HistoryView_Previews: PreviewProvider {
 }
 
 // MARK: - Sharing Helpers
-/// Formatter responsável por montar o resumo textual da medição para compartilhamento.
+/// Formatter responsavel por montar o resumo textual da medicao para compartilhamento.
 fileprivate struct MeasurementShareFormatter {
     /// Monta os itens a serem compartilhados na folha do sistema.
-    /// - Parameter measurement: Medição selecionada pelo usuário.
-    /// - Returns: Array com a imagem da medição e o texto resumido.
+    /// - Parameter measurement: Medicao selecionada pelo usuario.
+    /// - Returns: Array com a imagem da medicao e o texto resumido.
     func makeItems(for measurement: Measurement) -> [Any]? {
         guard let image = measurement.getImage() else { return nil }
         return [image, makeSummary(for: measurement)]
     }
 
-    /// Cria o texto formatado com todas as métricas relevantes.
-    /// - Parameter measurement: Medição utilizada como fonte.
+    /// Cria o texto formatado com todas as metricas relevantes.
+    /// - Parameter measurement: Medicao utilizada como fonte.
     /// - Returns: Texto pronto para ser compartilhado.
     func makeSummary(for measurement: Measurement) -> String {
         var lines: [String] = []
@@ -399,7 +571,7 @@ fileprivate struct MeasurementShareFormatter {
         lines.append("Data: \(measurement.formattedDate)")
 
         if let metrics = measurement.postCaptureMetrics {
-            lines.append("Valores em mm — OD / OE")
+            lines.append("Valores em mm - OD / OE")
             lines.append(contentsOf: metrics.compactSummaryLines())
         }
 
@@ -407,7 +579,7 @@ fileprivate struct MeasurementShareFormatter {
     }
 }
 
-/// Visão exibida quando a medição não possui imagem para compartilhar.
+/// Visao exibida quando a medicao nao possui imagem para compartilhar.
 fileprivate struct ShareUnavailableView: View {
     var body: some View {
         VStack(spacing: 12) {
