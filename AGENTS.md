@@ -1,5 +1,9 @@
 # AGENT Guidelines
 
+## Docs
+- Antes de mexer no pipeline de mediÃ§Ã£o, leia `docs/pipeline-precisao.md`.
+- Antes de subir uma build para o TestFlight, leia `docs/testflight-release.md`.
+
 ## Code Style
 - Utilize Swift 5.9 e organize o código com `// MARK:` para seções.
 - Documente funções públicas usando comentários `///`.

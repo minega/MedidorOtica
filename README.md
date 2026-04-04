@@ -6,6 +6,7 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 
 - `MedidorOticaApp/` – Projeto Xcode com o código do aplicativo. Dentro dele há um `README.md` mais detalhado. O gerenciamento da câmera foi organizado em extensões, deixando o arquivo `CameraManager.swift` mais simples.
 - `docs/pipeline-precisao.md` – Mapa técnico do pipeline de captura, `PC`, escala local do `TrueDepth` e `DNP perto/longe`.
+- `docs/testflight-release.md` – Passo a passo real para subir uma build ao TestFlight e confirmar o estado na Apple.
 
 ## Novidades
 
@@ -53,8 +54,9 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 Para se localizar rápido no projeto, siga esta ordem:
 
 1. `docs/pipeline-precisao.md`
-2. `MedidorOticaApp/README.md`
-3. arquivos críticos:
+2. `docs/testflight-release.md`
+3. `MedidorOticaApp/README.md`
+4. arquivos críticos:
    - `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
    - `MedidorOticaApp/MedidorOticaApp/Verifications/DepthUtils.swift`
    - `MedidorOticaApp/MedidorOticaApp/PostCapture/PostCaptureProcessor.swift`

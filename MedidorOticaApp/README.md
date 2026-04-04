@@ -55,11 +55,12 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 Se uma conversa nova precisar se localizar rápido, leia nesta ordem:
 
 1. `../docs/pipeline-precisao.md`
-2. `MedidorOticaApp/PostCapture/PostCaptureProcessor.swift`
-3. `MedidorOticaApp/PostCapture/PostCaptureCentralPointResolver.swift`
-4. `MedidorOticaApp/PostCapture/PostCaptureFarDNPResolver.swift`
-5. `MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
-6. `MedidorOticaApp/Verifications/DepthUtils.swift`
+2. `../docs/testflight-release.md`
+3. `MedidorOticaApp/PostCapture/PostCaptureProcessor.swift`
+4. `MedidorOticaApp/PostCapture/PostCaptureCentralPointResolver.swift`
+5. `MedidorOticaApp/PostCapture/PostCaptureFarDNPResolver.swift`
+6. `MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
+7. `MedidorOticaApp/Verifications/DepthUtils.swift`
 
 Esses arquivos concentram o que hoje define:
 
