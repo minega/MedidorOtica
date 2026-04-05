@@ -124,6 +124,7 @@ private extension HomeView {
                               highlightOpacity: 0.68,
                               borderOpacity: 0.28,
                               showsBorder: false,
+                              sheenOpacity: 0.52,
                               interactive: false)
             .shadow(color: Color.white.opacity(0.38), radius: 10, x: 0, y: -1)
             .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
@@ -150,14 +151,15 @@ private extension HomeView {
         .buttonStyle(.plain)
         .homeGlassSurface(cornerRadius: 34,
                           glassTint: primaryPink,
-                          tintOpacity: 0.52,
-                          baseOpacity: 0.28,
-                          highlightOpacity: 0.82,
+                          tintOpacity: 0.72,
+                          baseOpacity: 0.14,
+                          highlightOpacity: 0.96,
                           borderOpacity: 0.0,
                           showsBorder: false,
+                          sheenOpacity: 1.0,
                           interactive: true)
-        .shadow(color: Color.white.opacity(0.58), radius: 12, x: 0, y: -2)
-        .shadow(color: primaryPink.opacity(0.28), radius: 26, x: 0, y: 16)
+        .shadow(color: Color.white.opacity(0.52), radius: 14, x: 0, y: -3)
+        .shadow(color: primaryPink.opacity(0.34), radius: 30, x: 0, y: 18)
     }
 
     /// Mantem o historico em um vidro branco mais discreto e padrao.
@@ -174,14 +176,15 @@ private extension HomeView {
         .buttonStyle(.plain)
         .homeGlassSurface(cornerRadius: 24,
                           glassTint: .white,
-                          tintOpacity: 0.24,
-                          baseOpacity: 0.16,
-                          highlightOpacity: 0.54,
+                          tintOpacity: 0.12,
+                          baseOpacity: 0.06,
+                          highlightOpacity: 0.30,
                           borderOpacity: 0.18,
                           showsBorder: false,
+                          sheenOpacity: 0.38,
                           interactive: true)
         .frame(maxWidth: 340)
-        .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 8)
+        .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 8)
     }
 }
 
@@ -207,6 +210,7 @@ private extension View {
                           highlightOpacity: Double,
                           borderOpacity: Double,
                           showsBorder: Bool,
+                          sheenOpacity: Double,
                           interactive: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -240,6 +244,37 @@ private extension View {
                             shape
                                 .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.2)
                         }
+                    }
+                    .overlay {
+                        shape
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(highlightOpacity * 0.24 * sheenOpacity),
+                                        Color.white.opacity(0.04),
+                                        glassTint.opacity(tintOpacity * 0.12)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Color.white.opacity(highlightOpacity * 0.72 * sheenOpacity),
+                                        Color.white.opacity(0.0)
+                                    ],
+                                    center: .center,
+                                    startRadius: 8,
+                                    endRadius: 120
+                                )
+                            )
+                            .frame(width: 210, height: 160)
+                            .offset(x: -18, y: -28)
+                            .mask(shape)
                     }
                     .overlay(alignment: .top) {
                         shape
@@ -286,6 +321,37 @@ private extension View {
                                 .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.0)
                         }
                     }
+                    .overlay {
+                        shape
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(highlightOpacity * 0.22 * sheenOpacity),
+                                        Color.white.opacity(0.04),
+                                        glassTint.opacity(tintOpacity * 0.10)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Color.white.opacity(highlightOpacity * 0.64 * sheenOpacity),
+                                        Color.white.opacity(0.0)
+                                    ],
+                                    center: .center,
+                                    startRadius: 8,
+                                    endRadius: 118
+                                )
+                            )
+                            .frame(width: 210, height: 160)
+                            .offset(x: -18, y: -28)
+                            .mask(shape)
+                    }
                     .overlay(alignment: .top) {
                         shape
                             .stroke(
@@ -327,6 +393,37 @@ private extension View {
                         shape
                             .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.0)
                     }
+                }
+                .overlay {
+                    shape
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(highlightOpacity * 0.18 * sheenOpacity),
+                                    Color.white.opacity(0.04),
+                                    glassTint.opacity(tintOpacity * 0.08)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .overlay(alignment: .topLeading) {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color.white.opacity(highlightOpacity * 0.58 * sheenOpacity),
+                                    Color.white.opacity(0.0)
+                                ],
+                                center: .center,
+                                startRadius: 8,
+                                endRadius: 116
+                            )
+                        )
+                        .frame(width: 210, height: 160)
+                        .offset(x: -18, y: -28)
+                        .mask(shape)
                 }
                 .overlay(alignment: .top) {
                     shape
