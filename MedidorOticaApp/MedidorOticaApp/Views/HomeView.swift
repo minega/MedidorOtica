@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  MedidorOticaApp
 //
-//  Tela inicial com fundo claro e botoes em vidro destacado.
+//  Tela inicial com fundo levemente mais fechado e botoes em Liquid Glass claro.
 //
 
 import SwiftUI
@@ -16,16 +16,16 @@ struct HomeView: View {
     @EnvironmentObject private var historyManager: HistoryManager
 
     // MARK: - Tema
-    private let textColor = Color(red: 0.12, green: 0.25, blue: 0.42)
-    private let accentColor = Color(red: 0.27, green: 0.56, blue: 0.93)
+    private let titleColor = Color(red: 0.16, green: 0.20, blue: 0.30)
+    private let secondaryTextColor = Color(red: 0.23, green: 0.29, blue: 0.40)
+    private let primaryPink = Color(red: 0.96, green: 0.69, blue: 0.83)
+    private let primaryTextColor = Color(red: 0.42, green: 0.16, blue: 0.31)
 
     // MARK: - View
     var body: some View {
         ZStack {
             backgroundView
-            headerLayer
-            primaryActionLayer
-            secondaryActionLayer
+            contentLayer
         }
         .ignoresSafeArea()
         .fullScreenCover(isPresented: $isShowingCamera) {
@@ -41,141 +41,147 @@ struct HomeView: View {
 
 // MARK: - Layout
 private extension HomeView {
-    /// Cria um fundo claro para valorizar o vidro dos botoes.
+    /// Organiza a home com respiro no topo, CTA central e historico no rodape.
+    var contentLayer: some View {
+        VStack(spacing: 0) {
+            Spacer()
+                .frame(height: 118)
+
+            titlePlaque
+
+            Spacer(minLength: 52)
+
+            startMeasurementButton
+
+            Spacer(minLength: 32)
+
+            historyButton
+                .padding(.bottom, 30)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    /// Deixa o fundo claro, mas um pouco mais fechado para sustentar o vidro branco.
     var backgroundView: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.98, green: 0.99, blue: 1.00),
-                    Color(red: 0.92, green: 0.97, blue: 1.00),
-                    Color(red: 0.97, green: 1.00, blue: 0.99)
+                    Color(red: 0.92, green: 0.94, blue: 0.98),
+                    Color(red: 0.86, green: 0.91, blue: 0.97),
+                    Color(red: 0.90, green: 0.95, blue: 0.94)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
             Circle()
-                .fill(Color.white.opacity(0.96))
+                .fill(Color.white.opacity(0.82))
                 .frame(width: 390, height: 390)
-                .blur(radius: 54)
+                .blur(radius: 56)
                 .offset(x: -120, y: -245)
 
             Circle()
-                .fill(Color.cyan.opacity(0.20))
+                .fill(Color.cyan.opacity(0.16))
                 .frame(width: 340, height: 340)
-                .blur(radius: 82)
+                .blur(radius: 84)
                 .offset(x: 165, y: -110)
 
             Circle()
-                .fill(accentColor.opacity(0.16))
+                .fill(primaryPink.opacity(0.16))
                 .frame(width: 360, height: 360)
                 .blur(radius: 96)
-                .offset(x: 165, y: 215)
+                .offset(x: 170, y: 220)
 
             Circle()
-                .fill(Color.mint.opacity(0.12))
+                .fill(Color.mint.opacity(0.10))
                 .frame(width: 300, height: 300)
                 .blur(radius: 90)
                 .offset(x: -150, y: 295)
+
+            Rectangle()
+                .fill(Color.black.opacity(0.04))
         }
-    }
-
-    /// Abaixa o titulo para dar mais respiro no topo.
-    var headerLayer: some View {
-        titlePlaque
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, 118)
-            .padding(.horizontal, 24)
-    }
-
-    /// Mantem o CTA no centro com destaque maximo.
-    var primaryActionLayer: some View {
-        startMeasurementButton
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .padding(.horizontal, 26)
-    }
-
-    /// Posiciona o historico no rodape.
-    var secondaryActionLayer: some View {
-        historyButton
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 30)
     }
 }
 
 // MARK: - Components
 private extension HomeView {
-    /// Enquadra o nome do app em uma placa leve de vidro.
+    /// Apresenta o nome do app em uma tipografia mais profissional e menos arredondada.
     @ViewBuilder
     var titlePlaque: some View {
-        Text("MEDIDOR ÓTICA")
-            .font(.system(size: 28, weight: .black, design: .rounded))
-            .tracking(3.8)
-            .foregroundStyle(textColor)
+        Text("MEDIDOR OTICA")
+            .font(.system(size: 30, weight: .bold, design: .serif))
+            .tracking(2.4)
+            .foregroundStyle(titleColor)
             .minimumScaleFactor(0.8)
             .lineLimit(1)
             .padding(.vertical, 18)
-            .padding(.horizontal, 24)
-            .homeGlassSurface(cornerRadius: 28,
-                              borderOpacity: 0.68,
-                              tintOpacity: 0.24,
-                              baseOpacity: 0.12,
-                              highlightOpacity: 0.56,
+            .padding(.horizontal, 26)
+            .homeGlassSurface(cornerRadius: 26,
+                              glassTint: .white,
+                              tintOpacity: 0.30,
+                              baseOpacity: 0.18,
+                              highlightOpacity: 0.68,
+                              borderOpacity: 0.28,
+                              showsBorder: false,
                               interactive: false)
-            .shadow(color: accentColor.opacity(0.08), radius: 16, x: 0, y: 8)
+            .shadow(color: Color.white.opacity(0.38), radius: 10, x: 0, y: -1)
+            .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
     }
 
-    /// Destaca o CTA com vidro claro, alto relevo e borda mais evidente.
+    /// Usa um vidro rosa mais forte sem contorno aparente, seguindo o CTA principal.
     @ViewBuilder
     var startMeasurementButton: some View {
         Button(action: openCamera) {
             VStack(spacing: 16) {
                 Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 72, weight: .semibold))
+                    .font(.system(size: 70, weight: .semibold))
 
                 Text("INICIAR MEDIDAS")
                     .font(.system(size: 22, weight: .black, design: .rounded))
                     .tracking(1.8)
                     .multilineTextAlignment(.center)
             }
-            .foregroundStyle(textColor)
+            .foregroundStyle(primaryTextColor)
             .frame(maxWidth: 316)
-            .frame(minHeight: 214)
+            .frame(minHeight: 210)
             .padding(.horizontal, 28)
         }
         .buttonStyle(.plain)
         .homeGlassSurface(cornerRadius: 34,
-                          borderOpacity: 0.96,
-                          tintOpacity: 0.36,
-                          baseOpacity: 0.24,
-                          highlightOpacity: 0.78,
+                          glassTint: primaryPink,
+                          tintOpacity: 0.52,
+                          baseOpacity: 0.28,
+                          highlightOpacity: 0.82,
+                          borderOpacity: 0.0,
+                          showsBorder: false,
                           interactive: true)
-        .shadow(color: Color.white.opacity(0.74), radius: 8, x: 0, y: -2)
-        .shadow(color: accentColor.opacity(0.18), radius: 24, x: 0, y: 14)
+        .shadow(color: Color.white.opacity(0.58), radius: 12, x: 0, y: -2)
+        .shadow(color: primaryPink.opacity(0.28), radius: 26, x: 0, y: 16)
     }
 
-    /// Mantem o botao secundario claro e consistente com o CTA.
+    /// Mantem o historico em um vidro branco mais discreto e padrao.
     @ViewBuilder
     var historyButton: some View {
         Button(action: openHistory) {
             Label("Ver historico", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(textColor)
+                .font(.system(size: 18, weight: .semibold, design: .default))
+                .foregroundStyle(secondaryTextColor)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 72)
-                .padding(.horizontal, 22)
+                .frame(minHeight: 62)
+                .padding(.horizontal, 20)
         }
         .buttonStyle(.plain)
-        .homeGlassSurface(cornerRadius: 30,
-                          borderOpacity: 0.88,
-                          tintOpacity: 0.30,
-                          baseOpacity: 0.20,
-                          highlightOpacity: 0.62,
+        .homeGlassSurface(cornerRadius: 24,
+                          glassTint: .white,
+                          tintOpacity: 0.24,
+                          baseOpacity: 0.16,
+                          highlightOpacity: 0.54,
+                          borderOpacity: 0.18,
+                          showsBorder: false,
                           interactive: true)
         .frame(maxWidth: 340)
-        .shadow(color: Color.white.opacity(0.56), radius: 5, x: 0, y: -1)
-        .shadow(color: accentColor.opacity(0.12), radius: 18, x: 0, y: 12)
+        .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 8)
     }
 }
 
@@ -192,13 +198,15 @@ private extension HomeView {
 
 // MARK: - Glass Surface
 private extension View {
-    /// Aplica um vidro claro no iOS 26 e usa material brilhante como fallback.
+    /// Mantem o vidro claro mesmo no modo noturno usando uma aparencia fixa clara.
     @ViewBuilder
     func homeGlassSurface(cornerRadius: CGFloat,
-                          borderOpacity: Double,
+                          glassTint: Color,
                           tintOpacity: Double,
                           baseOpacity: Double,
                           highlightOpacity: Double,
+                          borderOpacity: Double,
+                          showsBorder: Bool,
                           interactive: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -214,7 +222,7 @@ private extension View {
                                 colors: [
                                     Color.white.opacity(highlightOpacity),
                                     Color.white.opacity(baseOpacity),
-                                    Color.white.opacity(0.06)
+                                    Color.white.opacity(0.08)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -223,28 +231,32 @@ private extension View {
                     }
                     .glassEffect(
                         .regular
-                            .tint(Color.white.opacity(tintOpacity))
+                            .tint(glassTint.opacity(tintOpacity))
                             .interactive(),
                         in: shape
                     )
                     .overlay {
-                        shape
-                            .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.8)
+                        if showsBorder {
+                            shape
+                                .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.2)
+                        }
                     }
                     .overlay(alignment: .top) {
                         shape
                             .stroke(
                                 LinearGradient(
                                     colors: [
-                                        Color.white.opacity(0.98),
-                                        Color.white.opacity(0.10)
+                                        Color.white.opacity(0.90),
+                                        Color.white.opacity(0.0)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 ),
-                                lineWidth: 1.1
+                                lineWidth: 1.0
                             )
+                            .opacity(showsBorder ? 1.0 : 0.82)
                     }
+                    .environment(\.colorScheme, .light)
             } else {
                 self
                     .background {
@@ -255,8 +267,8 @@ private extension View {
                             LinearGradient(
                                 colors: [
                                     Color.white.opacity(highlightOpacity * 0.92),
-                                    Color.white.opacity(baseOpacity * 0.85),
-                                    Color.white.opacity(0.05)
+                                    Color.white.opacity(baseOpacity * 0.90),
+                                    Color.white.opacity(0.06)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -265,41 +277,45 @@ private extension View {
                     }
                     .glassEffect(
                         .regular
-                            .tint(Color.white.opacity(tintOpacity)),
+                            .tint(glassTint.opacity(tintOpacity)),
                         in: shape
                     )
                     .overlay {
-                        shape
-                            .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.5)
+                        if showsBorder {
+                            shape
+                                .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.0)
+                        }
                     }
                     .overlay(alignment: .top) {
                         shape
                             .stroke(
                                 LinearGradient(
                                     colors: [
-                                        Color.white.opacity(0.94),
-                                        Color.white.opacity(0.10)
+                                        Color.white.opacity(0.88),
+                                        Color.white.opacity(0.0)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 ),
                                 lineWidth: 1.0
                             )
+                            .opacity(showsBorder ? 1.0 : 0.78)
                     }
+                    .environment(\.colorScheme, .light)
             }
         } else {
             self
                 .background {
-                    shape.fill(Color.white.opacity(baseOpacity + 0.08))
+                    shape.fill(Color.white.opacity(baseOpacity + 0.12))
                 }
-                .background(.ultraThinMaterial, in: shape)
+                .background(.regularMaterial, in: shape)
                 .background {
                     shape.fill(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(highlightOpacity * 0.72),
-                                Color.white.opacity(baseOpacity),
-                                Color.white.opacity(0.08)
+                                glassTint.opacity(tintOpacity * 0.45),
+                                Color.white.opacity(highlightOpacity * 0.62),
+                                Color.white.opacity(0.10)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -307,23 +323,27 @@ private extension View {
                     )
                 }
                 .overlay {
-                    shape
-                        .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.5)
+                    if showsBorder {
+                        shape
+                            .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.0)
+                    }
                 }
                 .overlay(alignment: .top) {
                     shape
                         .stroke(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.92),
-                                    Color.white.opacity(0.10)
+                                    Color.white.opacity(0.84),
+                                    Color.white.opacity(0.0)
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             ),
                             lineWidth: 1.0
                         )
+                        .opacity(showsBorder ? 1.0 : 0.74)
                 }
+                .environment(\.colorScheme, .light)
         }
     }
 }
