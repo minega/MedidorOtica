@@ -204,16 +204,12 @@ struct CameraInstructions: View {
     // MARK: - Bloco visual
     private func instructionView(text: String) -> some View {
         Text(text)
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .appGlassSurface(cornerRadius: 22,
-                             borderOpacity: 0.62,
-                             tintOpacity: 0.16,
-                             interactive: false)
+            .font(.headline)
+            .foregroundColor(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.6))
+            .cornerRadius(10)
     }
 
     // MARK: - Distancia
@@ -296,26 +292,26 @@ struct VerificationMenu: View {
     @ObservedObject var verificationManager: VerificationManager
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .trailing, spacing: 4) {
             progressHeader()
             ForEach(verificationManager.verifications) { verification in
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text(verification.isChecked ? "OK" : verification.type.menuTitle)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
+                        .font(.caption)
+                        .foregroundColor(.white)
 
                     Circle()
                         .foregroundColor(verification.isChecked ? .green : .red)
-                        .frame(width: 9, height: 9)
+                        .frame(width: 8, height: 8)
                 }
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
-        .appGlassSurface(cornerRadius: 22,
-                         borderOpacity: 0.62,
-                         tintOpacity: 0.14,
-                         interactive: false)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(12)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.trailing, 20)
     }
 
     private func progressHeader() -> some View {
@@ -329,13 +325,13 @@ struct VerificationMenu: View {
 
         return HStack {
             Text("\(completedCount)/\(requiredCount)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
+                .font(.caption)
+                .foregroundColor(.white)
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 4)
                     .frame(width: 50, height: 8)
-                    .foregroundStyle(.white.opacity(0.24))
+                    .foregroundColor(.gray.opacity(0.5))
 
                 RoundedRectangle(cornerRadius: 4)
                     .frame(width: progressWidth, height: 8)

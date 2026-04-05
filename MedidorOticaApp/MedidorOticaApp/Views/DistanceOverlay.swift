@@ -15,14 +15,12 @@ struct DistanceOverlay: View {
     var body: some View {
         if verificationManager.faceDetected {
             Text(String(format: "%.1f cm ate o PC", verificationManager.lastMeasuredDistance))
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .appGlassSurface(cornerRadius: 16,
-                                 borderOpacity: 0.58,
-                                 tintOpacity: 0.14,
-                                 interactive: false)
+                .font(.headline)
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.6))
+                .cornerRadius(8)
         }
     }
 }

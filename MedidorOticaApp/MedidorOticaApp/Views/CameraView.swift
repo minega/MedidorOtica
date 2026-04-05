@@ -51,32 +51,10 @@ struct CameraView: View {
         showVerifications
     }
 
-    private var statusTitle: String {
-        if isProcessing {
-            return "Processando"
-        }
-
-        switch cameraManager.captureState {
-        case .stableReady:
-            return isAutoCaptureEnabled ? "Auto ativa" : "Pronto"
-        case .countdown:
-            return "Contagem"
-        case .capturing, .captured:
-            return "Capturando"
-        case .checking:
-            return "Ajustando"
-        case .error:
-            return "Atencao"
-        case .idle, .preparing:
-            return "Iniciando"
-        }
-    }
-
     // MARK: - View
     var body: some View {
         ZStack {
             previewLayer
-            previewChromeOverlay
             flashOverlay
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
@@ -101,7 +79,6 @@ struct CameraView: View {
         .onChange(of: isAutoCaptureEnabled, perform: handleAutoCaptureChange)
         .onChange(of: cameraManager.captureState, perform: handleCaptureStateChange)
         .onChange(of: showingResultView, perform: handleResultPresentationChange)
-        .ignoresSafeArea()
     }
 
     // MARK: - Preview
@@ -115,23 +92,6 @@ struct CameraView: View {
             }
         }
         .edgesIgnoringSafeArea(.all)
-    }
-
-    private var previewChromeOverlay: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [Color.black.opacity(0.42), Color.clear],
-                           startPoint: .top,
-                           endPoint: .bottom)
-                .frame(height: 180)
-
-            Spacer()
-
-            LinearGradient(colors: [Color.clear, Color.black.opacity(0.28), Color.black.opacity(0.62)],
-                           startPoint: .top,
-                           endPoint: .bottom)
-                .frame(height: 270)
-        }
-        .allowsHitTesting(false)
     }
 
     private var flashOverlay: some View {
@@ -153,27 +113,19 @@ struct CameraView: View {
     private var countdownOverlay: some View {
         Group {
             if countdownValue > 0 {
-                VStack(spacing: 10) {
-                    Text("OLHE PARA A CAMERA")
-                        .font(.system(size: 16, weight: .black, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(.white)
+                VStack(spacing: 16) {
+                    Text("Agora olhe para a camera")
+                        .font(.title2)
+                        .foregroundColor(.white)
 
-                    Text("Mantenha o iPhone parado")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.92))
+                    Text("Mantenha o celular parado")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
 
                     Text("\(countdownValue)")
-                        .font(.system(size: 76, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 72, weight: .bold))
+                        .foregroundColor(.white)
                 }
-                .padding(.horizontal, 26)
-                .padding(.vertical, 22)
-                .appGlassSurface(cornerRadius: 34,
-                                 borderOpacity: 0.72,
-                                 tintOpacity: 0.16,
-                                 interactive: false)
-                .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
             }
         }
     }
@@ -194,150 +146,81 @@ struct CameraView: View {
 
     // MARK: - Controles
     private var controlsOverlay: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 18) {
-                topBar
-                    .padding(.top, max(geometry.safeAreaInsets.top, 12))
+        VStack {
+            topBar
 
-                if shouldShowVerificationMenu {
-                    HStack {
-                        Spacer()
-                        VerificationMenu(verificationManager: verificationManager)
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-
-                Spacer(minLength: 12)
-
-                bottomGuidance
-                cameraDock
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom, 20))
+            if shouldShowVerificationMenu {
+                VerificationMenu(verificationManager: verificationManager)
             }
-            .padding(.horizontal, 18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            CameraInstructions(verificationManager: verificationManager,
+                               cameraManager: cameraManager)
+
+            Spacer()
+            captureButton
         }
     }
 
     private var topBar: some View {
-        ZStack {
+        HStack {
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+
             if showARStatusIndicator {
-                HStack(spacing: 10) {
-                    ARStatusIndicator(cameraManager: cameraManager,
-                                      verificationManager: verificationManager)
-
-                    Text(statusTitle)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .appGlassSurface(cornerRadius: 20,
-                                 borderOpacity: 0.62,
-                                 tintOpacity: 0.14,
-                                 interactive: false)
+                ARStatusIndicator(cameraManager: cameraManager,
+                                  verificationManager: verificationManager)
             }
 
-            HStack {
-                chromeButton(systemName: "xmark", tint: .white, action: dismiss.callAsFunction)
+            Spacer()
 
-                Spacer()
+            Button(action: { isAutoCaptureEnabled.toggle() }) {
+                Image(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle")
+                    .font(.title3)
+                    .foregroundColor(isAutoCaptureEnabled ? .green : .white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
 
-                chromeButton(systemName: showVerifications ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                             tint: .white,
-                             action: { showVerifications.toggle() })
+            Button(action: { cameraManager.toggleFlash() }) {
+                Image(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash")
+                    .font(.title3)
+                    .foregroundColor(cameraManager.isFlashOn ? .yellow : .white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
             }
         }
-    }
-
-    private var bottomGuidance: some View {
-        VStack(spacing: 12) {
-            CameraInstructions(verificationManager: verificationManager,
-                               cameraManager: cameraManager)
-
-            HStack(spacing: 10) {
-                statusBadge(title: isAutoCaptureEnabled ? "AUTO" : "MANUAL",
-                            symbol: isAutoCaptureEnabled ? "timer" : "hand.tap")
-                statusBadge(title: captureEnabled ? "PRONTO" : "AJUSTANDO",
-                            symbol: captureEnabled ? "checkmark.circle.fill" : "viewfinder")
-            }
-        }
-        .frame(maxWidth: 360)
-    }
-
-    private var cameraDock: some View {
-        HStack(spacing: 24) {
-            chromeButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
-                         tint: cameraManager.isFlashOn ? .yellow : .white,
-                         action: { cameraManager.toggleFlash() })
-
-            captureButton
-
-            chromeButton(systemName: isAutoCaptureEnabled ? "timer" : "timer.slash",
-                         tint: isAutoCaptureEnabled ? .green : .white,
-                         action: { isAutoCaptureEnabled.toggle() })
-        }
-        .frame(maxWidth: 360)
+        .padding()
+        .background(Color.black.opacity(0.3))
     }
 
     private var captureButton: some View {
         Button(action: capturePhoto) {
             ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(captureEnabled ? 0.96 : 0.58), lineWidth: 5)
-                    .frame(width: 88, height: 88)
-
-                Circle()
-                    .fill(captureEnabled ? Color.white : Color.white.opacity(0.46))
-                    .frame(width: 70, height: 70)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
-                    )
+                Capsule()
+                    .fill(captureEnabled ?
+                          AnyShapeStyle(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.purple]),
+                                                       startPoint: .leading,
+                                                       endPoint: .trailing)) :
+                            AnyShapeStyle(Color.gray))
+                    .frame(width: 140, height: 50)
+                    .shadow(color: .black.opacity(0.2), radius: 3)
 
                 if isProcessing {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .black.opacity(0.65)))
-                        .scaleEffect(1.15)
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.2)
+                } else {
+                    Text("Capturar")
+                        .font(.headline)
+                        .foregroundColor(.white)
                 }
             }
-            .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 8)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Capturar")
-    }
-
-    @ViewBuilder
-    private func chromeButton(systemName: String,
-                              tint: Color,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 54, height: 54)
-        }
-        .buttonStyle(.plain)
-        .appGlassSurface(cornerRadius: 18,
-                         borderOpacity: 0.72,
-                         tintOpacity: 0.14,
-                         interactive: true)
-    }
-
-    private func statusBadge(title: String, symbol: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.caption.weight(.bold))
-
-            Text(title)
-                .font(.caption.weight(.bold))
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .appGlassSurface(cornerRadius: 16,
-                         borderOpacity: 0.58,
-                         tintOpacity: 0.14,
-                         interactive: false)
     }
 
     // MARK: - Ciclo de vida
