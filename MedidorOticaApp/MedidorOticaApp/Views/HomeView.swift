@@ -18,7 +18,7 @@ struct HomeView: View {
     // MARK: - Tema
     private let titleColor = Color(red: 0.15, green: 0.18, blue: 0.28)
     private let primaryPink = Color(red: 0.98, green: 0.52, blue: 0.76)
-    private let primaryTextColor = Color(red: 0.40, green: 0.13, blue: 0.28)
+    private let primaryTextColor = Color.white
     private let secondaryTextColor = Color(red: 0.22, green: 0.28, blue: 0.39)
 
     // MARK: - View

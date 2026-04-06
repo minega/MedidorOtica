@@ -308,10 +308,17 @@ struct VerificationMenu: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
-        .background(Color.black.opacity(0.6))
-        .cornerRadius(12)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 18,
+                         borderOpacity: 0.16,
+                         tintOpacity: 0.12,
+                         tintColor: .white,
+                         variant: .regular,
+                         interactive: false,
+                         fallbackMaterial: .thinMaterial)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.trailing, 20)
+        .shadow(color: Color.black.opacity(0.16), radius: 16, x: 0, y: 10)
     }
 
     private func progressHeader() -> some View {

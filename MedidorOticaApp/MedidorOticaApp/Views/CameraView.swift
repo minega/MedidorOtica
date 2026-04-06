@@ -32,7 +32,6 @@ struct CameraView: View {
     @State private var notificationObservers: [NSObjectProtocol] = []
 
     private let showDistanceOverlay = true
-    private let showARStatusIndicator = true
 
 #if DEBUG
     private let showAlignmentDebugOverlay = true
@@ -151,6 +150,7 @@ struct CameraView: View {
 
             if shouldShowVerificationMenu {
                 VerificationMenu(verificationManager: verificationManager)
+                    .padding(.top, 8)
             }
 
             CameraInstructions(verificationManager: verificationManager,
@@ -162,40 +162,70 @@ struct CameraView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.title3)
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
-            }
-
-            if showARStatusIndicator {
-                ARStatusIndicator(cameraManager: cameraManager,
-                                  verificationManager: verificationManager)
+        HStack(alignment: .top) {
+            cameraTopButton(systemName: "xmark", foregroundColor: .white) {
+                dismiss()
             }
 
             Spacer()
 
-            Button(action: { isAutoCaptureEnabled.toggle() }) {
-                Image(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle")
-                    .font(.title3)
-                    .foregroundColor(isAutoCaptureEnabled ? .green : .white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
-            }
+            cameraTopControlGroup
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
 
-            Button(action: { cameraManager.toggleFlash() }) {
-                Image(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash")
-                    .font(.title3)
-                    .foregroundColor(cameraManager.isFlashOn ? .yellow : .white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
+    @ViewBuilder
+    private var cameraTopControlGroup: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
+                                    foregroundColor: isAutoCaptureEnabled ? Color(red: 0.35, green: 0.82, blue: 0.52) : .white) {
+                        isAutoCaptureEnabled.toggle()
+                    }
+
+                    cameraTopButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
+                                    foregroundColor: cameraManager.isFlashOn ? Color(red: 1.0, green: 0.87, blue: 0.34) : .white) {
+                        cameraManager.toggleFlash()
+                    }
+                }
+            }
+            .environment(\.colorScheme, .light)
+        } else {
+            HStack(spacing: 12) {
+                cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
+                                foregroundColor: isAutoCaptureEnabled ? Color(red: 0.35, green: 0.82, blue: 0.52) : .white) {
+                    isAutoCaptureEnabled.toggle()
+                }
+
+                cameraTopButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
+                                foregroundColor: cameraManager.isFlashOn ? Color(red: 1.0, green: 0.87, blue: 0.34) : .white) {
+                    cameraManager.toggleFlash()
+                }
             }
         }
-        .padding()
-        .background(Color.black.opacity(0.3))
+    }
+
+    private func cameraTopButton(systemName: String,
+                                 foregroundColor: Color,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 52, height: 52)
+        }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 26,
+                         borderOpacity: 0.18,
+                         tintOpacity: 0.16,
+                         tintColor: .white,
+                         variant: .regular,
+                         interactive: true,
+                         fallbackMaterial: .thinMaterial)
+        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 8)
     }
 
     private var captureButton: some View {
