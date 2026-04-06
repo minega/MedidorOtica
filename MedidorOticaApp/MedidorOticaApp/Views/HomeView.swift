@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  MedidorOticaApp
 //
-//  Tela inicial com botoes refeitos usando os estilos nativos de Liquid Glass.
+//  Tela inicial com Liquid Glass nativo, CTA central e historico flutuando no rodape.
 //
 
 import SwiftUI
@@ -17,7 +17,6 @@ struct HomeView: View {
 
     // MARK: - Tema
     private let titleColor = Color(red: 0.15, green: 0.18, blue: 0.28)
-    private let titlePlateStroke = Color.white.opacity(0.34)
     private let primaryPink = Color(red: 0.98, green: 0.52, blue: 0.76)
     private let primaryTextColor = Color(red: 0.40, green: 0.13, blue: 0.28)
     private let secondaryTextColor = Color(red: 0.22, green: 0.28, blue: 0.39)
@@ -42,31 +41,28 @@ struct HomeView: View {
 
 // MARK: - Layout
 private extension HomeView {
-    /// Mantem a composicao centralizada e com espaco para o CTA principal.
+    /// Mantem o CTA no centro e fixa o historico no rodape.
     var contentLayer: some View {
-        VStack(spacing: 0) {
-            Spacer()
-                .frame(height: 120)
-
-            titlePlaque
-
-            Spacer(minLength: 58)
-
-            buttonStack
-
-            Spacer(minLength: 36)
+        Group {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer(spacing: 28) {
+                    homeLayout
+                }
+                .environment(\.colorScheme, .light)
+            } else {
+                homeLayout
+            }
         }
-        .padding(.horizontal, 24)
     }
 
-    /// Fecha levemente o fundo para valorizar o vidro claro.
+    /// Fecha levemente o fundo e adiciona contraste local para o vidro aparecer.
     var backgroundView: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.90, green: 0.92, blue: 0.97),
-                    Color(red: 0.84, green: 0.89, blue: 0.95),
-                    Color(red: 0.88, green: 0.93, blue: 0.92)
+                    Color(red: 0.86, green: 0.89, blue: 0.95),
+                    Color(red: 0.80, green: 0.86, blue: 0.93),
+                    Color(red: 0.85, green: 0.90, blue: 0.90)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -77,6 +73,23 @@ private extension HomeView {
                 .frame(width: 420, height: 420)
                 .blur(radius: 58)
                 .offset(x: -125, y: -245)
+
+            RoundedRectangle(cornerRadius: 92, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.46),
+                            Color.cyan.opacity(0.12),
+                            primaryPink.opacity(0.16),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 400, height: 290)
+                .blur(radius: 82)
+                .offset(y: 94)
 
             Circle()
                 .fill(Color.cyan.opacity(0.14))
@@ -96,57 +109,77 @@ private extension HomeView {
                 .blur(radius: 92)
                 .offset(x: -150, y: 300)
 
+            RoundedRectangle(cornerRadius: 60, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.32),
+                            Color.white.opacity(0.08),
+                            primaryPink.opacity(0.12),
+                            Color.clear
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 330, height: 110)
+                .blur(radius: 58)
+                .offset(y: 336)
+
             Rectangle()
-                .fill(Color.black.opacity(0.05))
+                .fill(Color.black.opacity(0.10))
         }
     }
 }
 
 // MARK: - Components
 private extension HomeView {
-    /// Usa uma serif mais profissional sem aplicar Liquid Glass na camada de conteudo.
+    /// Mantem a organizacao principal e reserva espaco para o historico no rodape.
+    var homeLayout: some View {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: 134)
+
+                titlePlaque
+
+                Spacer(minLength: 64)
+
+                primaryActionButton
+
+                Spacer(minLength: 162)
+            }
+            .padding(.horizontal, 24)
+
+            historyButton
+                .padding(.horizontal, 24)
+                .padding(.bottom, 28)
+        }
+    }
+
+    /// Usa uma serif mais profissional com vidro branco real.
     @ViewBuilder
     var titlePlaque: some View {
-        Text("MEDIDOR OTICA")
-            .font(.system(size: 30, weight: .bold, design: .serif))
-            .tracking(2.4)
+        Text("MEDIDOR ÓTICA")
+            .font(.system(size: 31, weight: .black, design: .serif))
+            .tracking(2.8)
             .foregroundStyle(titleColor)
             .minimumScaleFactor(0.84)
             .lineLimit(1)
             .padding(.vertical, 18)
-            .padding(.horizontal, 28)
-            .background(
-                .regularMaterial,
-                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(titlePlateStroke, lineWidth: 1)
-            )
-            .shadow(color: Color.white.opacity(0.34), radius: 10, x: 0, y: -1)
-            .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
-    }
-
-    /// Agrupa os botoes para o sistema compor o vidro de forma consistente.
-    @ViewBuilder
-    var buttonStack: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 18) {
-                VStack(spacing: 20) {
-                    primaryActionButton
-                    historyButton
-                }
-            }
+            .padding(.horizontal, 30)
             .environment(\.colorScheme, .light)
-        } else {
-            VStack(spacing: 20) {
-                primaryActionButton
-                historyButton
-            }
-        }
+            .appGlassSurface(cornerRadius: 28,
+                             borderOpacity: 0.48,
+                             tintOpacity: 0.22,
+                             tintColor: .white,
+                             interactive: false,
+                             fallbackMaterial: .thinMaterial)
+            .shadow(color: Color.white.opacity(0.18), radius: 10, x: 0, y: -2)
+            .shadow(color: Color.black.opacity(0.06), radius: 20, x: 0, y: 14)
     }
 
-    /// Refaz o CTA apenas com o estilo nativo `glassProminent`.
+    /// Mantem o CTA principal com a base nativa de maior destaque.
     @ViewBuilder
     var primaryActionButton: some View {
         Button(action: openCamera) {
@@ -168,7 +201,7 @@ private extension HomeView {
         .shadow(color: primaryPink.opacity(0.18), radius: 24, x: 0, y: 16)
     }
 
-    /// Mantem o historico em um botao simples com o vidro padrao da Apple.
+    /// Posiciona o historico como um vidro discreto e mais transparente no rodape.
     @ViewBuilder
     var historyButton: some View {
         Button(action: openHistory) {
@@ -176,11 +209,18 @@ private extension HomeView {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(secondaryTextColor)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 62)
+                .frame(minHeight: 58)
                 .padding(.horizontal, 20)
         }
-        .homeSecondaryLiquidGlassStyle()
-        .frame(maxWidth: 340)
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 24,
+                         borderOpacity: 0.26,
+                         tintOpacity: 0.05,
+                         tintColor: .white,
+                         interactive: true,
+                         fallbackMaterial: .ultraThinMaterial)
+        .frame(maxWidth: 300)
     }
 }
 
@@ -211,21 +251,6 @@ private extension View {
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 32))
                 .tint(tint)
-        }
-    }
-
-    /// Aplica o estilo padrao de vidro da Apple para a acao secundaria.
-    @ViewBuilder
-    func homeSecondaryLiquidGlassStyle() -> some View {
-        if #available(iOS 26.0, *) {
-            self
-                .buttonStyle(.glass)
-                .buttonBorderShape(.roundedRectangle(radius: 24))
-                .environment(\.colorScheme, .light)
-        } else {
-            self
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 24))
         }
     }
 }

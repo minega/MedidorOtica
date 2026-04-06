@@ -11,6 +11,7 @@ private struct AppGlassSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
     let borderOpacity: Double
     let tintOpacity: Double
+    let tintColor: Color
     let interactive: Bool
     let fallbackMaterial: Material
 
@@ -20,7 +21,7 @@ private struct AppGlassSurfaceModifier: ViewModifier {
                 content
                     .glassEffect(
                         .regular
-                            .tint(.white.opacity(tintOpacity))
+                            .tint(tintColor.opacity(tintOpacity))
                             .interactive(),
                         in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     )
@@ -32,7 +33,7 @@ private struct AppGlassSurfaceModifier: ViewModifier {
                 content
                     .glassEffect(
                         .regular
-                            .tint(.white.opacity(tintOpacity)),
+                            .tint(tintColor.opacity(tintOpacity)),
                         in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     )
                     .overlay(
@@ -59,12 +60,14 @@ extension View {
     func appGlassSurface(cornerRadius: CGFloat = 28,
                          borderOpacity: Double = 0.58,
                          tintOpacity: Double = 0.18,
+                         tintColor: Color = .white,
                          interactive: Bool = true,
                          fallbackMaterial: Material = .ultraThinMaterial) -> some View {
         modifier(
             AppGlassSurfaceModifier(cornerRadius: cornerRadius,
                                     borderOpacity: borderOpacity,
                                     tintOpacity: tintOpacity,
+                                    tintColor: tintColor,
                                     interactive: interactive,
                                     fallbackMaterial: fallbackMaterial)
         )
