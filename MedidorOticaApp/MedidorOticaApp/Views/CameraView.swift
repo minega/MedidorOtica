@@ -162,51 +162,29 @@ struct CameraView: View {
     }
 
     private var topBar: some View {
-        ZStack(alignment: .top) {
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.60),
-                    Color.black.opacity(0.26),
-                    Color.clear
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 136)
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-
-            HStack(alignment: .top) {
-                cameraTopButton(systemName: "xmark",
-                                foregroundColor: .white,
-                                glassTint: Color.white.opacity(0.10)) {
-                    dismiss()
-                }
-
-                Spacer()
-
-                HStack(spacing: 12) {
-                    cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
-                                    foregroundColor: .white,
-                                    glassTint: Color.white.opacity(isAutoCaptureEnabled ? 0.16 : 0.10)) {
-                        isAutoCaptureEnabled.toggle()
-                    }
-
-                    cameraTopButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
-                                    foregroundColor: .white,
-                                    glassTint: Color.white.opacity(cameraManager.isFlashOn ? 0.16 : 0.10)) {
-                        cameraManager.toggleFlash()
-                    }
-                }
+        HStack {
+            cameraTopButton(systemName: "xmark", foregroundColor: .white) {
+                dismiss()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+
+            Spacer()
+
+            cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
+                            foregroundColor: isAutoCaptureEnabled ? .green : .white) {
+                isAutoCaptureEnabled.toggle()
+            }
+
+            cameraTopButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
+                            foregroundColor: cameraManager.isFlashOn ? .yellow : .white) {
+                cameraManager.toggleFlash()
+            }
         }
+        .padding()
+        .background(Color.black.opacity(0.3))
     }
 
     private func cameraTopButton(systemName: String,
                                  foregroundColor: Color,
-                                 glassTint: Color,
                                  action: @escaping () -> Void) -> some View {
         Group {
             if #available(iOS 26.0, *) {
@@ -214,27 +192,27 @@ struct CameraView: View {
                     Image(systemName: systemName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(foregroundColor)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 44, height: 44)
                         .contentShape(Circle())
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
-                .tint(glassTint)
+                .tint(Color.black.opacity(0.32))
                 .environment(\.colorScheme, .light)
-                .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 8)
+                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
             } else {
                 Button(action: action) {
                     Image(systemName: systemName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(foregroundColor)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.16))
+                        .fill(Color.black.opacity(0.60))
                 )
-                .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 8)
+                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
             }
         }
     }
