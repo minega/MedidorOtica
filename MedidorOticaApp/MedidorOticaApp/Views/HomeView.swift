@@ -170,13 +170,14 @@ private extension HomeView {
             .padding(.horizontal, 30)
             .environment(\.colorScheme, .light)
             .appGlassSurface(cornerRadius: 28,
-                             borderOpacity: 0.48,
-                             tintOpacity: 0.22,
+                             borderOpacity: 0.22,
+                             tintOpacity: 0.05,
                              tintColor: .white,
+                             variant: .clear,
                              interactive: false,
                              fallbackMaterial: .thinMaterial)
-            .shadow(color: Color.white.opacity(0.18), radius: 10, x: 0, y: -2)
-            .shadow(color: Color.black.opacity(0.06), radius: 20, x: 0, y: 14)
+            .shadow(color: Color.white.opacity(0.10), radius: 8, x: 0, y: -2)
+            .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 14)
     }
 
     /// Mantem o CTA principal com a base nativa de maior destaque.
@@ -215,9 +216,10 @@ private extension HomeView {
         .buttonStyle(.plain)
         .environment(\.colorScheme, .light)
         .appGlassSurface(cornerRadius: 24,
-                         borderOpacity: 0.26,
-                         tintOpacity: 0.05,
+                         borderOpacity: 0.12,
+                         tintOpacity: 0.015,
                          tintColor: .white,
+                         variant: .clear,
                          interactive: true,
                          fallbackMaterial: .ultraThinMaterial)
         .frame(maxWidth: 300)
@@ -244,7 +246,7 @@ private extension View {
             self
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 32))
-                .tint(tint)
+                .tint(tint.opacity(0.82))
                 .environment(\.colorScheme, .light)
         } else {
             self

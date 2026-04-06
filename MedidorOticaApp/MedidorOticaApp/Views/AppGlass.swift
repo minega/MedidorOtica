@@ -7,39 +7,56 @@
 
 import SwiftUI
 
+enum AppGlassVariant {
+    case regular
+    case clear
+}
+
 private struct AppGlassSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
     let borderOpacity: Double
     let tintOpacity: Double
     let tintColor: Color
+    let variant: AppGlassVariant
     let interactive: Bool
     let fallbackMaterial: Material
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            if interactive {
-                content
-                    .glassEffect(
-                        .regular
-                            .tint(tintColor.opacity(tintOpacity))
-                            .interactive(),
-                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.5)
-                    )
+            if variant == .clear {
+                if interactive {
+                    content
+                        .glassEffect(
+                            .clear
+                                .tint(tintColor.opacity(tintOpacity))
+                                .interactive(),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                } else {
+                    content
+                        .glassEffect(
+                            .clear
+                                .tint(tintColor.opacity(tintOpacity)),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                }
             } else {
-                content
-                    .glassEffect(
-                        .regular
-                            .tint(tintColor.opacity(tintOpacity)),
-                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(Color.white.opacity(borderOpacity), lineWidth: 1.3)
-                    )
+                if interactive {
+                    content
+                        .glassEffect(
+                            .regular
+                                .tint(tintColor.opacity(tintOpacity))
+                                .interactive(),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                } else {
+                    content
+                        .glassEffect(
+                            .regular
+                                .tint(tintColor.opacity(tintOpacity)),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        )
+                }
             }
         } else {
             content
@@ -61,6 +78,7 @@ extension View {
                          borderOpacity: Double = 0.58,
                          tintOpacity: Double = 0.18,
                          tintColor: Color = .white,
+                         variant: AppGlassVariant = .regular,
                          interactive: Bool = true,
                          fallbackMaterial: Material = .ultraThinMaterial) -> some View {
         modifier(
@@ -68,6 +86,7 @@ extension View {
                                     borderOpacity: borderOpacity,
                                     tintOpacity: tintOpacity,
                                     tintColor: tintColor,
+                                    variant: variant,
                                     interactive: interactive,
                                     fallbackMaterial: fallbackMaterial)
         )
