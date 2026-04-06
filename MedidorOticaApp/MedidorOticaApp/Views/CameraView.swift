@@ -186,60 +186,52 @@ struct CameraView: View {
     private func cameraTopButton(systemName: String,
                                  foregroundColor: Color,
                                  action: @escaping () -> Void) -> some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                Button(action: action) {
-                    Image(systemName: systemName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(foregroundColor)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .tint(Color.black.opacity(0.32))
-                .environment(\.colorScheme, .light)
-                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
-            } else {
-                Button(action: action) {
-                    Image(systemName: systemName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(foregroundColor)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    Circle()
-                        .fill(Color.black.opacity(0.60))
-                )
-                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
-            }
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 22,
+                         borderOpacity: 0.14,
+                         tintOpacity: 0.32,
+                         tintColor: .black,
+                         variant: .regular,
+                         interactive: true,
+                         fallbackMaterial: .thinMaterial)
+        .clipShape(Circle())
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
     }
 
     private var captureButton: some View {
         Button(action: capturePhoto) {
             ZStack {
-                Capsule()
-                    .fill(captureEnabled ?
-                          AnyShapeStyle(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.purple]),
-                                                       startPoint: .leading,
-                                                       endPoint: .trailing)) :
-                            AnyShapeStyle(Color.gray))
-                    .frame(width: 140, height: 50)
-                    .shadow(color: .black.opacity(0.2), radius: 3)
-
                 if isProcessing {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.2)
+                        .scaleEffect(1.1)
                 } else {
                     Text("Capturar")
                         .font(.headline)
                         .foregroundColor(.white)
                 }
             }
+            .frame(width: 140, height: 50)
         }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 25,
+                         borderOpacity: 0.16,
+                         tintOpacity: captureEnabled ? 0.28 : 0.18,
+                         tintColor: .black,
+                         variant: .regular,
+                         interactive: captureEnabled,
+                         fallbackMaterial: .thinMaterial)
+        .opacity(captureEnabled ? 1 : 0.84)
+        .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 6)
     }
 
     // MARK: - Ciclo de vida

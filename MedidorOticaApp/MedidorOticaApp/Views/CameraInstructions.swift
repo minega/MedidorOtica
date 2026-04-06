@@ -208,8 +208,15 @@ struct CameraInstructions: View {
             .foregroundColor(.white)
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(10)
+            .environment(\.colorScheme, .light)
+            .appGlassSurface(cornerRadius: 12,
+                             borderOpacity: 0.14,
+                             tintOpacity: 0.24,
+                             tintColor: .black,
+                             variant: .regular,
+                             interactive: false,
+                             fallbackMaterial: .thinMaterial)
+            .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
     }
 
     // MARK: - Distancia
