@@ -71,7 +71,7 @@ enum HeadAxisAdjustment: Equatable, Sendable {
         }
     }
 
-    var axis: CameraGuidanceAxis {
+    fileprivate var axis: CameraGuidanceAxis {
         switch self {
         case .pitchUp, .pitchDown:
             return .pitch
@@ -82,7 +82,7 @@ enum HeadAxisAdjustment: Equatable, Sendable {
         }
     }
 
-    var direction: CameraGuidanceDirection {
+    fileprivate var direction: CameraGuidanceDirection {
         switch self {
         case .pitchUp:
             return .up
@@ -95,7 +95,7 @@ enum HeadAxisAdjustment: Equatable, Sendable {
         }
     }
 
-    var magnitude: Float {
+    fileprivate var magnitude: Float {
         switch self {
         case .rollLeft(let value),
              .rollRight(let value),
