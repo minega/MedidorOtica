@@ -18,11 +18,14 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - A câmera frontal só pode medir com `TrueDepth` ativo.
 - A captura frontal deve continuar válida entre `30 cm` e `40 cm`.
 - O tamanho do rosto no oval é apenas guia visual; não pode bloquear a captura.
+- A captura automática precisa ser instantânea no primeiro bloco curto de frames perfeitos; não pode haver countdown.
 - A malha útil do `TrueDepth` deve ser usada inteira, sem downsampling agressivo no cálculo final.
 - O `PC.y` deve ficar sempre na média da altura das pupilas.
 - O `PC.x` não pode ser dominado pela ponta do nariz.
 - A pós-captura não pode cair para uma escala global simplificada em `mm/pixel`.
 - A `DNP longe` não pode usar tabela fixa.
+- O frame final da foto não pode reutilizar verificação, calibração ou fallback de outro frame.
+- A `DNP validada` precisa convergir entre `DNP nariz` e `DNP ponte`.
 
 ## Arquivos críticos
 
@@ -33,7 +36,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
   Monta a foto final, salva a calibração final, persiste o `PC` da captura e o snapshot ocular 3D.
 - `MedidorOticaApp/MedidorOticaApp/Managers/CaptureReadinessEngine.swift`
-  Decide se a captura está pronta no frame atual.
+  Decide se a captura está pronta no frame atual usando `8` frames válidos, gap máximo `0,12 s` e frame final fresco em `0,10 s`.
 - `MedidorOticaApp/MedidorOticaApp/Managers/VerificationManager.swift`
   Coordena rosto, distância, centralização e alinhamento.
 
@@ -85,6 +88,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - Segundo sinal: simetria pupilar da própria foto.
 - Terceiro sinal: dorso/ponte do nariz, apenas como refinamento fraco.
 - A ponta do nariz não pode ser a referência dominante.
+- `DNP nariz` e `DNP ponte` precisam convergir; quando divergirem acima da tolerância, a captura deve ser tratada como inconsistente.
 
 ## Como a escala deve funcionar
 
@@ -97,6 +101,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - `DNP perto` é sempre medida no plano do `PC`.
 - O valor monocular sai da distância horizontal entre o centro da pupila e o `PC`.
 - `OD` e `OE` não precisam ser iguais; assimetria pode ser real.
+- O valor oficial final deve nascer da convergência entre `DNP nariz` e `DNP ponte`.
 
 ## Como a `DNP longe` deve funcionar
 

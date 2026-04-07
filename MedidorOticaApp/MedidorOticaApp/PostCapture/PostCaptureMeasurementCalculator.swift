@@ -104,12 +104,15 @@ struct PostCaptureMeasurementCalculator {
                                                        centralPoint: centralPoint,
                                                        scale: scale,
                                                        eyeGeometry: eyeGeometrySnapshot)
+        let validatedReference = PostCaptureDNPReference(rightNear: rightSummary.dnp,
+                                                         leftNear: leftSummary.dnp,
+                                                         rightFar: farDNP.rightDNPFar,
+                                                         leftFar: farDNP.leftDNPFar)
 
         let metrics = PostCaptureMetrics(rightEye: rightSummary,
                                          leftEye: leftSummary,
                                          ponte: ponte,
-                                         rightDNPFar: farDNP.rightDNPFar,
-                                         leftDNPFar: farDNP.leftDNPFar,
+                                         validatedDNP: validatedReference,
                                          farDNPConfidence: farDNP.confidence,
                                          farDNPConfidenceReason: farDNP.confidenceReason)
         try validatePlausibility(of: metrics)

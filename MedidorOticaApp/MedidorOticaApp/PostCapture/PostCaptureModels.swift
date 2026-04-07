@@ -210,47 +210,90 @@ struct EyeMeasurementSummary: Codable, Equatable {
     var alturaPupilar: Double
 }
 
+/// Referencia monocular completa de DNP perto/longe.
+struct PostCaptureDNPReference: Codable, Equatable {
+    var rightNear: Double
+    var leftNear: Double
+    var rightFar: Double
+    var leftFar: Double
+
+    var totalNear: Double {
+        rightNear + leftNear
+    }
+
+    var totalFar: Double {
+        rightFar + leftFar
+    }
+}
+
 /// Informações finais derivadas do fluxo pós-captura.
 struct PostCaptureMetrics: Codable, Equatable {
     var rightEye: EyeMeasurementSummary
     var leftEye: EyeMeasurementSummary
     var ponte: Double
-    var rightDNPFar: Double
-    var leftDNPFar: Double
+    var validatedDNP: PostCaptureDNPReference
+    var noseDNP: PostCaptureDNPReference
+    var bridgeDNP: PostCaptureDNPReference
+    var dnpConverged: Bool
+    var dnpConvergenceToleranceMM: Double
+    var dnpConvergenceReason: String?
     var farDNPConfidence: Double
     var farDNPConfidenceReason: String?
+
+    /// Mantem compatibilidade com a UI que ainda le a DNP longe principal por olho.
+    var rightDNPFar: Double { validatedDNP.rightFar }
+    /// Mantem compatibilidade com a UI que ainda le a DNP longe principal por olho.
+    var leftDNPFar: Double { validatedDNP.leftFar }
 
     /// Inicializa o resumo final preservando compatibilidade com históricos antigos.
     init(rightEye: EyeMeasurementSummary,
          leftEye: EyeMeasurementSummary,
          ponte: Double,
-         rightDNPFar: Double? = nil,
-         leftDNPFar: Double? = nil,
+         validatedDNP: PostCaptureDNPReference? = nil,
+         noseDNP: PostCaptureDNPReference? = nil,
+         bridgeDNP: PostCaptureDNPReference? = nil,
+         dnpConverged: Bool = true,
+         dnpConvergenceToleranceMM: Double = 0.5,
+         dnpConvergenceReason: String? = nil,
          farDNPConfidence: Double = 0,
          farDNPConfidenceReason: String? = nil) {
         self.rightEye = rightEye
         self.leftEye = leftEye
         self.ponte = ponte
-        self.rightDNPFar = rightDNPFar ?? rightEye.dnp
-        self.leftDNPFar = leftDNPFar ?? leftEye.dnp
+        let defaultReference = PostCaptureDNPReference(rightNear: rightEye.dnp,
+                                                       leftNear: leftEye.dnp,
+                                                       rightFar: rightEye.dnp,
+                                                       leftFar: leftEye.dnp)
+        self.validatedDNP = validatedDNP ?? defaultReference
+        self.noseDNP = noseDNP ?? self.validatedDNP
+        self.bridgeDNP = bridgeDNP ?? self.validatedDNP
+        self.dnpConverged = dnpConverged
+        self.dnpConvergenceToleranceMM = dnpConvergenceToleranceMM
+        self.dnpConvergenceReason = dnpConvergenceReason
         self.farDNPConfidence = farDNPConfidence
         self.farDNPConfidenceReason = farDNPConfidenceReason
     }
 
     /// Retorna a DNP total de perto somando OD e OE.
     var distanciaPupilarTotal: Double {
-        rightEye.dnp + leftEye.dnp
+        validatedDNP.totalNear
     }
 
     /// Retorna a DNP total equivalente para longe.
     var distanciaPupilarTotalFar: Double {
-        rightDNPFar + leftDNPFar
+        validatedDNP.totalFar
     }
 
     private enum CodingKeys: String, CodingKey {
         case rightEye
         case leftEye
         case ponte
+        case validatedDNP
+        case noseDNP
+        case bridgeDNP
+        case dnpConverged
+        case dnpConvergenceToleranceMM
+        case dnpConvergenceReason
         case rightDNPFar
         case leftDNPFar
         case farDNPConfidence
@@ -262,16 +305,31 @@ struct PostCaptureMetrics: Codable, Equatable {
         let rightEye = try container.decode(EyeMeasurementSummary.self, forKey: .rightEye)
         let leftEye = try container.decode(EyeMeasurementSummary.self, forKey: .leftEye)
         let ponte = try container.decode(Double.self, forKey: .ponte)
+        let validatedDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .validatedDNP)
+        let noseDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .noseDNP)
+        let bridgeDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .bridgeDNP)
+        let dnpConverged = try container.decodeIfPresent(Bool.self, forKey: .dnpConverged) ?? true
+        let dnpConvergenceToleranceMM = try container.decodeIfPresent(Double.self, forKey: .dnpConvergenceToleranceMM) ?? 0.5
+        let dnpConvergenceReason = try container.decodeIfPresent(String.self, forKey: .dnpConvergenceReason)
         let rightDNPFar = try container.decodeIfPresent(Double.self, forKey: .rightDNPFar)
         let leftDNPFar = try container.decodeIfPresent(Double.self, forKey: .leftDNPFar)
         let farDNPConfidence = try container.decodeIfPresent(Double.self, forKey: .farDNPConfidence) ?? 0
         let farDNPConfidenceReason = try container.decodeIfPresent(String.self, forKey: .farDNPConfidenceReason)
 
+        let fallbackReference = PostCaptureDNPReference(rightNear: rightEye.dnp,
+                                                        leftNear: leftEye.dnp,
+                                                        rightFar: rightDNPFar ?? rightEye.dnp,
+                                                        leftFar: leftDNPFar ?? leftEye.dnp)
+
         self.init(rightEye: rightEye,
                   leftEye: leftEye,
                   ponte: ponte,
-                  rightDNPFar: rightDNPFar,
-                  leftDNPFar: leftDNPFar,
+                  validatedDNP: validatedDNP ?? fallbackReference,
+                  noseDNP: noseDNP,
+                  bridgeDNP: bridgeDNP,
+                  dnpConverged: dnpConverged,
+                  dnpConvergenceToleranceMM: dnpConvergenceToleranceMM,
+                  dnpConvergenceReason: dnpConvergenceReason,
                   farDNPConfidence: farDNPConfidence,
                   farDNPConfidenceReason: farDNPConfidenceReason)
     }
@@ -281,8 +339,14 @@ struct PostCaptureMetrics: Codable, Equatable {
         try container.encode(rightEye, forKey: .rightEye)
         try container.encode(leftEye, forKey: .leftEye)
         try container.encode(ponte, forKey: .ponte)
-        try container.encode(rightDNPFar, forKey: .rightDNPFar)
-        try container.encode(leftDNPFar, forKey: .leftDNPFar)
+        try container.encode(validatedDNP, forKey: .validatedDNP)
+        try container.encode(noseDNP, forKey: .noseDNP)
+        try container.encode(bridgeDNP, forKey: .bridgeDNP)
+        try container.encode(dnpConverged, forKey: .dnpConverged)
+        try container.encode(dnpConvergenceToleranceMM, forKey: .dnpConvergenceToleranceMM)
+        try container.encodeIfPresent(dnpConvergenceReason, forKey: .dnpConvergenceReason)
+        try container.encode(validatedDNP.rightFar, forKey: .rightDNPFar)
+        try container.encode(validatedDNP.leftFar, forKey: .leftDNPFar)
         try container.encode(farDNPConfidence, forKey: .farDNPConfidence)
         try container.encodeIfPresent(farDNPConfidenceReason, forKey: .farDNPConfidenceReason)
     }
@@ -352,15 +416,15 @@ extension PostCaptureMetrics {
                                singleValue: nil,
                                totalValue: nil),
             SummaryMetricEntry(id: "dnpPerto",
-                               title: "DNP perto",
-                               rightValue: rightEye.dnp,
-                               leftValue: leftEye.dnp,
+                               title: dnpConverged ? "DNP validada perto" : "DNP validada perto (revise)",
+                               rightValue: validatedDNP.rightNear,
+                               leftValue: validatedDNP.leftNear,
                                singleValue: nil,
                                totalValue: distanciaPupilarTotal),
             SummaryMetricEntry(id: "dnpLonge",
-                               title: farDNPConfidence < 0.65 ? "DNP longe (conf. baixa)" : "DNP longe",
-                               rightValue: rightDNPFar,
-                               leftValue: leftDNPFar,
+                               title: farDNPConfidence < 0.65 ? "DNP validada longe (conf. baixa)" : "DNP validada longe",
+                               rightValue: validatedDNP.rightFar,
+                               leftValue: validatedDNP.leftFar,
                                singleValue: nil,
                                totalValue: distanciaPupilarTotalFar),
             SummaryMetricEntry(id: "alturaPupilar",
@@ -411,6 +475,9 @@ extension PostCaptureMetrics {
 
         lines.append("Valores em mm — OD / OE / total")
         lines.append(contentsOf: compactSummaryLines())
+        if let dnpConvergenceReason, !dnpConverged {
+            lines.append("Obs. PC: \(dnpConvergenceReason)")
+        }
         if let farDNPConfidenceReason, farDNPConfidence < 0.65 {
             lines.append("Obs.: \(farDNPConfidenceReason)")
         }

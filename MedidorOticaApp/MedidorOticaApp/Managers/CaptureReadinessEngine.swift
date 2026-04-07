@@ -12,9 +12,9 @@ import Foundation
 /// A calibracao final continua sendo validada no frame real da captura.
 final class CaptureReadinessEngine {
     // MARK: - Configuracao
-    static let defaultStableSampleCount = 6
-    static let defaultMaximumFrameGap: TimeInterval = 0.35
-    static let defaultMaximumCaptureAge: TimeInterval = 0.25
+    static let defaultStableSampleCount = 8
+    static let defaultMaximumFrameGap: TimeInterval = 0.12
+    static let defaultMaximumCaptureAge: TimeInterval = 0.10
 
     private let requiredStableSampleCount: Int
     private let maximumFrameGap: TimeInterval

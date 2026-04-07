@@ -275,6 +275,14 @@ struct PostCaptureFlowView: View {
             if let metrics = viewModel.metrics {
                 SummaryMetricsSection(metrics: metrics)
 
+                if let convergenceReason = metrics.dnpConvergenceReason,
+                   !metrics.dnpConverged {
+                    Text("Obs. PC: \(convergenceReason)")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 if let confidenceReason = metrics.farDNPConfidenceReason,
                    metrics.farDNPConfidence < 0.65 {
                     Text("Obs.: \(confidenceReason)")
@@ -609,7 +617,7 @@ private struct DNPCandidateSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Comparacao de DNP")
+            Text("Comparação nariz / ponte")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.65))
 

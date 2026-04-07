@@ -337,6 +337,13 @@ private extension VerificationManager {
                                                       worldToCamera: worldToCamera,
                                                       midlineThreshold: midlineThreshold)
 
+        if let robustBand = robustBridgeMeasurementCandidate(from: midlineSamples,
+                                                             targetPoint: targetPoint,
+                                                             verticalTolerance: verticalTolerance,
+                                                             horizontalTolerance: horizontalTolerance) {
+            return robustBand
+        }
+
         if let interpolated = interpolatedBridgeMeasurementCandidate(from: midlineSamples,
                                                                      targetPoint: targetPoint,
                                                                      verticalTolerance: verticalTolerance,
@@ -400,6 +407,46 @@ private extension VerificationManager {
                                                             y: CGFloat(projected.y)),
                                          localX: vertex.x)
         }
+    }
+
+    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
+    func robustBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                          targetPoint: CGPoint,
+                                          verticalTolerance: CGFloat,
+                                          horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let bandSamples = samples.filter { sample in
+            abs(sample.projected.y - targetPoint.y) <= verticalTolerance
+        }
+        guard bandSamples.count >= 4 else { return nil }
+
+        let sortedX = bandSamples.map(\.projected.x).sorted()
+        let medianX = median(of: sortedX)
+        let horizontalDistance = abs(medianX - targetPoint.x)
+        guard horizontalDistance <= horizontalTolerance else { return nil }
+
+        let supportSamples = bandSamples.filter { sample in
+            abs(sample.projected.x - medianX) <= horizontalTolerance
+        }
+        guard !supportSamples.isEmpty else { return nil }
+
+        var weightedCamera = SIMD3<Float>(repeating: 0)
+        var totalWeight: CGFloat = 0
+        for sample in supportSamples {
+            let verticalDistance = abs(sample.projected.y - targetPoint.y)
+            let xDistance = abs(sample.projected.x - medianX)
+            let weight = 1 / max((verticalDistance * 8) + (xDistance * 6) + 1, 1)
+            weightedCamera += sample.camera * Float(weight)
+            totalWeight += weight
+        }
+
+        guard totalWeight > 0 else { return nil }
+        let averagedCamera = weightedCamera / Float(totalWeight)
+        let penalty = (horizontalDistance * horizontalDistance * 0.20) +
+            CGFloat(abs(averagedCamera.x)) * 800
+
+        return (camera: averagedCamera,
+                projected: CGPoint(x: medianX, y: targetPoint.y),
+                distance: penalty)
     }
 
     /// Interpola o dorso do nariz exatamente na altura media das pupilas.
@@ -507,5 +554,15 @@ private extension VerificationManager {
         let deltaX = first.x - second.x
         let deltaY = first.y - second.y
         return (deltaX * deltaX) + (deltaY * deltaY)
+    }
+
+    /// Retorna a mediana de uma lista ordenada de valores.
+    func median(of sortedValues: [CGFloat]) -> CGFloat {
+        guard !sortedValues.isEmpty else { return 0 }
+        let middle = sortedValues.count / 2
+        if sortedValues.count.isMultiple(of: 2) {
+            return (sortedValues[middle - 1] + sortedValues[middle]) * 0.5
+        }
+        return sortedValues[middle]
     }
 }

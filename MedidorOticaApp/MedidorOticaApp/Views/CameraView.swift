@@ -19,8 +19,6 @@ struct CameraView: View {
 
     // MARK: - Estado de UI
     @State private var isAutoCaptureEnabled = true
-    @State private var countdownValue = 0
-    @State private var countdownTimer: Timer?
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedPhoto: CapturedPhoto?
@@ -57,7 +55,6 @@ struct CameraView: View {
             flashOverlay
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
-            countdownOverlay
             debugOverlay
             controlsOverlay
         }
@@ -105,26 +102,6 @@ struct CameraView: View {
                             showFlash = false
                         }
                     }
-            }
-        }
-    }
-
-    private var countdownOverlay: some View {
-        Group {
-            if countdownValue > 0 {
-                VStack(spacing: 16) {
-                    Text("Agora olhe para a camera")
-                        .font(.title2)
-                        .foregroundColor(.white)
-
-                    Text("Mantenha o celular parado")
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.9))
-
-                    Text("\(countdownValue)")
-                        .font(.system(size: 72, weight: .bold))
-                        .foregroundColor(.white)
-                }
             }
         }
     }
@@ -241,7 +218,6 @@ struct CameraView: View {
     }
 
     private func handleDisappear() {
-        cancelCountdown(refreshState: false)
         cameraManager.stop()
         cameraInitialized = false
         notificationObservers.forEach { observer in
@@ -252,26 +228,23 @@ struct CameraView: View {
 
     private func handleAutoCaptureChange(_ isEnabled: Bool) {
         if isEnabled {
-            attemptAutoCountdown()
-        } else {
-            cancelCountdown()
+            attemptAutoCapture()
         }
     }
 
     private func handleCaptureStateChange(_ state: CameraCaptureState) {
         switch state {
         case .stableReady:
-            attemptAutoCountdown()
+            attemptAutoCapture()
         case .countdown:
             break
         case .capturing, .captured, .checking(_), .error(_), .idle, .preparing:
-            cancelCountdown(refreshState: false)
+            break
         }
     }
 
     private func handleResultPresentationChange(_ isShowing: Bool) {
         if isShowing {
-            cancelCountdown(refreshState: false)
             cameraManager.stop()
             cameraInitialized = false
             return
@@ -447,7 +420,6 @@ struct CameraView: View {
             return
         }
 
-        cancelCountdown(refreshState: false)
         impactGenerator.impactOccurred()
         isProcessing = true
         showFlash = true
@@ -509,40 +481,16 @@ struct CameraView: View {
         return cameraManager.captureHint
     }
 
-    // MARK: - Contagem automatica
-    private func attemptAutoCountdown() {
+    // MARK: - Captura automatica
+    private func attemptAutoCapture() {
         guard isAutoCaptureEnabled else { return }
         guard cameraManager.captureState == .stableReady else { return }
-        guard countdownTimer == nil else { return }
-        startCountdown()
-    }
-
-    private func startCountdown() {
-        guard isAutoCaptureEnabled else { return }
-        cancelCountdown(refreshState: false)
-        countdownValue = 3
-        cameraManager.setCountdownActive(true)
-
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
-                                              repeats: true) { timer in
-            if countdownValue > 1 {
-                countdownValue -= 1
-                return
-            }
-
-            timer.invalidate()
-            countdownTimer = nil
-            countdownValue = 0
+        guard !isProcessing else { return }
+        DispatchQueue.main.async {
+            guard isAutoCaptureEnabled else { return }
+            guard cameraManager.captureState == .stableReady else { return }
+            guard !isProcessing else { return }
             capturePhoto()
-        }
-    }
-
-    private func cancelCountdown(refreshState: Bool = true) {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        countdownValue = 0
-        if refreshState {
-            cameraManager.setCountdownActive(false)
         }
     }
 }

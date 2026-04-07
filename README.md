@@ -15,7 +15,7 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 - Ajuste manual com barras arrastáveis para medir largura, altura, ponte, DNP e altura pupilar.
 - Resultado final com `DNP perto` e `DNP longe` a partir da mesma captura, sem tabela fixa.
 - Tela final exibe resumo completo, permite compartilhar e salvar/editar medições no histórico.
-- Captura automática com contagem regressiva após todas as verificações básicas, com opção de desativar pelo botão "timer".
+- Captura automática instantânea no primeiro bloco curto de frames perfeitos, sem contagem regressiva, com opção de desativar pelo botão "timer".
 - A calibração local usa a malha útil completa do TrueDepth, ponto a ponto, para reduzir deformações de perspectiva.
 - Todas as verificações utilizam as revisões mais recentes do Vision.
 - Correção da orientação e do recorte ao salvar a foto.
@@ -36,7 +36,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
 - Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
-- As verificações de rosto, distância (`30-40 cm`), centralização e alinhamento (`±2°`) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+- As verificações de rosto, distância (`30-40 cm`), centralização (`X ±0,10 cm`, `Y ±0,15 cm`) e alinhamento (`yaw/roll ±0,8°`, `pitch ±1,0°`) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
 - A DNP de longe usa a mesma captura com geometria ocular 3D do `TrueDepth`; ela nunca depende de tabela populacional fixa.
 
 ## Invariantes de Precisao
@@ -46,6 +46,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 - O `PC` do pós-captura deve usar `Y` na média das pupilas e `X` corrigido pela linha média facial com suporte do `TrueDepth`.
 - A captura frontal deve continuar válida entre `30 cm` e `40 cm` usando a profundidade real do plano do `PC`, nunca o tamanho do rosto no oval.
 - A `DNP longe` deve ser calculada pela mesma captura, usando vergência ocular e geometria 3D real, sem tabela fixa.
+- A `DNP validada` deve nascer da convergência entre `DNP nariz` e `DNP ponte`; divergência acima da tolerância indica captura inconsistente.
 - As variações de `DNP` exibidas no resumo servem para auditoria do eixo `X`; diferenças grandes entre elas indicam que o `PC` precisa ser revisto.
 - Mudanças nesses pontos devem vir acompanhadas de atualização da documentação e de testes de regressão.
 

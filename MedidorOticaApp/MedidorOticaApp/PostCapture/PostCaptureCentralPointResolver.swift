@@ -21,15 +21,15 @@ struct PostCaptureCentralPointResolver {
 
     private enum Constants {
         /// Mantem a ponte apenas como refinamento quando ela concorda com a simetria facial.
-        static let bridgeToleranceRatio: CGFloat = 0.03
+        static let bridgeToleranceRatio: CGFloat = 0.02
         /// Evita tolerancias pequenas demais em rostos muito estreitos.
-        static let minimumTolerance: CGFloat = 0.008
-        /// Mantem a linha principal mais fiel ao eixo optico das pupilas.
+        static let minimumTolerance: CGFloat = 0.006
+        /// Mantem a linha principal fiel a banda optica do rosto.
+        static let medianLineWeight: CGFloat = 3
+        /// A simetria pupilar corrige fino sem dominar sozinha o PC.
         static let pupilWeight: CGFloat = 2
-        /// A linha mediana so ajuda quando as pupilas nao conseguem estabilizar o eixo.
-        static let medianLineWeight: CGFloat = 1
         /// A ponte refina sem voltar a dominar o PC.
-        static let bridgeBlendFactor: CGFloat = 0.25
+        static let bridgeBlendFactor: CGFloat = 0.15
     }
 
     // MARK: - Interface principal
@@ -88,14 +88,21 @@ struct PostCaptureCentralPointResolver {
     private static func resolvedTwoDimensionalBaseline(faceMidlineX: CGFloat,
                                                        pupilMidlineX: CGFloat?,
                                                        medianLineX: CGFloat?) -> CGFloat? {
+        if let medianLineX {
+            if let pupilMidlineX {
+                let weightedMedian = medianLineX * Constants.medianLineWeight
+                let weightedPupil = pupilMidlineX * Constants.pupilWeight
+                return (weightedMedian + weightedPupil + faceMidlineX) /
+                    (Constants.medianLineWeight + Constants.pupilWeight + 1)
+            }
+
+            return ((medianLineX * Constants.medianLineWeight) + faceMidlineX) /
+                (Constants.medianLineWeight + 1)
+        }
+
         if let pupilMidlineX {
             return ((pupilMidlineX * Constants.pupilWeight) + faceMidlineX) /
                 (Constants.pupilWeight + 1)
-        }
-
-        if let medianLineX {
-            return ((medianLineX * Constants.medianLineWeight) + faceMidlineX) /
-                (Constants.medianLineWeight + 1)
         }
 
         return faceMidlineX

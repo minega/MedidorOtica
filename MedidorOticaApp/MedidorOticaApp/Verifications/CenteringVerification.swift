@@ -22,8 +22,12 @@ extension VerificationManager {
 
     // MARK: - Constantes
     private enum CenteringConstants {
-        /// Tolerancia de 0,35 cm convertida para metros.
-        static let tolerance: Float = 0.0035
+        /// Tolerancia horizontal mais rigida para reduzir erro na DNP.
+        static let horizontalTolerance: Float = 0.0010
+        /// Tolerancia vertical mais rigida para manter a camera na altura do PC.
+        static let verticalTolerance: Float = 0.0015
+        /// O eixo X do PC exige a mesma rigidez horizontal.
+        static let centralPointTolerance: Float = horizontalTolerance
 
         struct FaceIndices {
             static let noseTip = 9
@@ -218,9 +222,9 @@ extension VerificationManager {
     // MARK: - Avaliacao
     /// Avalia se o rosto esta centralizado com base nas metricas calculadas.
     private func evaluateCentering(using metrics: FaceCenteringMetrics) -> Bool {
-        let isHorizontallyAligned = abs(metrics.horizontal) < CenteringConstants.tolerance
-        let isVerticallyAligned = abs(metrics.vertical) < CenteringConstants.tolerance
-        let isNoseAligned = abs(metrics.noseAlignment) < CenteringConstants.tolerance
+        let isHorizontallyAligned = abs(metrics.horizontal) < CenteringConstants.horizontalTolerance
+        let isVerticallyAligned = abs(metrics.vertical) < CenteringConstants.verticalTolerance
+        let isNoseAligned = abs(metrics.noseAlignment) < CenteringConstants.centralPointTolerance
         let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
 
         updateCenteringUI(horizontalOffset: metrics.horizontal,

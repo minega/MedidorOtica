@@ -23,16 +23,6 @@ extension CameraManager {
         static let retryDelay: TimeInterval = 0.08
     }
 
-    private enum DepthAnchoredCalibrationConstants {
-        /// Faixa util de mm por pixel para o fallback ancorado no plano do PC.
-        static let allowedMMPerPixelRange: ClosedRange<Double> = 0.01...0.35
-    }
-
-    private enum CaptureVerificationReuseConstants {
-        /// Janela curta para reaproveitar a ultima verificacao valida durante a captura.
-        static let maximumAge: TimeInterval = 0.45
-    }
-
     private struct CaptureCalibrationBundle {
         let global: PostCaptureCalibration
         let local: LocalFaceScaleCalibration
@@ -108,8 +98,7 @@ extension CameraManager {
         }
 
         guard resolveCaptureEvaluation(for: frame) != nil else {
-            let staleFrame = !captureReadinessEngine.isFrameFresh(frame.timestamp) &&
-                recentSuccessfulVerification(referenceTimestamp: frame.timestamp) == nil
+            let staleFrame = !captureReadinessEngine.isFrameFresh(frame.timestamp)
             return .failure(staleFrame ? .staleFrame : .sessionNotReady)
         }
 
@@ -119,33 +108,17 @@ extension CameraManager {
                                             uiOrientation: VerificationManager.shared.currentUIOrientation()))
     }
 
-    /// Resolve a avaliacao usada na captura, aceitando uma verificacao recente
-    /// quando o frame atual oscila por um instante.
+    /// Resolve a avaliacao usada na captura final.
+    /// A foto so pode sair do frame atual, sem reaproveitar verificacoes antigas.
     private func resolveCaptureEvaluation(for frame: ARFrame) -> VerificationFrameEvaluation? {
-        let recentEvaluation = recentSuccessfulVerification(referenceTimestamp: frame.timestamp)
         let directEvaluation = VerificationManager.shared.evaluationForCapture(frame)
         if directEvaluation.allChecksPassed {
             handleVerificationEvaluation(directEvaluation)
             return directEvaluation
         }
 
-        guard let recentEvaluation else {
-            handleVerificationEvaluation(directEvaluation)
-            return nil
-        }
-
-        handleVerificationEvaluation(recentEvaluation)
-        return recentEvaluation
-    }
-
-    /// Reaproveita a ultima verificacao valida por uma janela curta para evitar
-    /// falhas intermitentes entre o toque e o frame efetivo da foto.
-    private func recentSuccessfulVerification(referenceTimestamp: TimeInterval) -> VerificationFrameEvaluation? {
-        let evaluation = lastVerificationEvaluation
-        guard evaluation.allChecksPassed else { return nil }
-        let age = abs(referenceTimestamp - evaluation.timestamp)
-        guard age <= CaptureVerificationReuseConstants.maximumAge else { return nil }
-        return evaluation
+        handleVerificationEvaluation(directEvaluation)
+        return nil
     }
 
     /// Renderiza a foto e resolve a calibracao final do frame escolhido.
@@ -411,53 +384,8 @@ extension CameraManager {
                                             local: localCalibration)
         }
 
-        if let refined = validCalibration(calibrationEstimator.refinedCalibration(for: frame,
-                                                                                  cropRect: cropRect,
-                                                                                  orientation: cgOrientation,
-                                                                                  uiOrientation: uiOrientation)) {
-            logCalibration(refined,
-                           cropRect: cropRect,
-                           frameTimestamp: frame.timestamp,
-                           label: "OK Calibracao TrueDepth refinada")
-            return CaptureCalibrationBundle(global: refined,
-                                            local: .empty)
-        }
-
-        if let instant = validCalibration(calibrationEstimator.instantCalibration(for: frame,
-                                                                                  cropRect: cropRect,
-                                                                                  orientation: cgOrientation,
-                                                                                  uiOrientation: uiOrientation)) {
-            logCalibration(instant,
-                           cropRect: cropRect,
-                           frameTimestamp: frame.timestamp,
-                           label: "OK Calibracao TrueDepth imediata")
-            return CaptureCalibrationBundle(global: instant,
-                                            local: .empty)
-        }
-
-        if let reused = recentSuccessfulCalibration(referenceTimestamp: frame.timestamp) {
-            logCalibration(reused,
-                           cropRect: cropRect,
-                           frameTimestamp: frame.timestamp,
-                           label: "INFO Calibracao TrueDepth reutilizada")
-            return CaptureCalibrationBundle(global: reused,
-                                            local: .empty)
-        }
-
-        if let depthAnchored = buildDepthAnchoredCalibration(from: frame,
-                                                             faceAnchor: faceAnchor,
-                                                             cropRect: cropRect,
-                                                             cgOrientation: cgOrientation) {
-            logCalibration(depthAnchored,
-                           cropRect: cropRect,
-                           frameTimestamp: frame.timestamp,
-                           label: "OK Calibracao ancorada no plano do PC")
-            return CaptureCalibrationBundle(global: depthAnchored,
-                                            local: .empty)
-        }
-
         logCalibrationFailure(code: 301,
-                              message: "Nao foi possivel obter calibracao confiavel no frame atual.")
+                              message: "A malha local do frame atual nao ficou confiavel para a foto.")
         return nil
     }
 
@@ -475,71 +403,6 @@ extension CameraManager {
     /// Valida a calibracao antes de permitir o uso no resumo final.
     private func validCalibration(_ calibration: PostCaptureCalibration?) -> PostCaptureCalibration? {
         guard let calibration, calibration.isReliable else { return nil }
-        return calibration
-    }
-
-    /// Cria uma calibracao de fallback usando profundidade real do PC e intrinsics da camera.
-    private func buildDepthAnchoredCalibration(from frame: ARFrame,
-                                               faceAnchor: ARFaceAnchor,
-                                               cropRect: CGRect,
-                                               cgOrientation: CGImagePropertyOrientation) -> PostCaptureCalibration? {
-        guard let reference = VerificationManager.shared.trueDepthMeasurementReference(faceAnchor: faceAnchor,
-                                                                                       frame: frame) else {
-            return nil
-        }
-
-        let depthMeters = Double(abs(reference.pcCameraPosition.z))
-        guard depthMeters.isFinite, depthMeters > 0 else { return nil }
-
-        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
-                                         orientation: cgOrientation)
-        guard focal.fx > 0, focal.fy > 0 else { return nil }
-
-        let horizontalMMPerPixel = depthMeters * 1000.0 / focal.fx
-        let verticalMMPerPixel = depthMeters * 1000.0 / focal.fy
-        guard isValidDepthAnchoredScale(horizontalMMPerPixel),
-              isValidDepthAnchoredScale(verticalMMPerPixel) else {
-            return nil
-        }
-
-        let horizontalReference = horizontalMMPerPixel * Double(cropRect.width)
-        let verticalReference = verticalMMPerPixel * Double(cropRect.height)
-        let calibration = PostCaptureCalibration(horizontalReferenceMM: horizontalReference,
-                                                 verticalReferenceMM: verticalReference)
-        return calibration.isReliable ? calibration : nil
-    }
-
-    /// Valida a escala milimetrica derivada da profundidade do PC.
-    private func isValidDepthAnchoredScale(_ mmPerPixel: Double) -> Bool {
-        mmPerPixel.isFinite &&
-        DepthAnchoredCalibrationConstants.allowedMMPerPixelRange.contains(mmPerPixel)
-    }
-
-    /// Resolve os focais orientados no mesmo referencial da imagem final da captura.
-    private func orientedFocalLengths(from intrinsics: simd_float3x3,
-                                      orientation: CGImagePropertyOrientation) -> (fx: Double, fy: Double) {
-        let rawFX = Double(intrinsics.columns.0.x)
-        let rawFY = Double(intrinsics.columns.1.y)
-        return isRotatedCaptureOrientation(orientation) ? (rawFY, rawFX) : (rawFX, rawFY)
-    }
-
-    /// Informa se a orientacao final troca largura e altura em relacao ao sensor bruto.
-    private func isRotatedCaptureOrientation(_ orientation: CGImagePropertyOrientation) -> Bool {
-        switch orientation {
-        case .left, .leftMirrored, .right, .rightMirrored:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Reutiliza a ultima calibracao valida apenas quando ela ainda e recente.
-    private func recentSuccessfulCalibration(referenceTimestamp: TimeInterval) -> PostCaptureCalibration? {
-        guard let calibration = lastSuccessfulCalibration, calibration.isReliable else { return nil }
-        guard let timestamp = lastSuccessfulCalibrationTimestamp else { return nil }
-        let age = abs(referenceTimestamp - timestamp)
-        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.25
-        guard age <= maximumAge else { return nil }
         return calibration
     }
 

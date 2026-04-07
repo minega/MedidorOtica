@@ -225,7 +225,7 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Informa se a captura esta liberada pelo pipeline.
     var isCaptureReady: Bool {
-        captureState == .stableReady || captureState == .countdown
+        captureState == .stableReady
     }
 
     /// Marca o pipeline como em preparacao.
@@ -236,17 +236,10 @@ final class CameraManager: NSObject, ObservableObject {
                         progress: 0)
     }
 
-    /// Atualiza o estado de contagem regressiva da captura automatica.
+    /// Mantido apenas por compatibilidade; a captura automatica agora e instantanea.
     func setCountdownActive(_ isActive: Bool) {
         guard captureState != .capturing, captureState != .captured else { return }
-
-        if isActive {
-            setCaptureState(.countdown,
-                            hint: "Mantenha a posicao.",
-                            progress: 1)
-        } else {
-            updateCaptureReadiness()
-        }
+        if isActive { updateCaptureReadiness() }
     }
 
     /// Marca o inicio da captura real da foto.
@@ -348,9 +341,8 @@ final class CameraManager: NSObject, ObservableObject {
     private func applyReadiness(_ status: CaptureReadinessStatus,
                                 calibrationHint: String?) {
         if status.isStableReady {
-            let nextState: CameraCaptureState = captureState == .countdown ? .countdown : .stableReady
-            setCaptureState(nextState,
-                            hint: "Continue olhando para a tela. Na contagem, olhe para a camera.",
+            setCaptureState(.stableReady,
+                            hint: "Mantenha a posicao. Captura automatica imediata.",
                             progress: 1)
             return
         }

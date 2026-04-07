@@ -192,7 +192,14 @@ final class PostCaptureViewModel: ObservableObject {
             self.faceBounds = storedConfiguration.faceBounds
             self.facePreview = preview.image
             self.previewBounds = preview.bounds
-            self.dnpCandidates = self.makeDNPCandidates()
+            if let storedMetrics = self.baseMeasurement?.postCaptureMetrics {
+                self.dnpCandidates = self.makeDNPCandidates(noseReference: storedMetrics.noseDNP,
+                                                            bridgeReference: storedMetrics.bridgeDNP,
+                                                            farConfidence: storedMetrics.farDNPConfidence,
+                                                            farConfidenceReason: storedMetrics.farDNPConfidenceReason)
+            } else {
+                self.dnpCandidates = self.makeDNPCandidates()
+            }
             self.isProcessing = false
             self.errorMessage = nil
         }
@@ -370,18 +377,43 @@ final class PostCaptureViewModel: ObservableObject {
         if !scale.isReliable,
            let baseMeasurement,
            let baseMetrics = baseMeasurement.postCaptureMetrics,
-           baseMeasurement.postCaptureConfiguration == configuration {
+            baseMeasurement.postCaptureConfiguration == configuration {
             metrics = baseMetrics
+            dnpCandidates = makeDNPCandidates(noseReference: baseMetrics.noseDNP,
+                                              bridgeReference: baseMetrics.bridgeDNP,
+                                              farConfidence: baseMetrics.farDNPConfidence,
+                                              farConfidenceReason: baseMetrics.farDNPConfidenceReason)
             return
         }
 
-        // Utiliza a calculadora dedicada para garantir que todas as medidas usem a calibração correta.
-        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
-                                                         centralPoint: configuration.centralPoint,
-                                                         scale: scale,
-                                                         eyeGeometrySnapshot: eyeGeometrySnapshot)
-        metrics = try calculator.makeMetrics()
-        dnpCandidates = makeDNPCandidates()
+        let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
+        let nosePoint = candidates.faceMidline.clamped()
+        let bridgePoint = candidates.bridge.clamped()
+
+        let noseMetrics = try makeMetrics(for: nosePoint)
+        let bridgeMetrics = try makeMetrics(for: bridgePoint)
+        let convergence = evaluateDNPConvergence(nose: noseMetrics.validatedDNP,
+                                                 bridge: bridgeMetrics.validatedDNP)
+        let validatedPoint = makeValidatedCentralPoint(nosePoint: nosePoint,
+                                                       bridgePoint: bridgePoint,
+                                                       converged: convergence.isConverged)
+        let validatedMetrics = try makeMetrics(for: validatedPoint)
+        let validatedReference = convergence.isConverged ?
+            averagedReference(nose: noseMetrics.validatedDNP,
+                              bridge: bridgeMetrics.validatedDNP) :
+            noseMetrics.validatedDNP
+        let validatedSummary = makeValidatedSummary(from: validatedMetrics,
+                                                    validatedReference: validatedReference,
+                                                    noseReference: noseMetrics.validatedDNP,
+                                                    bridgeReference: bridgeMetrics.validatedDNP,
+                                                    convergence: convergence)
+
+        configuration = configurationForCentralPoint(validatedPoint)
+        metrics = validatedSummary
+        dnpCandidates = makeDNPCandidates(noseReference: noseMetrics.validatedDNP,
+                                          bridgeReference: bridgeMetrics.validatedDNP,
+                                          farConfidence: validatedSummary.farDNPConfidence,
+                                          farConfidenceReason: validatedSummary.farDNPConfidenceReason)
     }
 
     // MARK: - Construção de Measurement
@@ -513,45 +545,149 @@ final class PostCaptureViewModel: ObservableObject {
         )
     }
 
-    private func makeDNPCandidates() -> [PostCaptureDNPCandidate] {
+    private func makeDNPCandidates(noseReference: PostCaptureDNPReference? = nil,
+                                   bridgeReference: PostCaptureDNPReference? = nil,
+                                   farConfidence: Double? = nil,
+                                   farConfidenceReason: String? = nil) -> [PostCaptureDNPCandidate] {
         let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
         return [
-            makeDNPCandidate(id: "bridge", title: "DNP ponte", point: candidates.bridge),
-            makeDNPCandidate(id: "faceMidline", title: "DNP meio do rosto", point: candidates.faceMidline),
-            makeDNPCandidate(id: "pupilMidline", title: "DNP media das pupilas", point: candidates.pupilMidline)
+            makeDNPCandidate(id: "nose",
+                             title: "DNP nariz",
+                             point: candidates.faceMidline,
+                             reference: noseReference,
+                             farConfidence: farConfidence,
+                             farConfidenceReason: farConfidenceReason),
+            makeDNPCandidate(id: "bridge",
+                             title: "DNP ponte",
+                             point: candidates.bridge,
+                             reference: bridgeReference,
+                             farConfidence: farConfidence,
+                             farConfidenceReason: farConfidenceReason)
         ]
     }
 
     private func makeDNPCandidate(id: String,
                                   title: String,
-                                  point: NormalizedPoint) -> PostCaptureDNPCandidate {
-        let rightY = (configuration.rightEye.pupil.y + point.y) * 0.5
-        let leftY = (configuration.leftEye.pupil.y + point.y) * 0.5
-        let rightDNPNear = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
-                                                                            and: point.x,
-                                                                            at: rightY))
-        let leftDNPNear = sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
-                                                                           and: point.x,
-                                                                           at: leftY))
-        let farDNP = PostCaptureFarDNPResolver.resolve(rightPupilNear: configuration.rightEye.pupil,
-                                                       leftPupilNear: configuration.leftEye.pupil,
-                                                       centralPoint: point,
-                                                       scale: scale,
-                                                       eyeGeometry: eyeGeometrySnapshot)
+                                  point: NormalizedPoint,
+                                  reference: PostCaptureDNPReference?,
+                                  farConfidence: Double?,
+                                  farConfidenceReason: String?) -> PostCaptureDNPCandidate {
+        let resolvedFarDNP = PostCaptureFarDNPResolver.resolve(rightPupilNear: configuration.rightEye.pupil,
+                                                               leftPupilNear: configuration.leftEye.pupil,
+                                                               centralPoint: point,
+                                                               scale: scale,
+                                                               eyeGeometry: eyeGeometrySnapshot)
+        let resolvedReference = reference ?? PostCaptureDNPReference(
+            rightNear: sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
+                                                                        and: point.x,
+                                                                        at: midpoint(configuration.rightEye.pupil.y, point.y))),
+            leftNear: sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
+                                                                       and: point.x,
+                                                                       at: midpoint(configuration.leftEye.pupil.y, point.y))),
+            rightFar: resolvedFarDNP.rightDNPFar,
+            leftFar: resolvedFarDNP.leftDNPFar
+        )
         return PostCaptureDNPCandidate(id: id,
                                        title: title,
                                        point: point,
-                                       rightDNPNear: rightDNPNear,
-                                       leftDNPNear: leftDNPNear,
-                                       rightDNPFar: farDNP.rightDNPFar,
-                                       leftDNPFar: farDNP.leftDNPFar,
-                                       farConfidence: farDNP.confidence,
-                                       farConfidenceReason: farDNP.confidenceReason)
+                                       rightDNPNear: resolvedReference.rightNear,
+                                       leftDNPNear: resolvedReference.leftNear,
+                                       rightDNPFar: resolvedReference.rightFar,
+                                       leftDNPFar: resolvedReference.leftFar,
+                                       farConfidence: farConfidence ?? resolvedFarDNP.confidence,
+                                       farConfidenceReason: farConfidenceReason ?? resolvedFarDNP.confidenceReason)
     }
 
     private func sanitizedMillimeters(_ value: Double) -> Double {
         guard value.isFinite, value >= 0 else { return 0 }
         let precision = 0.01
         return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
+    }
+
+    private func makeMetrics(for centralPoint: NormalizedPoint) throws -> PostCaptureMetrics {
+        let resolvedConfiguration = configurationForCentralPoint(centralPoint)
+        let calculator = PostCaptureMeasurementCalculator(configuration: resolvedConfiguration,
+                                                         centralPoint: resolvedConfiguration.centralPoint,
+                                                         scale: scale,
+                                                         eyeGeometrySnapshot: eyeGeometrySnapshot)
+        return try calculator.makeMetrics()
+    }
+
+    private func configurationForCentralPoint(_ centralPoint: NormalizedPoint) -> PostCaptureConfiguration {
+        let clampedPoint = centralPoint.clamped()
+        return PostCaptureConfiguration(centralPoint: clampedPoint,
+                                        rightEye: configuration.rightEye.normalized(centralX: clampedPoint.x),
+                                        leftEye: configuration.leftEye.normalized(centralX: clampedPoint.x),
+                                        faceBounds: configuration.faceBounds)
+    }
+
+    private func makeValidatedCentralPoint(nosePoint: NormalizedPoint,
+                                           bridgePoint: NormalizedPoint,
+                                           converged: Bool) -> NormalizedPoint {
+        guard converged else { return nosePoint.clamped() }
+        return NormalizedPoint(x: midpoint(nosePoint.x, bridgePoint.x),
+                               y: midpoint(nosePoint.y, bridgePoint.y)).clamped()
+    }
+
+    private func averagedReference(nose: PostCaptureDNPReference,
+                                   bridge: PostCaptureDNPReference) -> PostCaptureDNPReference {
+        PostCaptureDNPReference(rightNear: sanitizedMillimeters((nose.rightNear + bridge.rightNear) * 0.5),
+                                leftNear: sanitizedMillimeters((nose.leftNear + bridge.leftNear) * 0.5),
+                                rightFar: sanitizedMillimeters((nose.rightFar + bridge.rightFar) * 0.5),
+                                leftFar: sanitizedMillimeters((nose.leftFar + bridge.leftFar) * 0.5))
+    }
+
+    private func makeValidatedSummary(from metrics: PostCaptureMetrics,
+                                      validatedReference: PostCaptureDNPReference,
+                                      noseReference: PostCaptureDNPReference,
+                                      bridgeReference: PostCaptureDNPReference,
+                                      convergence: (isConverged: Bool, tolerance: Double, reason: String?)) -> PostCaptureMetrics {
+        let rightEye = EyeMeasurementSummary(horizontalMaior: metrics.rightEye.horizontalMaior,
+                                             verticalMaior: metrics.rightEye.verticalMaior,
+                                             dnp: validatedReference.rightNear,
+                                             alturaPupilar: metrics.rightEye.alturaPupilar)
+        let leftEye = EyeMeasurementSummary(horizontalMaior: metrics.leftEye.horizontalMaior,
+                                            verticalMaior: metrics.leftEye.verticalMaior,
+                                            dnp: validatedReference.leftNear,
+                                            alturaPupilar: metrics.leftEye.alturaPupilar)
+
+        return PostCaptureMetrics(rightEye: rightEye,
+                                  leftEye: leftEye,
+                                  ponte: metrics.ponte,
+                                  validatedDNP: validatedReference,
+                                  noseDNP: noseReference,
+                                  bridgeDNP: bridgeReference,
+                                  dnpConverged: convergence.isConverged,
+                                  dnpConvergenceToleranceMM: convergence.tolerance,
+                                  dnpConvergenceReason: convergence.reason,
+                                  farDNPConfidence: metrics.farDNPConfidence,
+                                  farDNPConfidenceReason: metrics.farDNPConfidenceReason)
+    }
+
+    private func evaluateDNPConvergence(nose: PostCaptureDNPReference,
+                                        bridge: PostCaptureDNPReference) -> (isConverged: Bool, tolerance: Double, reason: String?) {
+        let tolerance = 0.5
+        let differences = [
+            abs(nose.rightNear - bridge.rightNear),
+            abs(nose.leftNear - bridge.leftNear),
+            abs(nose.rightFar - bridge.rightFar),
+            abs(nose.leftFar - bridge.leftFar)
+        ]
+        let maximumDifference = differences.max() ?? 0
+        guard maximumDifference > tolerance else {
+            return (true, tolerance, nil)
+        }
+
+        let formattedDifference = PostCaptureMetrics.summaryNumberFormatter
+            .string(from: NSNumber(value: maximumDifference))
+            ?? String(format: "%.1f", maximumDifference)
+        return (false,
+                tolerance,
+                "Nariz e ponte divergiram \(formattedDifference) mm. Refaça a captura para validar a DNP.")
+    }
+
+    private func midpoint(_ first: CGFloat,
+                          _ second: CGFloat) -> CGFloat {
+        (first + second) * 0.5
     }
 }

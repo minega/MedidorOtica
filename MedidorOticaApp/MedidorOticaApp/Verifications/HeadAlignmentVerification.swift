@@ -12,8 +12,10 @@ import simd
 // MARK: - Verificacao 4
 extension VerificationManager {
     private enum HeadAlignmentConstants {
-        /// Tolerancia escolhida para manter a etapa estavel sem perder precisao.
-        static let toleranceDegrees: Float = 2.0
+        /// Tolerancias independentes para os tres eixos, priorizando a DNP.
+        static let rollToleranceDegrees: Float = 0.8
+        static let yawToleranceDegrees: Float = 0.8
+        static let pitchToleranceDegrees: Float = 1.0
     }
 
     /// Mede a pose atual da cabeca e informa se a etapa 4 esta liberada.
@@ -42,7 +44,9 @@ extension VerificationManager {
             }
 
             guard let snapshot else { continue }
-            let isAligned = snapshot.isAligned(tolerance: HeadAlignmentConstants.toleranceDegrees)
+            let isAligned = snapshot.isAligned(rollTolerance: HeadAlignmentConstants.rollToleranceDegrees,
+                                               yawTolerance: HeadAlignmentConstants.yawToleranceDegrees,
+                                               pitchTolerance: HeadAlignmentConstants.pitchToleranceDegrees)
             publishHeadPose(snapshot, isHeadAligned: isAligned)
             return (true, isAligned)
         }
@@ -190,9 +194,11 @@ extension VerificationManager {
 // MARK: - Helpers da pose
 private extension HeadPoseSnapshot {
     /// Indica se a pose esta alinhada dentro da tolerancia configurada.
-    func isAligned(tolerance: Float) -> Bool {
-        abs(rollDegrees) <= tolerance &&
-        abs(yawDegrees) <= tolerance &&
-        abs(pitchDegrees) <= tolerance
+    func isAligned(rollTolerance: Float,
+                   yawTolerance: Float,
+                   pitchTolerance: Float) -> Bool {
+        abs(rollDegrees) <= rollTolerance &&
+        abs(yawDegrees) <= yawTolerance &&
+        abs(pitchDegrees) <= pitchTolerance
     }
 }

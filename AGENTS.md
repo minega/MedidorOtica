@@ -29,11 +29,13 @@
 - Utilize sempre as APIs mais recentes, priorizando recursos de iOS 17 ou superior.
 - Ao usar `VNDetectFace*`, defina a revisão mais atual para obter melhores resultados.
 - A captura automática deve estar habilitada por padrão, mantendo um botão para que o usuário possa desativá-la.
+- A captura automática deve disparar imediatamente no primeiro bloco curto de frames perfeitos; não reintroduza countdown visual.
 
 ## Pós-captura
-- Calcule o Ponto Central (PC) usando o dorso do nariz no eixo X e a média da altura das pupilas no eixo Y.
+- Calcule o Ponto Central (PC) usando a linha média facial na banda óptica como base do eixo X, com ponte/dorso nasal apenas como refinamento quando houver convergência geométrica, e a média da altura das pupilas no eixo Y.
 - Posicione as barras nasais e temporais sempre a 9 mm e 60 mm do PC, respectivamente, respeitando o lado do olho ativo.
 - Mantenha a nitidez da imagem pós-captura ativando interpolação de alta qualidade em todas as exibições estáticas.
+- Sempre mantenha `DNP validada`, `DNP nariz` e `DNP ponte` coerentes; se nariz e ponte divergirem além da tolerância, trate a captura como inconsistente.
 
 ## Checks
 - Após alterações, execute `swift --version` apenas para validar o ambiente.

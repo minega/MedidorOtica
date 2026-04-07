@@ -9,22 +9,27 @@ import SwiftUI
 
 // MARK: - Construtor da instrucao da cabeca
 enum HeadPoseInstructionBuilder {
-    static let toleranceDegrees: Float = 2.0
+    static let rollToleranceDegrees: Float = 0.8
+    static let yawToleranceDegrees: Float = 0.8
+    static let pitchToleranceDegrees: Float = 1.0
 
     /// Escolhe um unico eixo por vez, seguindo a ordem pitch, yaw e roll.
     static func adjustment(from snapshot: HeadPoseSnapshot) -> HeadAxisAdjustment? {
-        if abs(snapshot.pitchDegrees) > toleranceDegrees {
-            let correction = displayedDegrees(from: snapshot.pitchDegrees)
+        if abs(snapshot.pitchDegrees) > pitchToleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.pitchDegrees,
+                                              tolerance: pitchToleranceDegrees)
             return snapshot.pitchDegrees > 0 ? .pitchUp(correction) : .pitchDown(correction)
         }
 
-        if abs(snapshot.yawDegrees) > toleranceDegrees {
-            let correction = displayedDegrees(from: snapshot.yawDegrees)
+        if abs(snapshot.yawDegrees) > yawToleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.yawDegrees,
+                                              tolerance: yawToleranceDegrees)
             return snapshot.yawDegrees > 0 ? .yawRight(correction) : .yawLeft(correction)
         }
 
-        if abs(snapshot.rollDegrees) > toleranceDegrees {
-            let correction = displayedDegrees(from: snapshot.rollDegrees)
+        if abs(snapshot.rollDegrees) > rollToleranceDegrees {
+            let correction = displayedDegrees(from: snapshot.rollDegrees,
+                                              tolerance: rollToleranceDegrees)
             return snapshot.rollDegrees > 0 ? .rollLeft(correction) : .rollRight(correction)
         }
 
@@ -32,8 +37,9 @@ enum HeadPoseInstructionBuilder {
     }
 
     /// Mostra apenas o quanto falta corrigir apos a tolerancia.
-    private static func displayedDegrees(from angle: Float) -> Float {
-        max(round(abs(angle) - toleranceDegrees), 1)
+    private static func displayedDegrees(from angle: Float,
+                                         tolerance: Float) -> Float {
+        max(round(abs(angle) - tolerance), 1)
     }
 }
 
@@ -90,7 +96,7 @@ struct CameraInstructions: View {
         case .preparing:
             return "📱 ⏳ Aguarde a camera abrir e estabilizar"
         case .countdown:
-            return "🙂 👀 Agora olhe para a camera sem mover o celular"
+            return "🙂 ✅ Mantenha a posicao. Captura automatica iniciando"
         case .capturing:
             return "📱 📸 Capturando a foto"
         case .captured:
@@ -100,7 +106,7 @@ struct CameraInstructions: View {
         case .checking(let reason):
             return instruction(for: reason)
         case .stableReady:
-            return "🙂 ✅ Continue olhando para a tela. Na contagem, olhe para a camera"
+            return "🙂 ✅ Mantenha a posição. Captura automática imediata"
         case .idle:
             return fallbackInstruction()
         }
@@ -148,7 +154,7 @@ struct CameraInstructions: View {
             return headAlignmentInstruction()
         }
 
-        return "🙂 ✅ Continue olhando para a tela. Na contagem, olhe para a camera"
+        return "🙂 ✅ Mantenha a posição para a captura automática"
     }
 
     private func instruction(for reason: CameraCaptureBlockReason) -> String {
@@ -170,7 +176,7 @@ struct CameraInstructions: View {
         case .calibrationUnavailable:
             return calibrationInstruction()
         case .unstableFrame:
-            return "📱 ⏳ Segure o celular sem girar nem aproximar por 1 segundo"
+            return "📱 ⏳ Segure o celular totalmente parado ate validar o frame"
         case .staleFrame:
             return "📱 ⏳ Aguarde a imagem atualizar antes da captura"
         }

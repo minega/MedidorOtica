@@ -15,11 +15,11 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 ## 🆕 Novidades
 
 - Verificações simplificadas focadas em rosto, distância, centralização pelo `PC` e alinhamento.
-- Captura automática com contagem regressiva quando todas as verificações estão verdes, podendo ser desativada pelo botão de timer.
+- Captura automática instantânea quando um bloco curto de frames perfeitos é confirmado, podendo ser desativada pelo botão de timer.
 - Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições.
 - A calibração local agora usa a malha útil completa do `TrueDepth`, ponto a ponto, para compensar deformações e perspectiva.
 - O `PC` final da pós-captura combina a geometria da foto com a linha média facial e o suporte 3D do `TrueDepth`.
-- O resultado final exibe `DNP perto` e `DNP longe` na mesma tela, calculadas a partir da mesma captura sem tabela fixa.
+- O resultado final exibe `DNP validada perto/longe`, `DNP nariz` e `DNP ponte` na mesma tela, calculadas a partir da mesma captura sem tabela fixa.
 
 ## 📂 Estrutura do Projeto
 
@@ -67,7 +67,7 @@ Esses arquivos concentram o que hoje define:
 - faixa de captura `30–40 cm`;
 - `PC` na captura e no pós-captura;
 - escala local ponto a ponto do `TrueDepth`;
-- `DNP perto` e `DNP longe`.
+- `DNP validada`, `DNP nariz` e `DNP ponte`.
 
 ## 🔍 Fluxo de Verificações
 
@@ -82,11 +82,11 @@ O aplicativo executa verificações em sequência para garantir medições preci
   - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
 
 3. **Centralização**
-   - Tolerância de ±0,35 cm
+   - Tolerância de `X ±0,10 cm` e `Y ±0,15 cm`
    - A câmera precisa ficar alinhada com o `PC`
 
 4. **Alinhamento da Cabeça**
-   - Tolerância de ±2,0°
+   - Tolerância de `yaw/roll ±0,8°` e `pitch ±1,0°`
    - Verifica `pitch`, `yaw` e `roll` com referência à câmera
 
 ## 🛠️ Requisitos Técnicos
@@ -108,9 +108,9 @@ O aplicativo executa verificações em sequência para garantir medições preci
 | Verificação | Tolerância |
 |-------------|------------|
 | Distância | 30-40cm |
-| Centralização | ±0,35cm |
-| Alinhamento | ±2,0° |
-| Estabilidade | 6 frames válidos seguidos |
+| Centralização | X ±0,10cm / Y ±0,15cm |
+| Alinhamento | yaw/roll ±0,8° / pitch ±1,0° |
+| Estabilidade | 8 frames válidos seguidos |
 
 ## 🔒 Invariantes de Precisão
 
@@ -121,6 +121,7 @@ O aplicativo executa verificações em sequência para garantir medições preci
   - eixo `X`: linha média facial corrigida pelo `TrueDepth`, usando o dorso do nariz apenas quando coerente com a simetria do rosto
 - A pós-captura deve preferir a geometria da própria foto, mas pode usar o `PC` 3D da captura como apoio quando ele concorda com a simetria facial.
 - A `DNP longe` deve ser derivada da mesma captura via geometria 3D dos olhos e deconvergência, nunca por tabela fixa.
+- A `DNP validada` precisa convergir entre `DNP nariz` e `DNP ponte`; divergência acima da tolerância deve ser tratada como captura inconsistente.
 - A faixa frontal `30-40 cm` é requisito funcional; mudanças futuras não podem voltar a bloquear por tamanho do rosto no oval.
 - Mudanças em calibração local, `PC` ou `DNP` exigem teste de regressão e atualização desta documentação.
 
@@ -128,9 +129,9 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 - `PC.y`: média da altura das pupilas.
 - `PC.x`: linha média facial na banda óptica, com simetria pupilar como reforço e ponte nasal apenas como refinamento fraco.
-- `DNP perto`: medida monocular no plano do `PC`.
+- `DNP validada`: medida final oficial após convergência entre nariz e ponte.
 - `DNP longe`: conversão geométrica da mesma captura, usando distância real do olho até a câmera, profundidade aparente da pupila e diferença angular entre o olhar capturado e o eixo frontal da face.
-- O resumo final mostra `DNP perto` e `DNP longe`, além das variantes auxiliares para auditoria do eixo `X`.
+- O resumo final mostra `DNP validada perto/longe`, `DNP nariz` e `DNP ponte` para auditoria do eixo `X`.
 
 ## 📏 Fluxo Pós-Captura
 
@@ -158,7 +159,7 @@ Após a captura, o aplicativo abre a etapa de pós-processamento com a imagem re
    - O usuário revisa e ajusta se necessário (apenas por garantia).
 
 6. **Resumo Final**
-   - A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, `DNP perto` (OD/OE/total), `DNP longe` (OD/OE/total) e altura pupilar (OD/OE).
+- A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, `DNP validada perto` (OD/OE/total), `DNP validada longe` (OD/OE/total), `DNP nariz`, `DNP ponte` e altura pupilar (OD/OE).
    - É possível compartilhar a composição ou salvar no histórico informando o nome do cliente.
    - Cada item salvo pode ser reaberto posteriormente para editar novamente as etapas.
 
