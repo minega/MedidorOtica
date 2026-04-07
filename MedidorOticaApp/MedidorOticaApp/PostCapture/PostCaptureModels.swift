@@ -10,7 +10,7 @@ import CoreGraphics
 
 // MARK: - Pontos Normalizados
 /// Representa um ponto no espaço da imagem utilizando coordenadas normalizadas (0...1).
-struct NormalizedPoint: Codable, Equatable {
+struct NormalizedPoint: Codable, Equatable, Sendable {
     var x: CGFloat
     var y: CGFloat
 

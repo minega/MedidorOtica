@@ -25,6 +25,7 @@ final class VerificationManager: ObservableObject {
     @Published var projectedFaceTooSmall = false
     @Published var projectedFaceWidthRatio: Float = 0.0
     @Published var projectedFaceHeightRatio: Float = 0.0
+    @Published var previewPupilPoints: [NormalizedPoint] = []
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
     @Published var headPoseSnapshot: HeadPoseSnapshot?
@@ -255,6 +256,7 @@ final class VerificationManager: ObservableObject {
         let trackingIsNormal = frame.camera.isTrackingNormal
         let faceAnchor = frame.anchors.compactMap { $0 as? ARFaceAnchor }.first
         let hasTrackedFaceAnchor = faceAnchor?.isTracked == true
+        let previewPupilPoints = makePreviewPupilPoints(faceAnchor: faceAnchor, frame: frame)
 
         let faceDetected = checkFaceDetection(using: frame)
         guard faceDetected else {
@@ -265,7 +267,8 @@ final class VerificationManager: ObservableObject {
                                                distanceCorrect: false,
                                                faceAligned: false,
                                                headPoseAvailable: false,
-                                               headAligned: false)
+                                               headAligned: false,
+                                               previewPupilPoints: previewPupilPoints)
         }
 
         let distanceCorrect = checkDistance(using: frame, faceAnchor: faceAnchor)
@@ -277,7 +280,8 @@ final class VerificationManager: ObservableObject {
                                                distanceCorrect: false,
                                                faceAligned: false,
                                                headPoseAvailable: false,
-                                               headAligned: false)
+                                               headAligned: false,
+                                               previewPupilPoints: previewPupilPoints)
         }
 
         let faceAligned = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
@@ -289,7 +293,8 @@ final class VerificationManager: ObservableObject {
                                                distanceCorrect: true,
                                                faceAligned: false,
                                                headPoseAvailable: false,
-                                               headAligned: false)
+                                               headAligned: false,
+                                               previewPupilPoints: previewPupilPoints)
         }
 
         let headAlignment = evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor)
@@ -300,7 +305,8 @@ final class VerificationManager: ObservableObject {
                                            distanceCorrect: true,
                                            faceAligned: true,
                                            headPoseAvailable: headAlignment.headPoseAvailable,
-                                           headAligned: headAlignment.isAligned)
+                                           headAligned: headAlignment.isAligned,
+                                           previewPupilPoints: previewPupilPoints)
     }
 
     private func apply(evaluation: VerificationFrameEvaluation) {
@@ -308,6 +314,7 @@ final class VerificationManager: ObservableObject {
         distanceCorrect = evaluation.distanceCorrect
         faceAligned = evaluation.faceAligned
         headAligned = evaluation.headAligned
+        previewPupilPoints = evaluation.previewPupilPoints
         latestEvaluation = evaluation
 
         if !evaluation.faceDetected {
@@ -318,6 +325,7 @@ final class VerificationManager: ObservableObject {
             headPoseSnapshot = nil
             alignmentData = [:]
             facePosition = [:]
+            previewPupilPoints = []
         } else if shouldClearHeadPose(for: evaluation) {
             headPoseSnapshot = nil
             alignmentData = [:]
@@ -376,6 +384,7 @@ final class VerificationManager: ObservableObject {
         headPoseSnapshot = nil
         alignmentData = [:]
         facePosition = [:]
+        previewPupilPoints = []
 
         var updated = verifications
         for index in updated.indices {

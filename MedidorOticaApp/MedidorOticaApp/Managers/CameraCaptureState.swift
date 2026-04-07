@@ -221,6 +221,7 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
     let faceAligned: Bool
     let headPoseAvailable: Bool
     let headAligned: Bool
+    let previewPupilPoints: [NormalizedPoint]
 
     /// Informa se todas as verificacoes principais ja passaram.
     var allChecksPassed: Bool {
@@ -241,7 +242,8 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
                                                    distanceCorrect: false,
                                                    faceAligned: false,
                                                    headPoseAvailable: false,
-                                                   headAligned: false)
+                                                   headAligned: false,
+                                                   previewPupilPoints: [])
 }
 
 // MARK: - Entrada e saida do motor de prontidao

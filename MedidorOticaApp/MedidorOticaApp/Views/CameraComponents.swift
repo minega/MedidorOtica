@@ -213,3 +213,28 @@ struct ProgressOval: View {
         }
     }
 }
+
+// MARK: - Overlay de pupila
+/// Overlay temporario para validar visualmente o centro projetado das pupilas no preview.
+struct PupilTrackingOverlay: View {
+    let pupilPoints: [NormalizedPoint]
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                ForEach(Array(pupilPoints.enumerated()), id: \.offset) { _, point in
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 12, height: 12)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                        )
+                        .position(point.absolute(in: geometry.size))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .allowsHitTesting(false)
+    }
+}
