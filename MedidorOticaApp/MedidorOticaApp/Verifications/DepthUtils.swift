@@ -74,36 +74,6 @@ extension VerificationManager {
         )
     }
 
-    /// Projeta os centros dos dois olhos diretamente no preview para depuracao visual.
-    func makePreviewPupilPoints(faceAnchor: ARFaceAnchor?,
-                                frame: ARFrame) -> [NormalizedPoint] {
-        guard let faceAnchor else { return [] }
-
-        let uiOrientation = currentUIOrientation()
-        let viewportSize = UIScreen.main.bounds.size
-        guard viewportSize.width > 0, viewportSize.height > 0 else { return [] }
-
-        let leftEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
-                                                                      faceAnchor.leftEyeTransform))
-        let rightEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
-                                                                       faceAnchor.rightEyeTransform))
-        let projectedPoints = [
-            frame.camera.projectPoint(leftEyeWorldPoint,
-                                      orientation: uiOrientation,
-                                      viewportSize: viewportSize),
-            frame.camera.projectPoint(rightEyeWorldPoint,
-                                      orientation: uiOrientation,
-                                      viewportSize: viewportSize)
-        ]
-
-        return projectedPoints.compactMap { projected in
-            guard projected.x.isFinite, projected.y.isFinite else { return nil }
-            return NormalizedPoint.fromAbsolute(CGPoint(x: CGFloat(projected.x),
-                                                        y: CGFloat(projected.y)),
-                                                size: viewportSize).clamped()
-        }
-    }
-
     // MARK: - Leitura de profundidade
     /// Retorna a profundidade em um ponto especifico do depth map.
     func depthValue(from depthMap: CVPixelBuffer, at point: CGPoint) -> Float? {

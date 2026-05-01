@@ -30,7 +30,6 @@ struct CameraView: View {
     @State private var notificationObservers: [NSObjectProtocol] = []
 
     private let showDistanceOverlay = true
-    private let showPupilTrackingOverlay = true
 
 #if DEBUG
     private let showAlignmentDebugOverlay = true
@@ -56,9 +55,6 @@ struct CameraView: View {
             flashOverlay
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
-            if showPupilTrackingOverlay {
-                PupilTrackingOverlay(pupilPoints: verificationManager.previewPupilPoints)
-            }
             debugOverlay
             controlsOverlay
         }
