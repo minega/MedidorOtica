@@ -49,6 +49,8 @@ final class PostCaptureViewModel: ObservableObject {
     /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
     @Published var previewBounds: NormalizedRect = NormalizedRect()
     @Published var dnpCandidates: [PostCaptureDNPCandidate] = []
+    @Published var bridgeReferenceText = ""
+    @Published var bridgeReferenceError: String?
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
@@ -83,6 +85,9 @@ final class PostCaptureViewModel: ObservableObject {
                                       localCalibration: self.localCalibration)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
+        if let bridgeReference = existingMeasurement?.postCaptureMetrics?.bridgeReferenceComparison?.requestedBridgeMM {
+            self.bridgeReferenceText = Self.formattedBridgeReference(bridgeReference)
+        }
         self.isProcessing = true
 
         Task { await prepareInitialState() }
@@ -378,7 +383,7 @@ final class PostCaptureViewModel: ObservableObject {
            let baseMeasurement,
            let baseMetrics = baseMeasurement.postCaptureMetrics,
             baseMeasurement.postCaptureConfiguration == configuration {
-            metrics = baseMetrics
+            metrics = try metricsApplyingBridgeReferenceIfNeeded(to: baseMetrics)
             dnpCandidates = makeDNPCandidates(noseReference: baseMetrics.noseDNP,
                                               bridgeReference: baseMetrics.bridgeDNP,
                                               farConfidence: baseMetrics.farDNPConfidence,
@@ -409,7 +414,7 @@ final class PostCaptureViewModel: ObservableObject {
                                                     convergence: convergence)
 
         configuration = configurationForCentralPoint(validatedPoint)
-        metrics = validatedSummary
+        metrics = try metricsApplyingBridgeReferenceIfNeeded(to: validatedSummary)
         dnpCandidates = makeDNPCandidates(noseReference: noseMetrics.validatedDNP,
                                           bridgeReference: bridgeMetrics.validatedDNP,
                                           farConfidence: validatedSummary.farDNPConfidence,
@@ -417,6 +422,24 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Construção de Measurement
+    /// Aplica a ponte real digitada e recalcula a comparacao proporcional.
+    func applyBridgeReferenceFromInput() throws {
+        if metrics == nil {
+            try finalizeMetrics()
+            return
+        }
+
+        guard let currentMetrics = metrics else { return }
+        metrics = try metricsApplyingBridgeReferenceIfNeeded(to: currentMetrics.removingBridgeReferenceComparison())
+    }
+
+    /// Remove a comparacao por ponte real do resumo atual.
+    func clearBridgeReferenceComparison() {
+        bridgeReferenceText = ""
+        bridgeReferenceError = nil
+        metrics = metrics?.removingBridgeReferenceComparison()
+    }
+
     func buildMeasurement(clientName: String, orderNumber: String) -> Measurement? {
         guard let metrics else { return nil }
         let trimmed = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -602,6 +625,43 @@ final class PostCaptureViewModel: ObservableObject {
         guard value.isFinite, value >= 0 else { return 0 }
         let precision = 0.01
         return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
+    }
+
+    private func metricsApplyingBridgeReferenceIfNeeded(to summary: PostCaptureMetrics) throws -> PostCaptureMetrics {
+        do {
+            guard let bridgeReference = try parsedBridgeReferenceInput() else {
+                bridgeReferenceError = nil
+                return summary.removingBridgeReferenceComparison()
+            }
+
+            let adjusted = try summary.applyingBridgeReference(requestedBridgeMM: bridgeReference)
+            bridgeReferenceError = nil
+            return adjusted
+        } catch {
+            bridgeReferenceError = error.localizedDescription
+            throw error
+        }
+    }
+
+    private func parsedBridgeReferenceInput() throws -> Double? {
+        let trimmed = bridgeReferenceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe a ponte real em mm.")
+        }
+
+        guard PostCaptureBridgeReferenceLimits.plausibleBridgeMM.contains(value) else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe uma ponte real entre 5 e 35 mm.")
+        }
+
+        return value
+    }
+
+    private static func formattedBridgeReference(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
     }
 
     private func makeMetrics(for centralPoint: NormalizedPoint) throws -> PostCaptureMetrics {

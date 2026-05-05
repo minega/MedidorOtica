@@ -207,4 +207,61 @@ struct PostCaptureMeasurementCalculatorTests {
             #expect(false)
         }
     }
+
+    @Test func recalculatesAllMetricsFromRealBridgeReference() async throws {
+        let right = EyeMeasurementSummary(horizontalMaior: 48,
+                                          verticalMaior: 32,
+                                          dnp: 15,
+                                          alturaPupilar: 18)
+        let left = EyeMeasurementSummary(horizontalMaior: 50,
+                                         verticalMaior: 31,
+                                         dnp: 16,
+                                         alturaPupilar: 17)
+        let validated = PostCaptureDNPReference(rightNear: 15,
+                                                leftNear: 16,
+                                                rightFar: 16,
+                                                leftFar: 17)
+        let metrics = PostCaptureMetrics(rightEye: right,
+                                         leftEye: left,
+                                         ponte: 10,
+                                         validatedDNP: validated,
+                                         noseDNP: validated,
+                                         bridgeDNP: validated,
+                                         farDNPConfidence: 0.9)
+
+        let adjusted = try metrics.applyingBridgeReference(requestedBridgeMM: 20)
+        let comparison = try #require(adjusted.bridgeReferenceComparison)
+
+        #expect(metrics.bridgeReferenceComparison == nil)
+        #expect(comparison.scaleRatio == 2)
+        #expect(comparison.adjustedBridgeMM == 20)
+        #expect(comparison.adjustedRightEye.horizontalMaior == 96)
+        #expect(comparison.adjustedLeftEye.verticalMaior == 62)
+        #expect(comparison.adjustedValidatedDNP.totalNear == 62)
+        #expect(comparison.adjustedValidatedDNP.totalFar == 66)
+    }
+
+    @Test func rejectsInvalidRealBridgeReference() async throws {
+        let right = EyeMeasurementSummary(horizontalMaior: 48,
+                                          verticalMaior: 32,
+                                          dnp: 15,
+                                          alturaPupilar: 18)
+        let metrics = PostCaptureMetrics(rightEye: right,
+                                         leftEye: right,
+                                         ponte: 18)
+
+        do {
+            _ = try metrics.applyingBridgeReference(requestedBridgeMM: 40)
+            #expect(false)
+        } catch let error as PostCaptureMeasurementError {
+            switch error {
+            case .implausibleMeasurement:
+                #expect(true)
+            default:
+                #expect(false)
+            }
+        } catch {
+            #expect(false)
+        }
+    }
 }

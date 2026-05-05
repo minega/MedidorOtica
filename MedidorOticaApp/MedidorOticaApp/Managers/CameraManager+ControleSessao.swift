@@ -11,7 +11,7 @@ import ARKit
 extension CameraManager {
     // MARK: - Sessao de medicao
     /// Inicia a sessao principal de medicao no sensor informado.
-    func startMeasurementSession(cameraType: CameraType = .front,
+    func startMeasurementSession(cameraType: CameraType,
                                  completion: @escaping (Bool) -> Void) {
         switch cameraType {
         case .front:
@@ -72,7 +72,6 @@ extension CameraManager {
         isUsingARSession = true
         isSessionRunning = true
         clearError()
-        prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
 
         let configuration = createRearLiDARMeasurementConfiguration()
         newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])

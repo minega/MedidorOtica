@@ -274,6 +274,11 @@ struct PostCaptureFlowView: View {
 
             if let metrics = viewModel.metrics {
                 SummaryMetricsSection(metrics: metrics)
+                BridgeReferenceCalibrationSection(metrics: metrics,
+                                                  bridgeReferenceText: $viewModel.bridgeReferenceText,
+                                                  errorMessage: viewModel.bridgeReferenceError,
+                                                  onApply: applyBridgeReferenceComparison,
+                                                  onClear: viewModel.clearBridgeReferenceComparison)
 
                 if let convergenceReason = metrics.dnpConvergenceReason,
                    !metrics.dnpConverged {
@@ -441,6 +446,14 @@ struct PostCaptureFlowView: View {
         renderedOverlay = renderer.uiImage
         if renderedOverlay != nil {
             showingShareSheet = true
+        }
+    }
+
+    private func applyBridgeReferenceComparison() {
+        do {
+            try viewModel.applyBridgeReferenceFromInput()
+        } catch {
+            viewModel.bridgeReferenceError = error.localizedDescription
         }
     }
 
@@ -671,7 +684,143 @@ private struct DNPCandidateSection: View {
     }
 }
 
-/// Campo reutilizável utilizado no formulário de identificação do resumo final.
+/// Permite comparar a escala dos sensores com uma escala proporcional pela ponte real.
+private struct BridgeReferenceCalibrationSection: View {
+    let metrics: PostCaptureMetrics
+    @Binding var bridgeReferenceText: String
+    let errorMessage: String?
+    let onApply: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Comparar por ponte")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.65))
+
+                Text("Digite a ponte real para recalcular por proporcao.")
+                    .font(.footnote)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+
+            HStack(spacing: 10) {
+                SummaryInputField(placeholder: "Ponte real (mm)",
+                                  text: $bridgeReferenceText,
+                                  keyboardType: .decimalPad)
+
+                Button(action: onApply) {
+                    Text("Comparar")
+                        .font(.footnote)
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .disabled(bridgeReferenceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if let comparison = metrics.bridgeReferenceComparison {
+                BridgeReferenceComparisonRows(metrics: metrics,
+                                              comparison: comparison)
+
+                Button(action: onClear) {
+                    Label("Limpar ponte", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.gray)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.cyan.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.cyan.opacity(0.22), lineWidth: 1)
+                )
+        )
+    }
+}
+
+/// Exibe sensor e ponte real lado a lado para auditoria rapida.
+private struct BridgeReferenceComparisonRows: View {
+    let metrics: PostCaptureMetrics
+    let comparison: PostCaptureBridgeReferenceComparison
+
+    var body: some View {
+        let baseEntries = metrics.summaryEntries()
+        let adjustedEntries = comparison.summaryEntries(baseMetrics: metrics)
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                SummaryValueChip(text: "Sensor \(formatted(comparison.measuredBridgeMM))")
+                SummaryValueChip(text: "Ponte \(formatted(comparison.requestedBridgeMM))")
+                SummaryValueChip(text: "\(formatted(comparison.scaleDeltaPercent))%")
+            }
+
+            if abs(comparison.scaleDeltaPercent) > 8 {
+                Text("Diferenca alta: revise a marcacao da ponte.")
+                    .font(.footnote)
+                    .foregroundColor(.orange)
+            }
+
+            ForEach(baseEntries.indices, id: \.self) { index in
+                if adjustedEntries.indices.contains(index) {
+                    BridgeReferenceMetricRow(sensorEntry: baseEntries[index],
+                                             adjustedEntry: adjustedEntries[index])
+                }
+            }
+        }
+    }
+
+    private func formatted(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
+    }
+}
+
+/// Linha compacta de comparacao entre a medicao original e a medicao proporcional.
+private struct BridgeReferenceMetricRow: View {
+    let sensorEntry: PostCaptureMetrics.SummaryMetricEntry
+    let adjustedEntry: PostCaptureMetrics.SummaryMetricEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(sensorEntry.title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sensor: \(sensorEntry.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))")
+                    .font(.footnote)
+                    .foregroundColor(.white.opacity(0.78))
+                    .monospacedDigit()
+
+                Text("Ponte: \(adjustedEntry.compactDisplay(using: PostCaptureMetrics.summaryNumberFormatter))")
+                    .font(.footnote)
+                    .foregroundColor(.cyan.opacity(0.95))
+                    .monospacedDigit()
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.07))
+        )
+    }
+}
+
+/// Campo reutilizavel utilizado no formulario de identificacao do resumo final.
 private struct SummaryInputField: View {
     let placeholder: String
     @Binding var text: String

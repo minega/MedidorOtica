@@ -825,8 +825,12 @@ extension CameraManager: ARSessionDelegate {
     func sessionWasInterrupted(_ session: ARSession) {
         publishARError("Sessao AR interrompida")
         beginPreparingCapture()
-        prepareTrueDepthBootstrap(resetRecoveryAttempt: false,
-                                  recoveryReason: .noRecentSamples)
+        if cameraPosition == .front {
+            prepareTrueDepthBootstrap(resetRecoveryAttempt: false,
+                                      recoveryReason: .noRecentSamples)
+        } else {
+            resetCapturePipeline(resetCalibration: true)
+        }
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
