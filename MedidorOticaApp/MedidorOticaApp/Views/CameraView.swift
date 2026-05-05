@@ -19,6 +19,7 @@ struct CameraView: View {
 
     // MARK: - Estado de UI
     @State private var isAutoCaptureEnabled = true
+    @State private var selectedCameraType: CameraType = .front
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedPhoto: CapturedPhoto?
@@ -146,6 +147,27 @@ struct CameraView: View {
 
             Spacer()
 
+            Text(selectedCameraType.sensorName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .environment(\.colorScheme, .light)
+                .appGlassSurface(cornerRadius: 14,
+                                 borderOpacity: 0.12,
+                                 tintOpacity: 0.24,
+                                 tintColor: .black,
+                                 variant: .regular,
+                                 interactive: false,
+                                 fallbackMaterial: .thinMaterial)
+
+            cameraTopButton(systemName: "camera.rotate",
+                            foregroundColor: selectedCameraType == .back ? .cyan : .white) {
+                switchCameraMode()
+            }
+
             cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
                             foregroundColor: isAutoCaptureEnabled ? .green : .white) {
                 isAutoCaptureEnabled.toggle()
@@ -267,13 +289,15 @@ struct CameraView: View {
             guard permissionGranted else { return }
 
             cameraManager.checkAvailableSensors()
-            guard cameraManager.hasTrueDepth else {
-                alertMessage = "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao."
+            guard canUseSelectedSensor() else {
+                alertMessage = selectedCameraType == .front ?
+                    "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao." :
+                    "Este dispositivo nao possui LiDAR traseiro compativel para a medicao."
                 showingAlert = true
                 return
             }
 
-            cameraManager.startMeasurementSession { success in
+            cameraManager.startMeasurementSession(cameraType: selectedCameraType) { success in
                 DispatchQueue.main.async {
                     if success {
                         cameraInitialized = true
@@ -285,6 +309,21 @@ struct CameraView: View {
                 }
             }
         }
+    }
+
+    private func canUseSelectedSensor() -> Bool {
+        switch selectedCameraType {
+        case .front:
+            return cameraManager.hasTrueDepth
+        case .back:
+            return cameraManager.hasLiDAR
+        }
+    }
+
+    private func switchCameraMode() {
+        selectedCameraType = selectedCameraType == .front ? .back : .front
+        isProcessing = false
+        setupCamera()
     }
 
     private func configureCameraProcessing() {
@@ -448,7 +487,8 @@ struct CameraView: View {
             return "A camera ainda esta iniciando. Aguarde o preview estabilizar."
         }
 
-        if !cameraManager.isTrueDepthSensorAlive {
+        if cameraManager.cameraPosition == .front,
+           !cameraManager.isTrueDepthSensorAlive {
             return cameraManager.trueDepthHint()
         }
 

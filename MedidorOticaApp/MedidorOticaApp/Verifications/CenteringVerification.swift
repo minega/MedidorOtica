@@ -87,95 +87,16 @@ extension VerificationManager {
     }
 
     private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
-        guard let depthMap = frame.sceneDepth?.depthMap ?? frame.smoothedSceneDepth?.depthMap else {
-            print("ERRO: dados de profundidade LiDAR nao disponiveis")
+        guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
+            .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
+            print("ERRO: nao foi possivel calcular centralizacao LiDAR")
             return false
         }
 
-        let request = makeLandmarksRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
-                                            orientation: currentCGOrientation(),
-                                            options: [:])
-
-        do {
-            try handler.perform([request])
-            guard let face = request.results?.first as? VNFaceObservation,
-                  let landmarks = face.landmarks else {
-                return false
-            }
-
-            let orientation = currentCGOrientation()
-            let (depthWidth, depthHeight) = orientedDimensions(for: depthMap,
-                                                               orientation: orientation)
-            let resolution = frame.camera.imageResolution
-            let intrinsics = frame.camera.intrinsics
-
-            let nosePoints = resolvedLandmarkPoints(from: landmarks.nose?.normalizedPoints,
-                                                    boundingBox: face.boundingBox,
-                                                    imageWidth: Int(resolution.width),
-                                                    imageHeight: Int(resolution.height),
-                                                    orientation: orientation)
-                ?? fallbackResolvedPoint(at: CGPoint(x: face.boundingBox.midX,
-                                                     y: face.boundingBox.midY),
-                                         imageWidth: Int(resolution.width),
-                                         imageHeight: Int(resolution.height),
-                                         orientation: orientation)
-
-            let leftEyePoints = resolvedLandmarkPoints(from: landmarks.leftEye?.normalizedPoints,
-                                                       boundingBox: face.boundingBox,
-                                                       imageWidth: Int(resolution.width),
-                                                       imageHeight: Int(resolution.height),
-                                                       orientation: orientation)
-            let rightEyePoints = resolvedLandmarkPoints(from: landmarks.rightEye?.normalizedPoints,
-                                                        boundingBox: face.boundingBox,
-                                                        imageWidth: Int(resolution.width),
-                                                        imageHeight: Int(resolution.height),
-                                                        orientation: orientation)
-
-            guard let leftEyePoints, let rightEyePoints else { return false }
-
-            guard let noseDepth = depthValue(from: depthMap,
-                                             at: depthPixel(from: nosePoints.depth,
-                                                            width: depthWidth,
-                                                            height: depthHeight)),
-                  let leftEyeDepth = depthValue(from: depthMap,
-                                                at: depthPixel(from: leftEyePoints.depth,
-                                                               width: depthWidth,
-                                                               height: depthHeight)),
-                  let rightEyeDepth = depthValue(from: depthMap,
-                                                 at: depthPixel(from: rightEyePoints.depth,
-                                                                width: depthWidth,
-                                                                height: depthHeight)) else {
-                return false
-            }
-
-            let noseCamera = cameraCoordinates(from: nosePoints.camera,
-                                               depth: noseDepth,
-                                               resolution: resolution,
-                                               intrinsics: intrinsics)
-            let leftEyeCamera = cameraCoordinates(from: leftEyePoints.camera,
-                                                  depth: leftEyeDepth,
-                                                  resolution: resolution,
-                                                  intrinsics: intrinsics)
-            let rightEyeCamera = cameraCoordinates(from: rightEyePoints.camera,
-                                                   depth: rightEyeDepth,
-                                                   resolution: resolution,
-                                                   intrinsics: intrinsics)
-
-            guard let noseCamera,
-                  let leftEyeCamera,
-                  let rightEyeCamera else {
-                return false
-            }
-
-            let metrics = FaceCenteringMetrics(horizontal: noseCamera.x,
-                                               vertical: ((leftEyeCamera + rightEyeCamera) / 2).y,
-                                               noseAlignment: noseCamera.x)
-            return evaluateCentering(using: metrics)
-        } catch {
-            print("Erro ao verificar centralizacao com Vision: \(error)")
-            return false
-        }
+        let metrics = FaceCenteringMetrics(horizontal: analysis.centralCameraPoint.x,
+                                           vertical: analysis.centralCameraPoint.y,
+                                           noseAlignment: analysis.centralCameraPoint.x)
+        return evaluateCentering(using: metrics)
     }
 
     /// Calcula pontos medios convertidos para o espaco da camera e para o depth map.
@@ -222,9 +143,12 @@ extension VerificationManager {
     // MARK: - Avaliacao
     /// Avalia se o rosto esta centralizado com base nas metricas calculadas.
     private func evaluateCentering(using metrics: FaceCenteringMetrics) -> Bool {
-        let isHorizontallyAligned = abs(metrics.horizontal) < CenteringConstants.horizontalTolerance
-        let isVerticallyAligned = abs(metrics.vertical) < CenteringConstants.verticalTolerance
-        let isNoseAligned = abs(metrics.noseAlignment) < CenteringConstants.centralPointTolerance
+        let horizontalTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.horizontalTolerance
+        let verticalTolerance = activeSensor == .liDAR ? Float(0.0040) : CenteringConstants.verticalTolerance
+        let centralPointTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.centralPointTolerance
+        let isHorizontallyAligned = abs(metrics.horizontal) < horizontalTolerance
+        let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
+        let isNoseAligned = abs(metrics.noseAlignment) < centralPointTolerance
         let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
 
         updateCenteringUI(horizontalOffset: metrics.horizontal,

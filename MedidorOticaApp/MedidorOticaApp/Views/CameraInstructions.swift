@@ -106,6 +106,9 @@ struct CameraInstructions: View {
         case .checking(let reason):
             return guidance(for: reason)
         case .stableReady:
+            if cameraManager.cameraPosition == .back {
+                return "🙂 👀 Olhe para um ponto distante. Captura imediata"
+            }
             return "🙂 ✅ Mantenha a posicao. Captura automatica imediata"
         case .idle:
             return fallbackGuidance()
@@ -154,6 +157,10 @@ struct CameraInstructions: View {
             return headAlignmentGuidance()
         }
 
+        if cameraManager.cameraPosition == .back {
+            return "🙂 👀 Olhe para um ponto distante. Segure parado"
+        }
+
         return "🙂 ✅ Mantenha a posicao para a captura automatica"
     }
 
@@ -200,6 +207,10 @@ struct CameraInstructions: View {
     }
 
     private func calibrationGuidance() -> String {
+        if cameraManager.cameraPosition == .back {
+            return "📱 ↔️ Mantenha o rosto entre \(Int(RearLiDARDistanceLimits.minCm)) e \(Int(RearLiDARDistanceLimits.maxCm)) cm"
+        }
+
         if let failure = cameraManager.trueDepthFailureReason {
             return guidance(for: failure)
         }

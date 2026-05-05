@@ -62,8 +62,13 @@ final class VerificationManager: ObservableObject {
     }
 
     // MARK: - Distancia
-    var minDistance: Float { DistanceLimits.minCm }
-    var maxDistance: Float { DistanceLimits.maxCm }
+    var minDistance: Float {
+        activeSensor == .liDAR ? RearLiDARDistanceLimits.minCm : DistanceLimits.minCm
+    }
+
+    var maxDistance: Float {
+        activeSensor == .liDAR ? RearLiDARDistanceLimits.maxCm : DistanceLimits.maxCm
+    }
 
     // MARK: - Inicializacao
     private init() {

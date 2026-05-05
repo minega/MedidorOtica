@@ -195,6 +195,28 @@ struct CaptureReadinessEngineTests {
         #expect(status.blockReason == .headPoseUnavailable)
     }
 
+    @Test func rearLiDARReadinessDoesNotRequireFaceAnchor() async throws {
+        let engine = CaptureReadinessEngine(requiredStableSampleCount: 1,
+                                            maximumFrameGap: 0.20,
+                                            maximumCaptureAge: 0.15)
+        let evaluation = VerificationFrameEvaluation(timestamp: 6,
+                                                     trackingIsNormal: true,
+                                                     hasTrackedFaceAnchor: false,
+                                                     faceDetected: true,
+                                                     distanceCorrect: true,
+                                                     faceAligned: true,
+                                                     headPoseAvailable: true,
+                                                     headAligned: true)
+
+        let status = engine.evaluate(input: CaptureReadinessInput(evaluation: evaluation,
+                                                                  sessionReady: true,
+                                                                  calibrationReady: true,
+                                                                  requiresTrackedFaceAnchor: false))
+
+        #expect(status.isStableReady)
+        #expect(evaluation.allChecksPassed(requiresTrackedFaceAnchor: false))
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,

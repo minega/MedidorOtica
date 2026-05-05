@@ -33,9 +33,9 @@ extension PostCaptureCalibration {
                              abs(verticalReferenceMM - PostCaptureCalibration.default.verticalReferenceMM) < 0.0001
         if matchesDefault { return false }
 
-        // Aceita intervalo amplo, baseado em TrueDepth a 25–60 cm: mm/pixel típico ~0.03–0.6.
-        let horizontalRange: ClosedRange<Double> = 50...900
-        let verticalRange: ClosedRange<Double> = 50...900
+        // Aceita intervalo amplo para TrueDepth frontal e LiDAR traseiro a 60-100 cm.
+        let horizontalRange: ClosedRange<Double> = 50...1600
+        let verticalRange: ClosedRange<Double> = 50...1600
         guard horizontalRange.contains(horizontalReferenceMM),
               verticalRange.contains(verticalReferenceMM) else { return false }
 

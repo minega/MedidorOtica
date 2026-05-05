@@ -10,8 +10,24 @@ import ARKit
 
 extension CameraManager {
     // MARK: - Sessao de medicao
-    /// Inicia a sessao principal de medicao usando exclusivamente TrueDepth.
+    /// Inicia a sessao principal de medicao no sensor informado.
+    func startMeasurementSession(cameraType: CameraType = .front,
+                                 completion: @escaping (Bool) -> Void) {
+        switch cameraType {
+        case .front:
+            startTrueDepthMeasurementSession(completion: completion)
+        case .back:
+            startRearLiDARMeasurementSession(completion: completion)
+        }
+    }
+
+    /// Inicia a sessao principal de medicao usando TrueDepth.
     func startMeasurementSession(completion: @escaping (Bool) -> Void) {
+        startMeasurementSession(cameraType: .front, completion: completion)
+    }
+
+    /// Inicia a sessao principal de medicao usando TrueDepth.
+    private func startTrueDepthMeasurementSession(completion: @escaping (Bool) -> Void) {
         guard canStartTrueDepthMeasurement() else {
             completion(false)
             return
@@ -38,6 +54,34 @@ extension CameraManager {
         completion(true)
     }
 
+    /// Inicia a sessao traseira com LiDAR para o motor proprio de medicao.
+    private func startRearLiDARMeasurementSession(completion: @escaping (Bool) -> Void) {
+        guard canStartRearLiDARMeasurement() else {
+            completion(false)
+            return
+        }
+
+        stop()
+        beginPreparingCapture()
+
+        let newSession = ARSession()
+        newSession.delegate = self
+
+        arSession = newSession
+        cameraPosition = .back
+        isUsingARSession = true
+        isSessionRunning = true
+        clearError()
+        prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
+
+        let configuration = createRearLiDARMeasurementConfiguration()
+        newSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+
+        VerificationManager.shared.updateActiveSensor(using: self)
+        updateLensMonitoring(for: .back)
+        completion(true)
+    }
+
     /// Cria a configuracao principal da sessao TrueDepth.
     func createMeasurementConfiguration() -> ARFaceTrackingConfiguration {
         let configuration = ARFaceTrackingConfiguration()
@@ -48,13 +92,25 @@ extension CameraManager {
         return configuration
     }
 
+    /// Cria a configuracao traseira com profundidade de cena habilitada.
+    func createRearLiDARMeasurementConfiguration() -> ARWorldTrackingConfiguration {
+        let configuration = ARWorldTrackingConfiguration()
+        if #available(iOS 14.0, *),
+           ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+            configuration.frameSemantics.insert(.smoothedSceneDepth)
+        } else if #available(iOS 13.4, *) {
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                configuration.frameSemantics.insert(.sceneDepth)
+            }
+        }
+        if #available(iOS 13.0, *) {
+            configuration.environmentTexturing = .automatic
+        }
+        return configuration
+    }
+
     /// Cria uma nova `ARSession` para compatibilidade com chamadas legadas.
     func createARSession(for cameraType: CameraType) -> ARSession {
-        guard cameraType == .front else {
-            publishARError("LiDAR permanece fora do fluxo ativo desta entrega.")
-            return ARSession()
-        }
-
         let session = ARSession()
         session.delegate = self
         return session
@@ -79,13 +135,32 @@ extension CameraManager {
 
     /// Reinicia a sessao atual apos interrupcoes ou falhas do ARKit.
     func restartSession(recoveryReason: TrueDepthBlockReason? = nil) {
+        if cameraPosition == .back {
+            guard hasLiDAR else {
+                stop()
+                return
+            }
+
+            guard let arSession else {
+                startMeasurementSession(cameraType: .back) { _ in }
+                return
+            }
+
+            beginPreparingCapture()
+            arSession.run(createRearLiDARMeasurementConfiguration(),
+                          options: [.resetTracking, .removeExistingAnchors])
+            isUsingARSession = true
+            isSessionRunning = true
+            return
+        }
+
         guard cameraPosition == .front, hasTrueDepth else {
             stop()
             return
         }
 
         guard let arSession else {
-            startMeasurementSession { _ in }
+            startMeasurementSession(cameraType: .front) { _ in }
             return
         }
 
@@ -113,12 +188,23 @@ extension CameraManager {
         return true
     }
 
-    private func notifyUnsupportedDevice(reason: String) {
+    private func canStartRearLiDARMeasurement() -> Bool {
+        guard hardwareHasLiDAR, RearLiDARMeasurementEngine.isSupported else {
+            notifyUnsupportedDevice(reason: "Este dispositivo nao possui LiDAR traseiro compativel.",
+                                    sensor: "LiDAR")
+            return false
+        }
+
+        return true
+    }
+
+    private func notifyUnsupportedDevice(reason: String,
+                                        sensor: String = "TrueDepth") {
         publishError(.cameraUnavailable)
         NotificationCenter.default.post(name: NSNotification.Name("DeviceNotCompatible"),
                                         object: nil,
                                         userInfo: ["reason": reason,
-                                                   "sensor": "TrueDepth"])
+                                                   "sensor": sensor])
     }
 
     private func stopARSession() {

@@ -30,7 +30,7 @@ extension CameraManager {
 
     private struct CaptureFrameContext {
         let frame: ARFrame
-        let faceAnchor: ARFaceAnchor
+        let faceAnchor: ARFaceAnchor?
         let cgOrientation: CGImagePropertyOrientation
         let uiOrientation: UIInterfaceOrientation
     }
@@ -91,10 +91,18 @@ extension CameraManager {
             return .failure(.sessionNotReady)
         }
 
-        guard let trackedFaceAnchor = frame.anchors
+        let trackedFaceAnchor = frame.anchors
             .compactMap({ $0 as? ARFaceAnchor })
-            .first(where: { $0.isTracked }) else {
+            .first(where: { $0.isTracked })
+
+        if cameraPosition == .front, trackedFaceAnchor == nil {
             return .failure(.sessionNotReady)
+        }
+
+        if cameraPosition == .back,
+           frame.sceneDepth == nil,
+           frame.smoothedSceneDepth == nil {
+            return .failure(.missingDepthData)
         }
 
         guard resolveCaptureEvaluation(for: frame) != nil else {
@@ -112,7 +120,7 @@ extension CameraManager {
     /// A foto so pode sair do frame atual, sem reaproveitar verificacoes antigas.
     private func resolveCaptureEvaluation(for frame: ARFrame) -> VerificationFrameEvaluation? {
         let directEvaluation = VerificationManager.shared.evaluationForCapture(frame)
-        if directEvaluation.allChecksPassed {
+        if directEvaluation.allChecksPassed(requiresTrackedFaceAnchor: cameraPosition == .front) {
             handleVerificationEvaluation(directEvaluation)
             return directEvaluation
         }
@@ -123,6 +131,14 @@ extension CameraManager {
 
     /// Renderiza a foto e resolve a calibracao final do frame escolhido.
     private func renderCapturedPhoto(from context: CaptureFrameContext) -> Result<CapturedPhoto, CameraError> {
+        if cameraPosition == .back {
+            return renderRearLiDARCapturedPhoto(from: context)
+        }
+
+        guard let faceAnchor = context.faceAnchor else {
+            return .failure(.sessionNotReady)
+        }
+
         outputDelegate?(context.frame)
 
         let ciImage = CIImage(cvPixelBuffer: context.frame.capturedImage)
@@ -138,7 +154,7 @@ extension CameraManager {
                               width: CGFloat(cgImage.width),
                               height: CGFloat(cgImage.height))
         guard let calibration = buildCalibration(from: context.frame,
-                                                 faceAnchor: context.faceAnchor,
+                                                 faceAnchor: faceAnchor,
                                                  cropRect: cropRect,
                                                  cgOrientation: context.cgOrientation,
                                                  uiOrientation: context.uiOrientation) else {
@@ -146,9 +162,9 @@ extension CameraManager {
         }
 
         let captureCentralPoint = VerificationManager.shared
-            .trueDepthMeasurementReference(faceAnchor: context.faceAnchor, frame: context.frame)?
+            .trueDepthMeasurementReference(faceAnchor: faceAnchor, frame: context.frame)?
             .pcNormalizedPoint
-        let eyeGeometrySnapshot = buildEyeGeometrySnapshot(from: context.faceAnchor,
+        let eyeGeometrySnapshot = buildEyeGeometrySnapshot(from: faceAnchor,
                                                            frame: context.frame,
                                                            cgOrientation: context.cgOrientation,
                                                            uiOrientation: context.uiOrientation)
@@ -160,7 +176,43 @@ extension CameraManager {
                                   eyeGeometrySnapshot: eyeGeometrySnapshot,
                                   frameTimestamp: context.frame.timestamp,
                                   orientation: context.cgOrientation,
-                                  captureWarning: makeCaptureWarning(from: context.faceAnchor))
+                                  captureWarning: makeCaptureWarning(from: faceAnchor))
+        return .success(photo)
+    }
+
+    /// Renderiza a foto traseira e resolve a escala local com profundidade LiDAR.
+    private func renderRearLiDARCapturedPhoto(from context: CaptureFrameContext) -> Result<CapturedPhoto, CameraError> {
+        outputDelegate?(context.frame)
+
+        let ciImage = CIImage(cvPixelBuffer: context.frame.capturedImage)
+        let orientedCIImage = ciImage.oriented(forExifOrientation: context.cgOrientation.exifOrientation)
+
+        guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
+                                                                 from: orientedCIImage.extent) else {
+            return .failure(.captureFailed)
+        }
+
+        let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
+        guard let calibration = rearLiDARMeasurementEngine.captureCalibration(frame: context.frame,
+                                                                              imageSize: imageSize,
+                                                                              cgOrientation: context.cgOrientation) else {
+            return .failure(.missingDepthData)
+        }
+
+        logCalibration(calibration.global,
+                       cropRect: CGRect(origin: .zero, size: imageSize),
+                       frameTimestamp: context.frame.timestamp,
+                       label: "OK Calibracao local LiDAR")
+
+        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
+        let photo = CapturedPhoto(image: image,
+                                  calibration: calibration.global,
+                                  localCalibration: calibration.local,
+                                  captureCentralPoint: calibration.centralPoint,
+                                  eyeGeometrySnapshot: nil,
+                                  frameTimestamp: context.frame.timestamp,
+                                  orientation: context.cgOrientation,
+                                  captureWarning: calibration.warning)
         return .success(photo)
     }
 
@@ -357,6 +409,7 @@ extension CameraManager {
         switch error {
         case .captureFailed,
              .missingTrueDepthData,
+             .missingDepthData,
              .sessionNotReady,
              .staleFrame:
             return true

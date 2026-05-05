@@ -43,7 +43,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Nunca liberar medições frontais sem `TrueDepth` ativo.
 - Nunca resumir a malha local útil do `TrueDepth` em uma grade grosseira quando a foto final estiver sendo calibrada.
-- O `PC` do pós-captura deve usar `Y` na média das pupilas e `X` corrigido pela linha média facial com suporte do `TrueDepth`.
+- O `PC` deve usar `Y` na média das pupilas; na captura ao vivo, o `Vision` deve ser a primeira referência quando detectar as pupilas, deixando o centro ocular do ARKit apenas como fallback.
 - A captura frontal deve continuar válida entre `30 cm` e `40 cm` usando a profundidade real do plano do `PC`, nunca o tamanho do rosto no oval.
 - A `DNP longe` deve ser calculada pela mesma captura, usando vergência ocular e geometria 3D real, sem tabela fixa.
 - A `DNP validada` deve nascer da convergência entre `DNP nariz` e `DNP ponte`; divergência acima da tolerância indica captura inconsistente.
@@ -78,3 +78,10 @@ Para se localizar rápido no projeto, siga esta ordem:
 Execute `swift --version` para confirmar a versão do compilador antes de enviar suas alterações.
 
 Para detalhes de uso e arquitetura acesse `MedidorOticaApp/README.md`.
+## Modo traseiro LiDAR
+
+- Novo fluxo opcional com camera traseira e LiDAR, sem calibracao manual do usuario.
+- A captura traseira usa `ARWorldTrackingConfiguration`, `sceneDepth`/`smoothedSceneDepth`, landmarks do `Vision` e escala local por amostras de profundidade no rosto.
+- A faixa alvo do modo traseiro e `60-100 cm`; a frontal TrueDepth permanece em `30-40 cm`.
+- O modo traseiro nao altera a regra obrigatoria da frontal: nenhuma medicao frontal pode ocorrer sem TrueDepth ativo.
+- A tela de camera permite alternar entre `TrueDepth` e `LiDAR` pelo botao de troca de camera.

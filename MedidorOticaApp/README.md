@@ -127,7 +127,7 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 ## 🧭 Situação Atual do Cálculo
 
-- `PC.y`: média da altura das pupilas.
+- `PC.y`: média da altura das pupilas; na captura ao vivo, o app prefere `rightPupil/leftPupil` do `Vision` e usa o centro ocular do ARKit apenas como fallback.
 - `PC.x`: linha média facial na banda óptica, com simetria pupilar como reforço e ponte nasal apenas como refinamento fraco.
 - `DNP validada`: medida final oficial após convergência entre nariz e ponte.
 - `DNP longe`: conversão geométrica da mesma captura, usando distância real do olho até a câmera, profundidade aparente da pupila e diferença angular entre o olhar capturado e o eixo frontal da face.
@@ -271,3 +271,10 @@ MedidorOticaApp/
 ## 📈 Versão
 *Última atualização: 03/04/2026*
 *Versão: 2.1.0*
+## Modo traseiro LiDAR
+
+- Novo fluxo opcional com camera traseira e LiDAR, sem calibracao manual do usuario.
+- O app alterna entre `TrueDepth` e `LiDAR` pela barra superior da camera.
+- A traseira trabalha em `60-100 cm` e usa `Vision` para landmarks, LiDAR para profundidade e `LocalFaceScaleCalibration` para escala ponto a ponto.
+- A frontal permanece bloqueada para dispositivos sem `TrueDepth`.
+- A `DNP longe` no modo traseiro precisa de revisao no pos-captura porque o LiDAR nao fornece geometria ocular equivalente ao `ARFaceAnchor`.

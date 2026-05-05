@@ -244,6 +244,11 @@ extension VerificationManager {
         let vertices = faceAnchor.geometry.vertices
         guard vertices.count > noseTipIndex else { return nil }
 
+        if let visionTarget = visionPupilMeasurementTarget(frame: frame,
+                                                           viewportSize: viewportSize) {
+            return visionTarget
+        }
+
         let leftEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
                                                                       faceAnchor.leftEyeTransform))
         let rightEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
@@ -265,6 +270,60 @@ extension VerificationManager {
         let averageEyeX = CGFloat((projectedLeftEye.x + projectedRightEye.x) / 2)
         return CGPoint(x: averageEyeX,
                        y: CGFloat((projectedLeftEye.y + projectedRightEye.y) / 2))
+    }
+
+    /// Usa as pupilas detectadas pelo Vision para evitar que o centro ocular do ARKit puxe o PC para baixo.
+    func visionPupilMeasurementTarget(frame: ARFrame,
+                                      viewportSize: CGSize) -> CGPoint? {
+        let orientation = currentCGOrientation()
+        let request = makeLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: orientation,
+                                            options: [:])
+
+        do {
+            try handler.perform([request])
+        } catch {
+            return nil
+        }
+
+        guard let face = (request.results as? [VNFaceObservation])?
+            .max(by: { $0.confidence < $1.confidence }),
+              let landmarks = face.landmarks else {
+            return nil
+        }
+
+        let dimensions = VisionGeometryHelper.orientedDimensions(for: frame.capturedImage,
+                                                                 orientation: orientation)
+        guard dimensions.width > 0, dimensions.height > 0 else { return nil }
+
+        guard let rightPupil = normalizedVisionPupil(landmarks.rightPupil ?? landmarks.rightEye,
+                                                     face: face,
+                                                     imageWidth: dimensions.width,
+                                                     imageHeight: dimensions.height),
+              let leftPupil = normalizedVisionPupil(landmarks.leftPupil ?? landmarks.leftEye,
+                                                    face: face,
+                                                    imageWidth: dimensions.width,
+                                                    imageHeight: dimensions.height) else {
+            return nil
+        }
+
+        let averageX = (rightPupil.x + leftPupil.x) / 2
+        let averageY = (rightPupil.y + leftPupil.y) / 2
+        return CGPoint(x: averageX * viewportSize.width,
+                       y: averageY * viewportSize.height)
+    }
+
+    private func normalizedVisionPupil(_ region: VNFaceLandmarkRegion2D?,
+                                       face: VNFaceObservation,
+                                       imageWidth: Int,
+                                       imageHeight: Int) -> CGPoint? {
+        guard let region else { return nil }
+        return VisionGeometryHelper.normalizedPoint(from: region,
+                                                    boundingBox: face.boundingBox,
+                                                    imageWidth: imageWidth,
+                                                    imageHeight: imageHeight,
+                                                    orientation: .up)
     }
 }
 

@@ -224,8 +224,13 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
 
     /// Informa se todas as verificacoes principais ja passaram.
     var allChecksPassed: Bool {
+        allChecksPassed(requiresTrackedFaceAnchor: true)
+    }
+
+    /// Informa se todas as verificacoes passaram considerando o sensor ativo.
+    func allChecksPassed(requiresTrackedFaceAnchor: Bool) -> Bool {
         trackingIsNormal &&
-        hasTrackedFaceAnchor &&
+        (!requiresTrackedFaceAnchor || hasTrackedFaceAnchor) &&
         faceDetected &&
         distanceCorrect &&
         faceAligned &&
@@ -250,6 +255,17 @@ struct CaptureReadinessInput: Equatable, Sendable {
     let evaluation: VerificationFrameEvaluation
     let sessionReady: Bool
     let calibrationReady: Bool
+    let requiresTrackedFaceAnchor: Bool
+
+    init(evaluation: VerificationFrameEvaluation,
+         sessionReady: Bool,
+         calibrationReady: Bool,
+         requiresTrackedFaceAnchor: Bool = true) {
+        self.evaluation = evaluation
+        self.sessionReady = sessionReady
+        self.calibrationReady = calibrationReady
+        self.requiresTrackedFaceAnchor = requiresTrackedFaceAnchor
+    }
 }
 
 /// Resultado gerado pelo motor de estabilidade da captura.

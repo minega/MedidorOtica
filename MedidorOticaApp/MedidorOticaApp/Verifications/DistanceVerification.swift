@@ -53,7 +53,8 @@ extension VerificationManager {
             return false
         }
 
-        let isWithinRange = (DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters)
+        let allowedRange = allowedDistanceRange(for: activeSensor)
+        let isWithinRange = allowedRange
             .contains(measurement.distance)
         let isValid = measurement.hasValidDepth
 
@@ -81,9 +82,12 @@ extension VerificationManager {
                 return makeTrueDepthMeasurement(faceAnchor: anchor, frame: frame)
             case .liDAR:
                 let distance = getMeasuredDistanceWithLiDAR(frame: frame)
+                guard distance > 0 else { return nil }
+                let analysis = CameraManager.shared.rearLiDARMeasurementEngine
+                    .analyze(frame: frame, cgOrientation: currentCGOrientation())
                 return DistanceMeasurement(distance: distance,
-                                           projectedFaceWidthRatio: 1,
-                                           projectedFaceHeightRatio: 1)
+                                           projectedFaceWidthRatio: analysis?.projectedFaceWidthRatio ?? 0,
+                                           projectedFaceHeightRatio: analysis?.projectedFaceHeightRatio ?? 0)
             case .none:
                 continue
             }
@@ -122,7 +126,8 @@ extension VerificationManager {
             self.projectedFaceHeightRatio = projectedFaceHeightRatio
 
             if !isValid {
-                let message = distance < DistanceConstants.minDistanceMeters ? "Muito perto" : "Muito longe"
+                let minimumMeters = self.minDistance / 100
+                let message = distance < minimumMeters ? "Muito perto" : "Muito longe"
                 print("Aviso: \(message): \(String(format: "%.1f", distanceInCm)) cm")
             }
         }
@@ -163,58 +168,24 @@ extension VerificationManager {
     // MARK: - LiDAR
     /// Mede a distancia usando o sensor LiDAR.
     private func getMeasuredDistanceWithLiDAR(frame: ARFrame) -> Float {
-        guard let depthData = frame.sceneDepth ?? frame.smoothedSceneDepth else {
-            print("ERRO: dados de profundidade LiDAR nao disponiveis")
+        guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
+            .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
+            print("ERRO: analise LiDAR indisponivel")
             return 0
         }
 
-        let request = makeLandmarksRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
-                                            orientation: currentCGOrientation(),
-                                            options: [:])
-        do {
-            try handler.perform([request])
-            guard let face = request.results?.first as? VNFaceObservation,
-                  let landmarks = face.landmarks,
-                  let leftEye = landmarks.leftEye,
-                  let rightEye = landmarks.rightEye else {
-                print("Aviso: olhos nao detectados com LiDAR")
-                return 0
-            }
+        let averageDepth = analysis.averageEyeDepthMeters
+        guard averageDepth > 0, averageDepth < DistanceConstants.maxValidDepth else { return 0 }
+        print("LiDAR olhos: \(String(format: "%.1f", averageDepth * 100)) cm")
+        return averageDepth
+    }
 
-            let width = CVPixelBufferGetWidth(depthData.depthMap)
-            let height = CVPixelBufferGetHeight(depthData.depthMap)
-            let leftCenter = averagePoint(from: leftEye.normalizedPoints)
-            let rightCenter = averagePoint(from: rightEye.normalizedPoints)
-
-            func convert(_ point: CGPoint) -> CGPoint {
-                CGPoint(x: point.x * CGFloat(width),
-                        y: (1 - point.y) * CGFloat(height))
-            }
-
-            var depths: [Float] = []
-            if let depth = depthValue(from: depthData.depthMap, at: convert(leftCenter)) {
-                depths.append(depth)
-            }
-            if let depth = depthValue(from: depthData.depthMap, at: convert(rightCenter)) {
-                depths.append(depth)
-            }
-
-            guard !depths.isEmpty else {
-                print("Aviso: nao foi possivel medir a profundidade dos olhos")
-                return 0
-            }
-
-            let averageDepth = depths.reduce(0, +) / Float(depths.count)
-            guard averageDepth > 0, averageDepth < DistanceConstants.maxValidDepth else {
-                return 0
-            }
-
-            print("LiDAR olhos: \(String(format: "%.1f", averageDepth * 100)) cm")
-            return averageDepth
-        } catch {
-            print("ERRO na medicao de distancia com LiDAR: \(error)")
-            return 0
+    private func allowedDistanceRange(for sensor: SensorType) -> ClosedRange<Float> {
+        switch sensor {
+        case .liDAR:
+            return (RearLiDARDistanceLimits.minCm / 100)...(RearLiDARDistanceLimits.maxCm / 100)
+        default:
+            return DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters
         }
     }
 

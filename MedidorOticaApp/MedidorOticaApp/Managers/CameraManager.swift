@@ -30,6 +30,7 @@ enum CameraError: Error, LocalizedError {
     case deviceConfigurationFailed
     case captureFailed
     case missingTrueDepthData
+    case missingDepthData
     case sessionNotReady
     case staleFrame
 
@@ -51,6 +52,8 @@ enum CameraError: Error, LocalizedError {
             return "Falha ao capturar a foto."
         case .missingTrueDepthData:
             return "Sensor TrueDepth obrigatorio nao forneceu dados confiaveis."
+        case .missingDepthData:
+            return "Sensor LiDAR nao forneceu profundidade confiavel para a foto."
         case .sessionNotReady:
             return "A camera ainda nao esta pronta para medir."
         case .staleFrame:
@@ -107,7 +110,9 @@ final class CameraManager: NSObject, ObservableObject {
     var arSession: ARSession?
     let photoProcessingContext = CameraManager.makePhotoProcessingContext()
     private(set) var hardwareHasTrueDepth = false
+    private(set) var hardwareHasLiDAR = false
     let calibrationEstimator = TrueDepthCalibrationEstimator()
+    let rearLiDARMeasurementEngine = RearLiDARMeasurementEngine()
 
     // MARK: - Capture State
     let captureReadinessEngine = CaptureReadinessEngine()
@@ -198,24 +203,30 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     // MARK: - Device Capabilities
-    /// Verifica sensores disponiveis. Nesta fase o fluxo ativo usa apenas TrueDepth.
+    /// Verifica sensores disponiveis para os fluxos frontal e traseiro.
     func checkAvailableSensors() {
         isFrontCameraEnabled = true
         hardwareHasTrueDepth = ARFaceTrackingConfiguration.isSupported
+        hardwareHasLiDAR = RearLiDARMeasurementEngine.isSupported
         hasTrueDepth = hardwareHasTrueDepth
-        hasLiDAR = false
+        hasLiDAR = hardwareHasLiDAR
         print("Sensores disponiveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
     }
 
     // MARK: - Capture Pipeline
     /// Informa se a sessao atual esta realmente pronta para medir.
     var isMeasurementSessionReady: Bool {
-        isUsingARSession &&
-        isSessionRunning &&
-        cameraPosition == .front &&
-        hasTrueDepth &&
-        isFrontCameraEnabled &&
-        arSession != nil
+        guard isUsingARSession,
+              isSessionRunning,
+              arSession != nil else {
+            return false
+        }
+
+        if cameraPosition == .front {
+            return hasTrueDepth && isFrontCameraEnabled
+        }
+
+        return cameraPosition == .back && hasLiDAR
     }
 
     /// Informa se o TrueDepth ja provou que esta produzindo dados uteis.
@@ -280,7 +291,8 @@ final class CameraManager: NSObject, ObservableObject {
         let readiness = calibrationReadiness()
         let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
                                           sessionReady: isMeasurementSessionReady,
-                                          calibrationReady: readiness.ready)
+                                          calibrationReady: readiness.ready,
+                                          requiresTrackedFaceAnchor: cameraPosition == .front)
         let status = captureReadinessEngine.evaluate(input: input)
         applyReadiness(status, calibrationHint: readiness.hint)
     }
@@ -388,6 +400,8 @@ final class CameraManager: NSObject, ObservableObject {
     private func blockReason(for error: CameraError) -> CameraCaptureBlockReason? {
         switch error {
         case .missingTrueDepthData:
+            return .calibrationUnavailable
+        case .missingDepthData:
             return .calibrationUnavailable
         case .sessionNotReady:
             return .sessionUnavailable
@@ -750,6 +764,9 @@ extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastFrameTimestamp = frame.timestamp
         guard cameraPosition == .front, hasTrueDepth else {
+            if cameraPosition == .back, hasLiDAR {
+                VerificationManager.shared.setTrueDepthGate(isOpen: false)
+            }
             outputDelegate?(frame)
             return
         }
@@ -768,6 +785,20 @@ extension CameraManager: ARSessionDelegate {
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        if cameraPosition == .back {
+            guard case .normal = camera.trackingState else {
+                VerificationManager.shared.reset()
+                resetCapturePipeline(resetCalibration: true)
+                setCaptureState(.checking(.trackingUnavailable),
+                                hint: CameraCaptureBlockReason.trackingUnavailable.shortMessage,
+                                progress: 0)
+                return
+            }
+
+            updateCaptureReadiness()
+            return
+        }
+
         guard case .normal = camera.trackingState else {
             prepareTrueDepthBootstrap(resetRecoveryAttempt: true,
                                       recoveryReason: .faceNotTracked)

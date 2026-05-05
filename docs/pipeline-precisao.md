@@ -20,7 +20,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - O tamanho do rosto no oval é apenas guia visual; não pode bloquear a captura.
 - A captura automática precisa ser instantânea no primeiro bloco curto de frames perfeitos; não pode haver countdown.
 - A malha útil do `TrueDepth` deve ser usada inteira, sem downsampling agressivo no cálculo final.
-- O `PC.y` deve ficar sempre na média da altura das pupilas.
+- O `PC.y` deve ficar sempre na média da altura das pupilas; na captura ao vivo, usar landmarks de pupila do `Vision` quando disponíveis e `ARFaceAnchor.leftEyeTransform/rightEyeTransform` apenas como fallback.
 - O `PC.x` não pode ser dominado pela ponta do nariz.
 - A pós-captura não pode cair para uma escala global simplificada em `mm/pixel`.
 - A `DNP longe` não pode usar tabela fixa.
@@ -81,6 +81,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 
 - Sempre usar a média da altura das pupilas detectadas na foto pós-captura.
 - Não usar nariz ou face bounds para definir `PC.y`.
+- Na captura ao vivo, a altura do `PC` deve preferir `rightPupil/leftPupil` do `Vision`; o centro ocular do ARKit pode aparecer abaixo da pupila visível e não deve ser a primeira referência quando o Vision localizar as pupilas.
 
 ### Eixo X
 
@@ -138,3 +139,27 @@ Se uma alteração tocar em `PC`, escala, `DNP perto` ou `DNP longe`, ela precis
 - `README.md`;
 - `MedidorOticaApp/README.md`;
 - pelo menos um teste de regressão do trecho alterado.
+## Modo traseiro LiDAR
+
+O app agora possui um segundo fluxo de captura, separado do TrueDepth frontal, para testar medicoes com a camera traseira e LiDAR sem calibracao manual do usuario.
+
+### Regras do fluxo traseiro
+
+- A frontal continua restrita ao `TrueDepth`; nenhuma mudanca neste modo pode liberar captura frontal sem `ARFaceAnchor`.
+- A traseira usa `ARWorldTrackingConfiguration` com `sceneDepth` ou `smoothedSceneDepth`.
+- A faixa alvo da traseira e `60-100 cm`; a faixa frontal permanece `30-40 cm`.
+- O LiDAR fornece escala/profundidade; landmarks do `Vision` fornecem face, olhos, eixo nasal e pose.
+- A escala pos-captura da traseira e local: o motor monta amostras dentro do recorte facial e integra ponto a ponto usando `LocalFaceScaleCalibration`.
+- A captura traseira nao exige `ARFaceAnchor`, mas exige rosto detectado, distancia valida, PC centralizado, pose alinhada e frame estavel.
+- O `DNP longe` da traseira deve ser revisado no pos-captura porque a camera traseira nao fornece geometria ocular equivalente ao `TrueDepth`.
+
+### Arquivos do fluxo traseiro
+
+- `MedidorOticaApp/MedidorOticaApp/Managers/RearLiDARMeasurementEngine.swift`
+  Funde landmarks do `Vision`, intrinsics do ARKit e mapa de profundidade LiDAR.
+- `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+ControleSessao.swift`
+  Inicia a sessao traseira com `ARWorldTrackingConfiguration`.
+- `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
+  Monta a foto final traseira com calibracao local LiDAR.
+- `MedidorOticaApp/MedidorOticaApp/Views/CameraView.swift`
+  Permite alternar entre `TrueDepth` e `LiDAR`.

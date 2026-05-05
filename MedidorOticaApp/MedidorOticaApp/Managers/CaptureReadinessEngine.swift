@@ -69,7 +69,9 @@ final class CaptureReadinessEngine {
     private func hardBlockReason(for input: CaptureReadinessInput) -> CameraCaptureBlockReason? {
         guard input.sessionReady else { return .sessionUnavailable }
         guard input.evaluation.trackingIsNormal else { return .trackingUnavailable }
-        guard input.evaluation.hasTrackedFaceAnchor else { return .trackingUnavailable }
+        if input.requiresTrackedFaceAnchor {
+            guard input.evaluation.hasTrackedFaceAnchor else { return .trackingUnavailable }
+        }
         guard input.evaluation.faceDetected else { return .faceNotDetected }
         guard input.evaluation.distanceCorrect else { return .distanceOutOfRange }
         guard input.evaluation.faceAligned else { return .faceNotCentered }

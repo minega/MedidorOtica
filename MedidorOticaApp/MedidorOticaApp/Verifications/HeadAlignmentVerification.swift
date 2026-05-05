@@ -71,14 +71,9 @@ extension VerificationManager {
 
     /// Calcula a pose com Vision para o caminho do LiDAR.
     private func makeLiDARHeadPoseSnapshot(from frame: ARFrame) -> HeadPoseSnapshot? {
-        guard let angles = headAnglesWithVision(from: frame) else { return nil }
-        let snapshot = HeadPoseSnapshot(rollDegrees: angles.roll,
-                                        yawDegrees: angles.yaw,
-                                        pitchDegrees: angles.pitch,
-                                        timestamp: frame.timestamp,
-                                        sensor: .liDAR)
-
-        return snapshot.isValid ? snapshot : nil
+        CameraManager.shared.rearLiDARMeasurementEngine
+            .analyze(frame: frame, cgOrientation: currentCGOrientation())?
+            .headPose
     }
 
     /// Publica a pose atual para a UI e para o gate de captura.
