@@ -138,4 +138,13 @@ enum VisionGeometryHelper {
         }
         return request
     }
+
+    /// Cria uma requisicao de retangulos faciais usando a revisao mais atual.
+    static func makeFaceRectanglesRequest() -> VNDetectFaceRectanglesRequest {
+        let request = VNDetectFaceRectanglesRequest()
+        if let latestRevision = VNDetectFaceRectanglesRequest.supportedRevisions.max() {
+            request.revision = latestRevision
+        }
+        return request
+    }
 }

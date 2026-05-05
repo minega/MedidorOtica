@@ -23,6 +23,7 @@ struct RearLiDARDistanceLimits {
 /// Resultado metrico extraido de um frame traseiro.
 struct RearLiDARFrameAnalysis {
     let faceObservation: VNFaceObservation
+    let cgOrientation: CGImagePropertyOrientation
     let faceBounds: NormalizedRect
     let centralPoint: NormalizedPoint
     let centralCameraPoint: SIMD3<Float>
@@ -45,8 +46,7 @@ struct RearLiDARCaptureCalibration {
 final class RearLiDARMeasurementEngine {
     // MARK: - Constantes
     private enum Constants {
-        static let minimumDepthMeters: Float = RearLiDARDistanceLimits.minCm / 100
-        static let maximumDepthMeters: Float = RearLiDARDistanceLimits.maxCm / 100
+        static let minimumReadableDepthMeters: Float = 0.20
         static let maximumValidDepthMeters: Float = 2.0
         static let localGridColumns = 9
         static let localGridRows = 7
@@ -75,6 +75,15 @@ final class RearLiDARMeasurementEngine {
     }
 
     // MARK: - Analise de frame
+    /// Detecta apenas a presenca de rosto no RGB traseiro, sem exigir profundidade.
+    func detectsFace(frame: ARFrame,
+                     cgOrientation: CGImagePropertyOrientation) -> Bool {
+        candidateOrientations(preferred: cgOrientation).contains { orientation in
+            strongestFaceRectangleObservation(in: frame.capturedImage,
+                                               orientation: orientation) != nil
+        }
+    }
+
     /// Analisa o frame atual e retorna referencias metricas para verificacoes e captura.
     func analyze(frame: ARFrame,
                  cgOrientation: CGImagePropertyOrientation) -> RearLiDARFrameAnalysis? {
@@ -83,11 +92,27 @@ final class RearLiDARMeasurementEngine {
             return cached
         }
 
-        guard let depthMap = resolvedDepthMap(from: frame) else { return nil }
+        for orientation in candidateOrientations(preferred: cgOrientation) {
+            if let analysis = makeAnalysis(frame: frame,
+                                           cgOrientation: orientation) {
+                storeCachedFrameAnalysis(analysis,
+                                         timestamp: frame.timestamp,
+                                         orientation: cgOrientation)
+                return analysis
+            }
+        }
+
+        return nil
+    }
+
+    private func makeAnalysis(frame: ARFrame,
+                              cgOrientation: CGImagePropertyOrientation) -> RearLiDARFrameAnalysis? {
         guard let face = strongestFaceObservation(in: frame.capturedImage,
                                                   orientation: cgOrientation) else {
             return nil
         }
+
+        guard let depthMap = resolvedDepthMap(from: frame) else { return nil }
 
         let imageSize = orientedSize(for: frame.capturedImage,
                                      orientation: cgOrientation)
@@ -98,23 +123,28 @@ final class RearLiDARMeasurementEngine {
                                                          imageHeight: Int(imageSize.height),
                                                          orientation: .up)
         guard let centralPoint = resolvedCentralPoint(from: face,
+                                                      faceBounds: bounds,
                                                       imageSize: imageSize),
               let eyeDepth = resolvedEyeDepth(from: face,
+                                              faceBounds: bounds,
+                                              centralPoint: centralPoint,
                                               depthMap: depthMap,
-                                              imageSize: imageSize),
+                                              imageSize: imageSize,
+                                              orientation: cgOrientation),
               let centralDepth = medianDepth(from: depthMap,
                                              at: centralPoint,
+                                             orientation: cgOrientation,
                                              radius: Constants.localDepthRadius),
               let centralCameraPoint = cameraPoint(for: centralPoint,
                                                    depth: centralDepth,
                                                    frame: frame,
-                                                   imageSize: imageSize,
                                                    orientation: cgOrientation) else {
             return nil
         }
 
         let headPose = makeHeadPose(from: face, timestamp: frame.timestamp)
         let analysis = RearLiDARFrameAnalysis(faceObservation: face,
+                                              cgOrientation: cgOrientation,
                                               faceBounds: bounds,
                                               centralPoint: centralPoint,
                                               centralCameraPoint: centralCameraPoint,
@@ -122,9 +152,6 @@ final class RearLiDARMeasurementEngine {
                                               projectedFaceWidthRatio: Float(bounds.width),
                                               projectedFaceHeightRatio: Float(bounds.height),
                                               headPose: headPose)
-        storeCachedFrameAnalysis(analysis,
-                                 timestamp: frame.timestamp,
-                                 orientation: cgOrientation)
         return analysis
     }
 
@@ -141,7 +168,7 @@ final class RearLiDARMeasurementEngine {
                                          frame: frame,
                                          depthMap: depthMap,
                                          imageSize: imageSize,
-                                         orientation: cgOrientation)
+                                         orientation: analysis.cgOrientation)
         guard local.isReliable,
               let global = local.globalCalibration,
               global.isReliable else {
@@ -164,15 +191,47 @@ final class RearLiDARMeasurementEngine {
                                             options: [:])
         do {
             try handler.perform([request])
+            if let face = (request.results as? [VNFaceObservation])?
+                .max { first, second in first.confidence < second.confidence }
+            {
+                return face
+            }
+            return strongestFaceRectangleObservation(in: pixelBuffer,
+                                                     orientation: orientation)
+        } catch {
+            print("ERRO Vision LiDAR: \(error)")
+            return strongestFaceRectangleObservation(in: pixelBuffer,
+                                                     orientation: orientation)
+        }
+    }
+
+    private func strongestFaceRectangleObservation(in pixelBuffer: CVPixelBuffer,
+                                                   orientation: CGImagePropertyOrientation) -> VNFaceObservation? {
+        let request = VisionGeometryHelper.makeFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                            orientation: orientation,
+                                            options: [:])
+        do {
+            try handler.perform([request])
             return (request.results as? [VNFaceObservation])?
                 .max { first, second in first.confidence < second.confidence }
         } catch {
-            print("ERRO Vision LiDAR: \(error)")
+            print("ERRO Vision retangulo LiDAR: \(error)")
             return nil
         }
     }
 
+    private func candidateOrientations(preferred: CGImagePropertyOrientation) -> [CGImagePropertyOrientation] {
+        let orientations: [CGImagePropertyOrientation] = [preferred, .right, .left, .up, .down]
+        var unique: [CGImagePropertyOrientation] = []
+        for orientation in orientations where !unique.contains(orientation) {
+            unique.append(orientation)
+        }
+        return unique
+    }
+
     private func resolvedCentralPoint(from face: VNFaceObservation,
+                                      faceBounds: NormalizedRect,
                                       imageSize: CGSize) -> NormalizedPoint? {
         let imageWidth = Int(imageSize.width)
         let imageHeight = Int(imageSize.height)
@@ -187,9 +246,11 @@ final class RearLiDARMeasurementEngine {
                                         imageWidth: imageWidth,
                                         imageHeight: imageHeight)
         let pupilYs = [rightPupil?.y, leftPupil?.y].compactMap { $0 }
-        guard !pupilYs.isEmpty else { return nil }
+        let fallbackEyeLineY = faceBounds.y + (faceBounds.height * 0.42)
+        let targetY = pupilYs.isEmpty ?
+            min(max(fallbackEyeLineY, 0), 1) :
+            pupilYs.reduce(0, +) / CGFloat(pupilYs.count)
 
-        let targetY = pupilYs.reduce(0, +) / CGFloat(pupilYs.count)
         let medianLine = normalizedPoints(from: face.landmarks?.medianLine,
                                           face: face,
                                           imageWidth: imageWidth,
@@ -200,7 +261,7 @@ final class RearLiDARMeasurementEngine {
                                          imageHeight: imageHeight)
         let axisX = interpolatedAxisX(points: medianLine, targetY: targetY) ??
             interpolatedAxisX(points: noseCrest, targetY: targetY) ??
-            (face.boundingBox.midX)
+            (faceBounds.x + (faceBounds.width * 0.5))
         return NormalizedPoint(x: axisX, y: targetY).clamped()
     }
 
@@ -262,8 +323,11 @@ final class RearLiDARMeasurementEngine {
     }
 
     private func resolvedEyeDepth(from face: VNFaceObservation,
+                                  faceBounds: NormalizedRect,
+                                  centralPoint: NormalizedPoint,
                                   depthMap: CVPixelBuffer,
-                                  imageSize: CGSize) -> Float? {
+                                  imageSize: CGSize,
+                                  orientation: CGImagePropertyOrientation) -> Float? {
         let imageWidth = Int(imageSize.width)
         let imageHeight = Int(imageSize.height)
         let points = [
@@ -276,10 +340,17 @@ final class RearLiDARMeasurementEngine {
                             imageWidth: imageWidth,
                             imageHeight: imageHeight)
         ].compactMap { $0 }
+        let fallbackPoints = [
+            centralPoint,
+            NormalizedPoint(x: faceBounds.x + (faceBounds.width * 0.5),
+                            y: faceBounds.y + (faceBounds.height * 0.5)).clamped()
+        ]
 
-        let depths = points.compactMap { point in
+        let samplePoints = points.map { NormalizedPoint(x: $0.x, y: $0.y) } + fallbackPoints
+        let depths = samplePoints.compactMap { point in
             medianDepth(from: depthMap,
-                        at: NormalizedPoint(x: point.x, y: point.y),
+                        at: point,
+                        orientation: orientation,
                         radius: Constants.localDepthRadius)
         }
         guard !depths.isEmpty else { return nil }
@@ -288,13 +359,16 @@ final class RearLiDARMeasurementEngine {
 
     private func medianDepth(from depthMap: CVPixelBuffer,
                              at point: NormalizedPoint,
+                             orientation: CGImagePropertyOrientation,
                              radius: Int) -> Float? {
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
         guard width > 0, height > 0 else { return nil }
 
-        let centerX = Int(point.clamped().x * CGFloat(width - 1))
-        let centerY = Int(point.clamped().y * CGFloat(height - 1))
+        let rawPoint = rawDepthPoint(from: point,
+                                     orientation: orientation)
+        let centerX = Int(rawPoint.x * CGFloat(width - 1))
+        let centerY = Int(rawPoint.y * CGFloat(height - 1))
         var values: [Float] = []
         values.reserveCapacity((radius * 2 + 1) * (radius * 2 + 1))
 
@@ -312,7 +386,7 @@ final class RearLiDARMeasurementEngine {
                 guard offset + MemoryLayout<Float>.size <= dataSize else { continue }
                 let value = base.load(fromByteOffset: offset, as: Float.self)
                 guard value.isFinite,
-                      value >= Constants.minimumDepthMeters,
+                      value >= Constants.minimumReadableDepthMeters,
                       value <= Constants.maximumValidDepthMeters else {
                     continue
                 }
@@ -347,6 +421,7 @@ final class RearLiDARMeasurementEngine {
                                             y: clampedBounds.y + clampedBounds.height * yProgress).clamped()
                 guard let depth = medianDepth(from: depthMap,
                                               at: point,
+                                              orientation: orientation,
                                               radius: Constants.localDepthRadius) else {
                     continue
                 }
@@ -393,24 +468,33 @@ final class RearLiDARMeasurementEngine {
     private func cameraPoint(for point: NormalizedPoint,
                              depth: Float,
                              frame: ARFrame,
-                             imageSize: CGSize,
                              orientation: CGImagePropertyOrientation) -> SIMD3<Float>? {
-        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
-                                         orientation: orientation)
-        let principal = orientedPrincipalPoint(from: frame.camera.intrinsics,
-                                               imageSize: imageSize,
-                                               orientation: orientation)
+        let rawPoint = rawDepthPoint(from: point,
+                                     orientation: orientation)
+        let rawImageSize = CGSize(width: CVPixelBufferGetWidth(frame.capturedImage),
+                                  height: CVPixelBufferGetHeight(frame.capturedImage))
+        let focal = (fx: Double(frame.camera.intrinsics.columns.0.x),
+                     fy: Double(frame.camera.intrinsics.columns.1.y))
+        let principal = CGPoint(x: CGFloat(frame.camera.intrinsics.columns.2.x),
+                                y: CGFloat(frame.camera.intrinsics.columns.2.y))
         guard focal.fx > 0, focal.fy > 0 else { return nil }
 
-        let pixelX = Float(point.clamped().x * imageSize.width)
-        let pixelY = Float(point.clamped().y * imageSize.height)
+        let pixelX = Float(rawPoint.x * rawImageSize.width)
+        let pixelY = Float(rawPoint.y * rawImageSize.height)
         let x = (pixelX - Float(principal.x)) / Float(focal.fx) * depth
         let y = (pixelY - Float(principal.y)) / Float(focal.fy) * depth
-        return SIMD3<Float>(x, y, depth)
+        return orientedCameraPoint(rawX: x,
+                                   rawY: y,
+                                   depth: depth,
+                                   orientation: orientation)
     }
 
     private func makeHeadPose(from face: VNFaceObservation,
                               timestamp: TimeInterval) -> HeadPoseSnapshot? {
+        guard face.roll != nil || face.yaw != nil || face.pitch != nil else {
+            return nil
+        }
+
         let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
         let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
         let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
@@ -438,23 +522,54 @@ final class RearLiDARMeasurementEngine {
         return orientation.isPortrait ? (rawFY, rawFX) : (rawFX, rawFY)
     }
 
-    private func orientedPrincipalPoint(from intrinsics: simd_float3x3,
-                                        imageSize: CGSize,
-                                        orientation: CGImagePropertyOrientation) -> CGPoint {
-        let rawCX = CGFloat(intrinsics.columns.2.x)
-        let rawCY = CGFloat(intrinsics.columns.2.y)
+    private func radiansToDegrees(_ radians: Float) -> Float {
+        radians * (180.0 / .pi)
+    }
+
+    private func rawDepthPoint(from point: NormalizedPoint,
+                               orientation: CGImagePropertyOrientation) -> NormalizedPoint {
+        let clamped = point.clamped()
         switch orientation {
-        case .left, .leftMirrored:
-            return CGPoint(x: rawCY, y: imageSize.height - rawCX)
-        case .right, .rightMirrored:
-            return CGPoint(x: imageSize.width - rawCY, y: rawCX)
+        case .right:
+            return NormalizedPoint(x: clamped.y,
+                                   y: 1 - clamped.x).clamped()
+        case .left:
+            return NormalizedPoint(x: 1 - clamped.y,
+                                   y: clamped.x).clamped()
+        case .down:
+            return NormalizedPoint(x: 1 - clamped.x,
+                                   y: 1 - clamped.y).clamped()
+        case .rightMirrored:
+            return NormalizedPoint(x: 1 - clamped.y,
+                                   y: 1 - clamped.x).clamped()
+        case .leftMirrored:
+            return NormalizedPoint(x: clamped.y,
+                                   y: clamped.x).clamped()
+        case .upMirrored:
+            return NormalizedPoint(x: 1 - clamped.x,
+                                   y: clamped.y).clamped()
+        case .downMirrored:
+            return NormalizedPoint(x: clamped.x,
+                                   y: 1 - clamped.y).clamped()
         default:
-            return CGPoint(x: rawCX, y: rawCY)
+            return clamped
         }
     }
 
-    private func radiansToDegrees(_ radians: Float) -> Float {
-        radians * (180.0 / .pi)
+    private func orientedCameraPoint(rawX: Float,
+                                     rawY: Float,
+                                     depth: Float,
+                                     orientation: CGImagePropertyOrientation) -> SIMD3<Float> {
+        switch orientation {
+        case .right, .rightMirrored:
+            return SIMD3<Float>(-rawY, rawX, depth)
+        case .left, .leftMirrored:
+            return SIMD3<Float>(rawY, -rawX, depth)
+        case .down, .downMirrored:
+            return SIMD3<Float>(-rawX, -rawY, depth)
+        default:
+            return SIMD3<Float>(rawX, rawY, depth)
+        }
     }
 
     private func robustMean(_ values: [Double]) -> Double? {

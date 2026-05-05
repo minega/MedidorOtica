@@ -51,13 +51,13 @@ extension VerificationManager {
 
     // MARK: - LiDAR
     private func checkFaceDetectionWithLiDAR(frame: ARFrame) -> Bool {
-        guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
-            .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
+        guard CameraManager.shared.rearLiDARMeasurementEngine
+            .detectsFace(frame: frame, cgOrientation: currentCGOrientation()) else {
             print("Nenhum rosto detectado com LiDAR")
             return false
         }
 
-        print("Rosto detectado usando LiDAR a \(String(format: "%.2f", analysis.averageEyeDepthMeters))m")
+        print("Rosto detectado usando LiDAR")
         return true
     }
 }
