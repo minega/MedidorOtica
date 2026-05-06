@@ -82,11 +82,12 @@ O aplicativo executa verificações em sequência para garantir medições preci
   - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
 
 3. **Centralização**
-   - Tolerância de `X ±0,10 cm` e `Y ±0,15 cm`
+   - Tolerância final de `X ±0,14 cm` e `Y ±0,20 cm`
+   - Durante o alinhamento da cabeça, uma faixa assistida de `X ±0,30 cm` e `Y ±0,35 cm` evita alternar entre etapas, sem liberar captura fora do limite final
    - A câmera precisa ficar alinhada com o `PC`
 
 4. **Alinhamento da Cabeça**
-   - Tolerância de `yaw/roll ±0,8°` e `pitch ±1,0°`
+   - Tolerância de `yaw/roll ±1,2°` e `pitch ±1,3°`
    - Verifica `pitch`, `yaw` e `roll` com referência à câmera
 
 ## 🛠️ Requisitos Técnicos
@@ -108,9 +109,9 @@ O aplicativo executa verificações em sequência para garantir medições preci
 | Verificação | Tolerância |
 |-------------|------------|
 | Distância | 30-40cm |
-| Centralização | X ±0,10cm / Y ±0,15cm |
-| Alinhamento | yaw/roll ±0,8° / pitch ±1,0° |
-| Estabilidade | 8 frames válidos seguidos |
+| Centralização | X ±0,14cm / Y ±0,20cm |
+| Alinhamento | yaw/roll ±1,2° / pitch ±1,3° |
+| Estabilidade | 4 frames válidos seguidos |
 
 ## 🔒 Invariantes de Precisão
 

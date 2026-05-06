@@ -285,7 +285,16 @@ final class VerificationManager: ObservableObject {
                                                headAligned: false)
         }
 
-        let faceAligned = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
+        // No TrueDepth, a pose e medida antes da centralizacao para permitir
+        // uma faixa assistida enquanto a pessoa corrige os eixos. No LiDAR,
+        // evitamos analisar o mesmo frame duas vezes porque o caminho usa Vision.
+        let preliminaryHeadAlignment: (headPoseAvailable: Bool, isAligned: Bool)? = activeSensor == .trueDepth ?
+            evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor) :
+            nil
+        let faceAligned = checkFaceCentering(using: frame,
+                                             faceAnchor: faceAnchor,
+                                             allowAlignmentAssist: preliminaryHeadAlignment?.headPoseAvailable == true &&
+                                                preliminaryHeadAlignment?.isAligned == false)
         guard faceAligned else {
             return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                                trackingIsNormal: trackingIsNormal,
@@ -297,7 +306,8 @@ final class VerificationManager: ObservableObject {
                                                headAligned: false)
         }
 
-        let headAlignment = evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor)
+        let headAlignment = preliminaryHeadAlignment ??
+            evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor)
         return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                            trackingIsNormal: trackingIsNormal,
                                            hasTrackedFaceAnchor: hasTrackedFaceAnchor,

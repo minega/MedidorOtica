@@ -22,10 +22,10 @@ extension VerificationManager {
 
     // MARK: - Constantes
     private enum CenteringConstants {
-        /// Tolerancia horizontal mais rigida para reduzir erro na DNP.
-        static let horizontalTolerance: Float = 0.0010
-        /// Tolerancia vertical mais rigida para manter a camera na altura do PC.
-        static let verticalTolerance: Float = 0.0015
+        /// Tolerancia horizontal final para reduzir erro na DNP sem tornar a captura impraticavel.
+        static let horizontalTolerance = CapturePrecisionPolicy.horizontalCenteringTolerance
+        /// Tolerancia vertical final para manter a camera na altura do PC.
+        static let verticalTolerance = CapturePrecisionPolicy.verticalCenteringTolerance
         /// O eixo X do PC exige a mesma rigidez horizontal.
         static let centralPointTolerance: Float = horizontalTolerance
 
@@ -43,7 +43,9 @@ extension VerificationManager {
 
     // MARK: - Verificacao
     /// Verifica se o rosto esta corretamente centralizado na camera.
-    func checkFaceCentering(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
+    func checkFaceCentering(using frame: ARFrame,
+                            faceAnchor: ARFaceAnchor?,
+                            allowAlignmentAssist: Bool = false) -> Bool {
         let sensors = preferredSensors(requireFaceAnchor: true,
                                        faceAnchorAvailable: faceAnchor != nil)
         guard !sensors.isEmpty else { return false }
@@ -52,9 +54,12 @@ extension VerificationManager {
             switch sensor {
             case .trueDepth:
                 guard let anchor = faceAnchor else { continue }
-                return checkCenteringWithTrueDepth(faceAnchor: anchor, frame: frame)
+                return checkCenteringWithTrueDepth(faceAnchor: anchor,
+                                                   frame: frame,
+                                                   allowAlignmentAssist: allowAlignmentAssist)
             case .liDAR:
-                return checkCenteringWithLiDAR(frame: frame)
+                return checkCenteringWithLiDAR(frame: frame,
+                                               allowAlignmentAssist: allowAlignmentAssist)
             case .none:
                 continue
             }
@@ -63,13 +68,16 @@ extension VerificationManager {
         return false
     }
 
-    private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor, frame: ARFrame) -> Bool {
+    private func checkCenteringWithTrueDepth(faceAnchor: ARFaceAnchor,
+                                             frame: ARFrame,
+                                             allowAlignmentAssist: Bool) -> Bool {
         guard let metrics = makeAlignedTrueDepthMetrics(faceAnchor: faceAnchor, frame: frame) else {
             print("ERRO: nao foi possivel calcular metricas de centralizacao validas")
             return false
         }
 
-        return evaluateCentering(using: metrics)
+        return evaluateCentering(using: metrics,
+                                 allowAlignmentAssist: allowAlignmentAssist)
     }
 
     /// Calcula metricas de centralizacao ancoradas no PC real do TrueDepth.
@@ -86,7 +94,8 @@ extension VerificationManager {
                                     noseAlignment: reference.pcCameraPosition.x)
     }
 
-    private func checkCenteringWithLiDAR(frame: ARFrame) -> Bool {
+    private func checkCenteringWithLiDAR(frame: ARFrame,
+                                         allowAlignmentAssist: Bool) -> Bool {
         guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
             .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
             print("ERRO: nao foi possivel calcular centralizacao LiDAR")
@@ -96,7 +105,8 @@ extension VerificationManager {
         let metrics = FaceCenteringMetrics(horizontal: analysis.centralCameraPoint.x,
                                            vertical: analysis.centralCameraPoint.y,
                                            noseAlignment: analysis.centralCameraPoint.x)
-        return evaluateCentering(using: metrics)
+        return evaluateCentering(using: metrics,
+                                 allowAlignmentAssist: allowAlignmentAssist)
     }
 
     /// Calcula pontos medios convertidos para o espaco da camera e para o depth map.
@@ -142,19 +152,28 @@ extension VerificationManager {
 
     // MARK: - Avaliacao
     /// Avalia se o rosto esta centralizado com base nas metricas calculadas.
-    private func evaluateCentering(using metrics: FaceCenteringMetrics) -> Bool {
+    private func evaluateCentering(using metrics: FaceCenteringMetrics,
+                                   allowAlignmentAssist: Bool) -> Bool {
         let horizontalTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.horizontalTolerance
         let verticalTolerance = activeSensor == .liDAR ? Float(0.0040) : CenteringConstants.verticalTolerance
         let centralPointTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.centralPointTolerance
         let isHorizontallyAligned = abs(metrics.horizontal) < horizontalTolerance
         let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
         let isNoseAligned = abs(metrics.noseAlignment) < centralPointTolerance
-        let isCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
+        let isStrictlyCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
+        let isAssistedDuringHeadAlignment = activeSensor == .trueDepth &&
+            allowAlignmentAssist &&
+            abs(metrics.horizontal) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+            abs(metrics.vertical) < CapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
+            abs(metrics.noseAlignment) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        let isCentered = isStrictlyCentered || isAssistedDuringHeadAlignment
 
         updateCenteringUI(horizontalOffset: metrics.horizontal,
                           verticalOffset: metrics.vertical,
                           noseOffset: metrics.noseAlignment,
-                          isCentered: isCentered)
+                          isCentered: isCentered,
+                          isStrictlyCentered: isStrictlyCentered,
+                          isAssistedDuringHeadAlignment: isAssistedDuringHeadAlignment)
         return isCentered
     }
 
@@ -163,7 +182,9 @@ extension VerificationManager {
     private func updateCenteringUI(horizontalOffset: Float,
                                    verticalOffset: Float,
                                    noseOffset: Float,
-                                   isCentered: Bool) {
+                                   isCentered: Bool,
+                                   isStrictlyCentered: Bool,
+                                   isAssistedDuringHeadAlignment: Bool) {
         let horizontalCm = horizontalOffset * 100
         let verticalCm = verticalOffset * 100
         let noseCm = noseOffset * 100
@@ -174,6 +195,8 @@ extension VerificationManager {
            - Vertical:   \(String(format: "%+.2f", verticalCm)) cm
            - PC:         \(String(format: "%+.2f", noseCm)) cm
            - Alinhado:   \(isCentered ? "OK" : "ERRO")
+           - Estrito:    \(isStrictlyCentered ? "OK" : "ERRO")
+           - Assistido:  \(isAssistedDuringHeadAlignment ? "SIM" : "NAO")
         """)
 
         DispatchQueue.main.async { [weak self] in

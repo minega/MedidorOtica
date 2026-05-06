@@ -36,7 +36,7 @@ O aplicativo detecta automaticamente qual sensor está disponível e ajusta as v
 
 - Ao tocar em **Iniciar Medidas**, a câmera é ativada e a sequência de verificações começa automaticamente.
 - Caso um rosto já esteja enquadrado no momento da abertura da câmera, o sistema continua a execução normalmente sem apresentar erros.
-- As verificações de rosto, distância (`30-40 cm`), centralização (`X ±0,10 cm`, `Y ±0,15 cm`) e alinhamento (`yaw/roll ±0,8°`, `pitch ±1,0°`) são executadas nessa ordem e cada etapa precisa estar correta para prosseguir.
+- As verificações de rosto, distância (`30-40 cm`), centralização (`X ±0,14 cm`, `Y ±0,20 cm`) e alinhamento (`yaw/roll ±1,2°`, `pitch ±1,3°`) são executadas nessa ordem; durante o ajuste dos eixos há uma faixa assistida de centralização que evita oscilação visual, mas não libera a foto fora do limite final.
 - A DNP de longe usa a mesma captura com geometria ocular 3D do `TrueDepth`; ela nunca depende de tabela populacional fixa.
 
 ## Invariantes de Precisao

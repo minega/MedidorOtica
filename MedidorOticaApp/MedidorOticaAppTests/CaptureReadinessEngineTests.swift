@@ -41,7 +41,7 @@ struct CaptureReadinessEngineTests {
                                         timestamp: 1,
                                         sensor: .trueDepth)
 
-        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .pitchDown(10))
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == .pitchDown(11))
     }
 
     @Test func headPoseInstructionUsesYawBeforeRollWhenPitchIsAligned() async throws {
@@ -77,6 +77,12 @@ struct CaptureReadinessEngineTests {
         #expect(!status2.isStableReady)
         #expect(status3.isStableReady)
         #expect(status3.progress == 1.0)
+    }
+
+    @Test func defaultCapturePolicyUsesShortStableBlock() async throws {
+        #expect(CaptureReadinessEngine.defaultStableSampleCount == 4)
+        #expect(CaptureReadinessEngine.defaultMaximumFrameGap == 0.16)
+        #expect(CaptureReadinessEngine.defaultMaximumCaptureAge == 0.12)
     }
 
     @Test func keepsStabilityWhenCalibrationPreviewOscillates() async throws {

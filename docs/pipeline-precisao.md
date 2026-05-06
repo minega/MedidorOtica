@@ -36,7 +36,7 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
   Monta a foto final, salva a calibração final, persiste o `PC` da captura e o snapshot ocular 3D.
 - `MedidorOticaApp/MedidorOticaApp/Managers/CaptureReadinessEngine.swift`
-  Decide se a captura está pronta no frame atual usando `8` frames válidos, gap máximo `0,12 s` e frame final fresco em `0,10 s`.
+  Decide se a captura está pronta no frame atual usando `4` frames válidos, gap máximo `0,16 s` e frame final fresco em `0,12 s`.
 - `MedidorOticaApp/MedidorOticaApp/Managers/VerificationManager.swift`
   Coordena rosto, distância, centralização e alinhamento.
 
@@ -90,6 +90,14 @@ O app mede armações com prioridade total em precisão. O fluxo correto é:
 - Terceiro sinal: dorso/ponte do nariz, apenas como refinamento fraco.
 - A ponta do nariz não pode ser a referência dominante.
 - `DNP nariz` e `DNP ponte` precisam convergir; quando divergirem acima da tolerância, a captura deve ser tratada como inconsistente.
+
+## Como a captura ao vivo deve liberar
+
+- A captura frontal usa `X ±0,14 cm` e `Y ±0,20 cm` como tolerância final do `PC`.
+- A pose frontal usa `yaw/roll ±1,2°` e `pitch ±1,3°`.
+- Durante a etapa de alinhamento da cabeça, existe uma faixa assistida de centralização (`X ±0,30 cm`, `Y ±0,35 cm`) apenas para a UI não alternar entre centralização e eixos a cada microgiro.
+- Essa faixa assistida nunca pode liberar captura: quando `pitch`, `yaw` e `roll` ficam corretos, a centralização volta a exigir o limite final antes da foto.
+- A captura automática permanece instantânea, sem countdown, no primeiro bloco curto de frames perfeitos.
 
 ## Como a escala deve funcionar
 

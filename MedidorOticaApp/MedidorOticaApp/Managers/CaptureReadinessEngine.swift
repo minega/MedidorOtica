@@ -7,14 +7,39 @@
 
 import Foundation
 
+// MARK: - Politica de precisao da captura
+/// Centraliza os limites que controlam a captura automatica.
+enum CapturePrecisionPolicy {
+    /// Tolerancia final do PC no eixo X. Este eixo impacta diretamente a DNP.
+    static let horizontalCenteringTolerance: Float = 0.0014
+    /// Tolerancia final do PC no eixo Y, mantendo a camera na altura media das pupilas.
+    static let verticalCenteringTolerance: Float = 0.0020
+    /// Faixa assistida usada apenas enquanto a cabeca ainda esta fora dos eixos.
+    static let alignmentAssistHorizontalTolerance: Float = 0.0030
+    /// Faixa assistida vertical usada apenas para nao alternar nervosamente entre etapas.
+    static let alignmentAssistVerticalTolerance: Float = 0.0035
+    /// Tolerancia final de roll da cabeca.
+    static let rollToleranceDegrees: Float = 1.2
+    /// Tolerancia final de yaw da cabeca.
+    static let yawToleranceDegrees: Float = 1.2
+    /// Tolerancia final de pitch da cabeca.
+    static let pitchToleranceDegrees: Float = 1.3
+    /// Quantidade de frames perfeitos exigida antes do disparo automatico.
+    static let stableSampleCount = 4
+    /// Maior intervalo aceito entre frames validos consecutivos.
+    static let maximumFrameGap: TimeInterval = 0.16
+    /// Idade maxima do frame aceito no disparo final.
+    static let maximumCaptureAge: TimeInterval = 0.12
+}
+
 // MARK: - Motor de prontidao
 /// Exige amostras consecutivas validas antes de liberar a foto.
 /// A calibracao final continua sendo validada no frame real da captura.
 final class CaptureReadinessEngine {
     // MARK: - Configuracao
-    static let defaultStableSampleCount = 8
-    static let defaultMaximumFrameGap: TimeInterval = 0.12
-    static let defaultMaximumCaptureAge: TimeInterval = 0.10
+    static let defaultStableSampleCount = CapturePrecisionPolicy.stableSampleCount
+    static let defaultMaximumFrameGap: TimeInterval = CapturePrecisionPolicy.maximumFrameGap
+    static let defaultMaximumCaptureAge: TimeInterval = CapturePrecisionPolicy.maximumCaptureAge
 
     private let requiredStableSampleCount: Int
     private let maximumFrameGap: TimeInterval

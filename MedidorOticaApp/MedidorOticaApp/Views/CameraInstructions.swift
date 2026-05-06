@@ -9,9 +9,9 @@ import SwiftUI
 
 // MARK: - Construtor da instrucao da cabeca
 enum HeadPoseInstructionBuilder {
-    static let rollToleranceDegrees: Float = 0.8
-    static let yawToleranceDegrees: Float = 0.8
-    static let pitchToleranceDegrees: Float = 1.0
+    static let rollToleranceDegrees = CapturePrecisionPolicy.rollToleranceDegrees
+    static let yawToleranceDegrees = CapturePrecisionPolicy.yawToleranceDegrees
+    static let pitchToleranceDegrees = CapturePrecisionPolicy.pitchToleranceDegrees
 
     /// Escolhe um unico eixo por vez, seguindo a ordem pitch, yaw e roll.
     static func adjustment(from snapshot: HeadPoseSnapshot) -> HeadAxisAdjustment? {
@@ -268,7 +268,8 @@ struct CameraInstructions: View {
         let verticalOffset = abs(yPos)
         let dominantOffset = max(abs(xPos), abs(yPos))
 
-        if horizontalOffset <= 0.18 && verticalOffset <= 0.24 {
+        if horizontalOffset <= CapturePrecisionPolicy.horizontalCenteringTolerance * 100 &&
+            verticalOffset <= CapturePrecisionPolicy.verticalCenteringTolerance * 100 {
             return "📱 ⏳ Segure parado no PC para validar a captura"
         }
 

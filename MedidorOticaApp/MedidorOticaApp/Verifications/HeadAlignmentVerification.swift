@@ -13,9 +13,9 @@ import simd
 extension VerificationManager {
     private enum HeadAlignmentConstants {
         /// Tolerancias independentes para os tres eixos, priorizando a DNP.
-        static let rollToleranceDegrees: Float = 0.8
-        static let yawToleranceDegrees: Float = 0.8
-        static let pitchToleranceDegrees: Float = 1.0
+        static let rollToleranceDegrees = CapturePrecisionPolicy.rollToleranceDegrees
+        static let yawToleranceDegrees = CapturePrecisionPolicy.yawToleranceDegrees
+        static let pitchToleranceDegrees = CapturePrecisionPolicy.pitchToleranceDegrees
     }
 
     /// Mede a pose atual da cabeca e informa se a etapa 4 esta liberada.
