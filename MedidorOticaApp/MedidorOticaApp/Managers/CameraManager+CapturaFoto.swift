@@ -184,8 +184,13 @@ extension CameraManager {
     private func renderRearLiDARCapturedPhoto(from context: CaptureFrameContext) -> Result<CapturedPhoto, CameraError> {
         outputDelegate?(context.frame)
 
+        guard let analysis = rearLiDARMeasurementEngine.analyze(frame: context.frame,
+                                                                cgOrientation: context.cgOrientation) else {
+            return .failure(.missingDepthData)
+        }
+
         let ciImage = CIImage(cvPixelBuffer: context.frame.capturedImage)
-        let orientedCIImage = ciImage.oriented(forExifOrientation: context.cgOrientation.exifOrientation)
+        let orientedCIImage = ciImage.oriented(forExifOrientation: analysis.cgOrientation.exifOrientation)
 
         guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
                                                                  from: orientedCIImage.extent) else {
@@ -195,7 +200,7 @@ extension CameraManager {
         let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
         guard let calibration = rearLiDARMeasurementEngine.captureCalibration(frame: context.frame,
                                                                               imageSize: imageSize,
-                                                                              cgOrientation: context.cgOrientation) else {
+                                                                              cgOrientation: analysis.cgOrientation) else {
             return .failure(.missingDepthData)
         }
 
@@ -209,9 +214,9 @@ extension CameraManager {
                                   calibration: calibration.global,
                                   localCalibration: calibration.local,
                                   captureCentralPoint: calibration.centralPoint,
-                                  eyeGeometrySnapshot: nil,
+                                  eyeGeometrySnapshot: calibration.eyeGeometrySnapshot,
                                   frameTimestamp: context.frame.timestamp,
-                                  orientation: context.cgOrientation,
+                                  orientation: calibration.cgOrientation,
                                   captureWarning: calibration.warning)
         return .success(photo)
     }

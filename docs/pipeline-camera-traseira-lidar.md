@@ -14,6 +14,8 @@ Criar uma captura traseira parecida com a frontal, usando `ARWorldTrackingConfig
 - Usar `Vision` para pupilas, linha media facial e pose aproximada.
 - Usar a profundidade LiDAR no plano do `PC` para distancia e escala.
 - Usar o deslocamento visual do `PC` no preview para centralizacao, pois e a referencia que o usuario enxerga ao ajustar o celular.
+- Renderizar a foto final com a mesma orientacao que o `Vision`/LiDAR usou para calcular `PC`, face bounds e escala local.
+- Salvar uma geometria ocular 3D estimada por LiDAR para a pos-captura traseira nao cair no estado de geometria indisponivel.
 - Manter a captura traseira com politica propria de estabilidade, sem alterar os limites da camera frontal.
 - Exibir aviso no pos-captura para revisar pupilas, `PC` e `DNP longe` antes de salvar.
 
@@ -34,6 +36,8 @@ Para este app, a melhor base traseira e a camera principal associada ao LiDAR:
   Motor que combina landmarks do `Vision`, intrinsecos da camera e mapa de profundidade LiDAR.
 - `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+ControleSessao.swift`
   Inicia a sessao traseira com `ARWorldTrackingConfiguration`.
+- `MedidorOticaApp/MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
+  Renderiza a foto traseira usando a orientacao validada pela analise LiDAR.
 - `MedidorOticaApp/MedidorOticaApp/Verifications/FaceDetectionVerification.swift`
   Detecta rosto no frame traseiro via `Vision`.
 - `MedidorOticaApp/MedidorOticaApp/Verifications/DistanceVerification.swift`

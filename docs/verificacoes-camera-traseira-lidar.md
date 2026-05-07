@@ -20,6 +20,13 @@ Este documento e exclusivo do modo traseiro. A camera frontal TrueDepth continua
 - A pose traseira vem do `Vision`, portanto usa tolerancia propria.
 - O TrueDepth frontal continua usando as tolerancias frontais.
 - A captura traseira exige menos frames estaveis para reduzir perda por balanco normal da mao.
+- A foto final deve preservar a orientacao validada pelo `Vision`; se o motor usar uma orientacao de fallback, renderizacao, `PC`, escala e pos-captura usam essa mesma orientacao.
+
+## Pos-captura
+
+- O modo traseiro salva centros 3D estimados dos olhos usando landmarks do `Vision` e profundidade LiDAR.
+- Essa geometria nao substitui o rastreamento real do TrueDepth, mas evita que a DNP longe e a revisao de alinhamento entrem no fallback de geometria indisponivel.
+- Quando o Vision nao entrega pupilas, a geometria usa pontos oculares inferidos dentro do recorte facial para manter a revisao possivel.
 
 ## Camera
 

@@ -61,7 +61,15 @@ struct RearLiDARCaptureCalibration {
     let global: PostCaptureCalibration
     let local: LocalFaceScaleCalibration
     let centralPoint: NormalizedPoint
+    let cgOrientation: CGImagePropertyOrientation
+    let eyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
     let warning: String?
+}
+
+private struct RearLiDAREyeGeometryPoint {
+    let normalizedPoint: NormalizedPoint
+    let cameraPoint: SIMD3<Float>
+    let projection: CaptureEyeGeometrySnapshot.LinearizedProjection?
 }
 
 // MARK: - Motor LiDAR
@@ -75,6 +83,7 @@ final class RearLiDARMeasurementEngine {
         static let localGridRows = 7
         static let localDepthRadius = 2
         static let minimumLocalSamples = 24
+        static let rearGeometryFixationConfidence = 0.68
     }
 
     // MARK: - Cache
@@ -201,14 +210,21 @@ final class RearLiDARMeasurementEngine {
                                          orientation: analysis.cgOrientation)
         guard local.isReliable,
               let global = local.globalCalibration,
-              global.isReliable else {
+              global.isReliable,
+              isPlausibleRearCaptureScale(global) else {
             return nil
         }
 
-        let warning = "Modo LiDAR traseiro: revise pupilas, PC e DNP longe antes de salvar."
+        let eyeGeometrySnapshot = makeEyeGeometrySnapshot(frame: frame,
+                                                          analysis: analysis,
+                                                          depthMap: depthMap,
+                                                          imageSize: imageSize)
+        let warning = "Modo LiDAR traseiro: revise pupilas, PC, alinhamento e DNP longe antes de salvar."
         return RearLiDARCaptureCalibration(global: global,
                                            local: local,
                                            centralPoint: analysis.centralPoint,
+                                           cgOrientation: analysis.cgOrientation,
+                                           eyeGeometrySnapshot: eyeGeometrySnapshot,
                                            warning: warning)
     }
 
@@ -493,6 +509,112 @@ final class RearLiDARMeasurementEngine {
         return filteredSamples.count >= Constants.minimumLocalSamples ? filteredSamples : samples
     }
 
+    /// Aplica uma trava traseira ampla para rejeitar apenas escalas claramente incompatíveis com 35-55 cm.
+    private func isPlausibleRearCaptureScale(_ calibration: PostCaptureCalibration) -> Bool {
+        let minimumRearReferenceMM = 80.0
+        return calibration.horizontalReferenceMM >= minimumRearReferenceMM &&
+            calibration.verticalReferenceMM >= minimumRearReferenceMM
+    }
+
+    // MARK: - Geometria ocular traseira
+    /// Cria uma geometria ocular 3D estimada pelo LiDAR para a mesma foto usada na pós-captura.
+    private func makeEyeGeometrySnapshot(frame: ARFrame,
+                                         analysis: RearLiDARFrameAnalysis,
+                                         depthMap: CVPixelBuffer,
+                                         imageSize: CGSize) -> CaptureEyeGeometrySnapshot? {
+        let eyePoints = resolvedEyeGeometryPoints(face: analysis.faceObservation,
+                                                  analysis: analysis,
+                                                  frame: frame,
+                                                  depthMap: depthMap,
+                                                  imageSize: imageSize)
+        guard eyePoints.count >= 2,
+              let faceForward = normalizedVector(-analysis.centralCameraPoint) else {
+            return nil
+        }
+
+        // A pós-captura normaliza o olho direito para o lado esquerdo da imagem.
+        // Mantemos a mesma convenção para parear pupila 2D e geometria 3D.
+        let ordered = eyePoints.sorted { $0.normalizedPoint.x < $1.normalizedPoint.x }
+        let imageLeftEye = ordered[0]
+        let imageRightEye = ordered[1]
+        let rightGaze = normalizedVector(-imageLeftEye.cameraPoint) ?? faceForward
+        let leftGaze = normalizedVector(-imageRightEye.cameraPoint) ?? faceForward
+
+        return CaptureEyeGeometrySnapshot(
+            leftEye: .init(centerCamera: CodableVector3(imageRightEye.cameraPoint),
+                           gazeCamera: CodableVector3(leftGaze),
+                           projection: imageRightEye.projection),
+            rightEye: .init(centerCamera: CodableVector3(imageLeftEye.cameraPoint),
+                            gazeCamera: CodableVector3(rightGaze),
+                            projection: imageLeftEye.projection),
+            pcCameraPosition: CodableVector3(analysis.centralCameraPoint),
+            faceForwardCamera: CodableVector3(faceForward),
+            fixationConfidence: Constants.rearGeometryFixationConfidence,
+            fixationConfidenceReason: "Geometria ocular estimada pelo LiDAR traseiro.",
+            strongestGazeDeviation: 0
+        )
+    }
+
+    private func resolvedEyeGeometryPoints(face: VNFaceObservation,
+                                           analysis: RearLiDARFrameAnalysis,
+                                           frame: ARFrame,
+                                           depthMap: CVPixelBuffer,
+                                           imageSize: CGSize) -> [RearLiDAREyeGeometryPoint] {
+        let imageWidth = Int(imageSize.width)
+        let imageHeight = Int(imageSize.height)
+        guard imageWidth > 0, imageHeight > 0 else { return [] }
+
+        let landmarkPoints = [
+            normalizedPoint(from: face.landmarks?.rightPupil ?? face.landmarks?.rightEye,
+                            face: face,
+                            imageWidth: imageWidth,
+                            imageHeight: imageHeight),
+            normalizedPoint(from: face.landmarks?.leftPupil ?? face.landmarks?.leftEye,
+                            face: face,
+                            imageWidth: imageWidth,
+                            imageHeight: imageHeight)
+        ]
+            .compactMap { $0 }
+            .map { NormalizedPoint(x: $0.x, y: $0.y).clamped() }
+
+        func makeGeometryPoints(from points: [NormalizedPoint]) -> [RearLiDAREyeGeometryPoint] {
+            points.compactMap { point in
+                guard let depth = medianDepth(from: depthMap,
+                                              at: point,
+                                              orientation: analysis.cgOrientation,
+                                              radius: Constants.localDepthRadius),
+                      let eyeCameraPoint = cameraPoint(for: point,
+                                                       depth: depth,
+                                                       frame: frame,
+                                                       orientation: analysis.cgOrientation) else {
+                    return nil
+                }
+
+                return RearLiDAREyeGeometryPoint(normalizedPoint: point,
+                                                 cameraPoint: eyeCameraPoint,
+                                                 projection: nil)
+            }
+        }
+
+        let landmarkGeometry = makeGeometryPoints(from: landmarkPoints)
+        if landmarkGeometry.count >= 2 {
+            return landmarkGeometry
+        }
+
+        let fallbackGeometry = makeGeometryPoints(from: fallbackEyeGeometryPoints(for: analysis))
+        return fallbackGeometry.count >= 2 ? fallbackGeometry : landmarkGeometry
+    }
+
+    /// Infere posições oculares quando o Vision detecta rosto, mas não entrega landmarks de pupila confiáveis.
+    private func fallbackEyeGeometryPoints(for analysis: RearLiDARFrameAnalysis) -> [NormalizedPoint] {
+        let halfEyeDistance = min(max(analysis.faceBounds.width * 0.18, 0.045), 0.14)
+        let center = analysis.centralPoint.clamped()
+        return [
+            NormalizedPoint(x: center.x - halfEyeDistance, y: center.y).clamped(),
+            NormalizedPoint(x: center.x + halfEyeDistance, y: center.y).clamped()
+        ]
+    }
+
     // MARK: - Geometria
     private func cameraPoint(for point: NormalizedPoint,
                              depth: Float,
@@ -645,6 +767,12 @@ final class RearLiDARMeasurementEngine {
             return (sorted[middle - 1] + sorted[middle]) * 0.5
         }
         return sorted[middle]
+    }
+
+    private func normalizedVector(_ vector: SIMD3<Float>) -> SIMD3<Float>? {
+        let length = simd_length(vector)
+        guard length.isFinite, length > .ulpOfOne else { return nil }
+        return vector / length
     }
 
     private func cachedFrameAnalysis(timestamp: TimeInterval,

@@ -91,6 +91,23 @@ struct PostCaptureFarDNPResolverTests {
         #expect(result.confidenceReason == "Fixacao oscilou.")
     }
 
+    @Test func acceptsRearLiDAREstimatedGeometryWithoutUnavailableFallback() async throws {
+        let scale = PostCaptureScale(calibration: .init(horizontalReferenceMM: 100,
+                                                        verticalReferenceMM: 80))
+        let snapshot = makeRearLiDAREstimatedSnapshot()
+
+        let result = PostCaptureFarDNPResolver.resolve(rightPupilNear: NormalizedPoint(x: 0.65, y: 0.50),
+                                                       leftPupilNear: NormalizedPoint(x: 0.35, y: 0.50),
+                                                       centralPoint: NormalizedPoint(x: 0.50, y: 0.50),
+                                                       scale: scale,
+                                                       eyeGeometry: snapshot)
+
+        #expect(result.rightDNPFar > 15.3)
+        #expect(result.leftDNPFar > 15.3)
+        #expect(result.confidence == 0.68)
+        #expect(result.confidenceReason == nil)
+    }
+
     private func makeSnapshot(leftProjectedCenter: NormalizedPoint,
                               rightProjectedCenter: NormalizedPoint,
                               xScalePerMeter: Float,
@@ -119,6 +136,22 @@ struct PostCaptureFarDNPResolverTests {
             fixationConfidence: fixationConfidence,
             fixationConfidenceReason: fixationConfidenceReason,
             strongestGazeDeviation: 0.1
+        )
+    }
+
+    private func makeRearLiDAREstimatedSnapshot() -> CaptureEyeGeometrySnapshot {
+        CaptureEyeGeometrySnapshot(
+            leftEye: .init(centerCamera: CodableVector3(SIMD3<Float>(-0.031, 0.0, 0.45)),
+                           gazeCamera: CodableVector3(SIMD3<Float>(0.0, 0.0, -1.0)),
+                           projection: nil),
+            rightEye: .init(centerCamera: CodableVector3(SIMD3<Float>(0.031, 0.0, 0.45)),
+                            gazeCamera: CodableVector3(SIMD3<Float>(0.0, 0.0, -1.0)),
+                            projection: nil),
+            pcCameraPosition: CodableVector3(SIMD3<Float>(0.0, 0.0, 0.45)),
+            faceForwardCamera: CodableVector3(SIMD3<Float>(0.0, 0.0, -1.0)),
+            fixationConfidence: 0.68,
+            fixationConfidenceReason: "Geometria ocular estimada pelo LiDAR traseiro.",
+            strongestGazeDeviation: 0
         )
     }
 }
