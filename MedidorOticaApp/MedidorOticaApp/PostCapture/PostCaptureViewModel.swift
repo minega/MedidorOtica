@@ -171,7 +171,7 @@ final class PostCaptureViewModel: ObservableObject {
                 self.centralCandidates = result.centralCandidates
                 self.normalizeEyeOrdering()
                 self.faceBounds = result.configuration.faceBounds
-                let preview = generateFacePreview(from: result.configuration.faceBounds)
+                let preview = generateFacePreview(from: self.previewSourceBounds(for: self.configuration))
                 self.facePreview = preview.image
                 self.previewBounds = preview.bounds
                 self.dnpCandidates = self.makeDNPCandidates()
@@ -188,7 +188,7 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     private func restoreExistingConfiguration(_ storedConfiguration: PostCaptureConfiguration) async {
-        let preview = generateFacePreview(from: storedConfiguration.faceBounds)
+        let preview = generateFacePreview(from: previewSourceBounds(for: storedConfiguration))
         await MainActor.run {
             self.configuration = storedConfiguration
             self.detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: true, left: true)
@@ -463,6 +463,58 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Pré-visualização
+    /// Define o recorte exibido na pos-captura. No LiDAR, ele precisa incluir as barras iniciais.
+    private func previewSourceBounds(for configuration: PostCaptureConfiguration) -> NormalizedRect {
+        let baseBounds = configuration.faceBounds.clamped()
+        guard isRearLiDARCapture else { return baseBounds }
+
+        let points = interactivePoints(from: configuration)
+        guard !points.isEmpty else { return baseBounds }
+
+        let minX = min(baseBounds.x, points.map(\.x).min() ?? baseBounds.x)
+        let maxX = max(baseBounds.x + baseBounds.width,
+                       points.map(\.x).max() ?? (baseBounds.x + baseBounds.width))
+        let minY = min(baseBounds.y, points.map(\.y).min() ?? baseBounds.y)
+        let maxY = max(baseBounds.y + baseBounds.height,
+                       points.map(\.y).max() ?? (baseBounds.y + baseBounds.height))
+        let horizontalPadding = max(baseBounds.width * 0.10,
+                                    scale.normalizedHorizontal(8, at: configuration.centralPoint))
+        let verticalPadding = max(baseBounds.height * 0.08,
+                                  scale.normalizedVertical(8, at: configuration.centralPoint))
+
+        return NormalizedRect(x: minX - horizontalPadding,
+                              y: minY - verticalPadding,
+                              width: (maxX - minX) + (horizontalPadding * 2),
+                              height: (maxY - minY) + (verticalPadding * 2)).clamped()
+    }
+
+    /// Indica se a captura veio do fluxo traseiro sem alterar a camera frontal.
+    private var isRearLiDARCapture: Bool {
+        if captureWarning?.localizedCaseInsensitiveContains("LiDAR traseiro") == true {
+            return true
+        }
+
+        return eyeGeometrySnapshot?.fixationConfidenceReason?
+            .localizedCaseInsensitiveContains("LiDAR traseiro") == true
+    }
+
+    /// Pontos que precisam permanecer visiveis no recorte traseiro inicial.
+    private func interactivePoints(from configuration: PostCaptureConfiguration) -> [NormalizedPoint] {
+        [
+            configuration.centralPoint,
+            configuration.rightEye.pupil,
+            configuration.leftEye.pupil,
+            NormalizedPoint(x: configuration.rightEye.nasalBarX, y: configuration.rightEye.pupil.y),
+            NormalizedPoint(x: configuration.rightEye.temporalBarX, y: configuration.rightEye.pupil.y),
+            NormalizedPoint(x: configuration.leftEye.nasalBarX, y: configuration.leftEye.pupil.y),
+            NormalizedPoint(x: configuration.leftEye.temporalBarX, y: configuration.leftEye.pupil.y),
+            NormalizedPoint(x: configuration.rightEye.pupil.x, y: configuration.rightEye.inferiorBarY),
+            NormalizedPoint(x: configuration.rightEye.pupil.x, y: configuration.rightEye.superiorBarY),
+            NormalizedPoint(x: configuration.leftEye.pupil.x, y: configuration.leftEye.inferiorBarY),
+            NormalizedPoint(x: configuration.leftEye.pupil.x, y: configuration.leftEye.superiorBarY)
+        ].map { $0.clamped() }
+    }
+
     private func generateFacePreview(from bounds: NormalizedRect) -> (image: UIImage?, bounds: NormalizedRect) {
         guard bounds.width > 0, bounds.height > 0 else {
             return (nil, bounds.clamped())

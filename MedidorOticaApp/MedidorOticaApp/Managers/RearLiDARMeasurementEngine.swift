@@ -72,6 +72,12 @@ private struct RearLiDAREyeGeometryPoint {
     let projection: CaptureEyeGeometrySnapshot.LinearizedProjection?
 }
 
+private struct RearLiDARHeadPoseAngles {
+    let roll: Float?
+    let yaw: Float?
+    let pitch: Float?
+}
+
 // MARK: - Motor LiDAR
 /// Resolve escala, PC e pose a partir da camera traseira com LiDAR.
 final class RearLiDARMeasurementEngine {
@@ -84,6 +90,7 @@ final class RearLiDARMeasurementEngine {
         static let localDepthRadius = 2
         static let minimumLocalSamples = 24
         static let rearGeometryFixationConfidence = 0.68
+        static let maximumFallbackPoseDegrees: Float = 28
     }
 
     // MARK: - Cache
@@ -179,7 +186,14 @@ final class RearLiDARMeasurementEngine {
             return nil
         }
 
-        let headPose = makeHeadPose(from: face, timestamp: frame.timestamp)
+        let headPose = makeHeadPose(from: face,
+                                    centralPoint: centralPoint,
+                                    centralCameraPoint: centralCameraPoint,
+                                    frame: frame,
+                                    depthMap: depthMap,
+                                    imageSize: imageSize,
+                                    orientation: cgOrientation,
+                                    timestamp: frame.timestamp)
         let analysis = RearLiDARFrameAnalysis(faceObservation: face,
                                               cgOrientation: cgOrientation,
                                               faceBounds: bounds,
@@ -560,22 +574,8 @@ final class RearLiDARMeasurementEngine {
                                            frame: ARFrame,
                                            depthMap: CVPixelBuffer,
                                            imageSize: CGSize) -> [RearLiDAREyeGeometryPoint] {
-        let imageWidth = Int(imageSize.width)
-        let imageHeight = Int(imageSize.height)
-        guard imageWidth > 0, imageHeight > 0 else { return [] }
-
-        let landmarkPoints = [
-            normalizedPoint(from: face.landmarks?.rightPupil ?? face.landmarks?.rightEye,
-                            face: face,
-                            imageWidth: imageWidth,
-                            imageHeight: imageHeight),
-            normalizedPoint(from: face.landmarks?.leftPupil ?? face.landmarks?.leftEye,
-                            face: face,
-                            imageWidth: imageWidth,
-                            imageHeight: imageHeight)
-        ]
-            .compactMap { $0 }
-            .map { NormalizedPoint(x: $0.x, y: $0.y).clamped() }
+        let landmarkPoints = resolvedEyeLandmarkPoints(face: face,
+                                                       imageSize: imageSize)
 
         func makeGeometryPoints(from points: [NormalizedPoint]) -> [RearLiDAREyeGeometryPoint] {
             points.compactMap { point in
@@ -665,20 +665,149 @@ final class RearLiDARMeasurementEngine {
     }
 
     private func makeHeadPose(from face: VNFaceObservation,
+                              centralPoint: NormalizedPoint,
+                              centralCameraPoint: SIMD3<Float>,
+                              frame: ARFrame,
+                              depthMap: CVPixelBuffer,
+                              imageSize: CGSize,
+                              orientation: CGImagePropertyOrientation,
                               timestamp: TimeInterval) -> HeadPoseSnapshot? {
-        guard face.roll != nil || face.yaw != nil || face.pitch != nil else {
-            return nil
-        }
+        let vision = visionHeadPoseAngles(from: face)
+        let lidar = liDARHeadPoseAngles(from: face,
+                                        centralPoint: centralPoint,
+                                        centralCameraPoint: centralCameraPoint,
+                                        frame: frame,
+                                        depthMap: depthMap,
+                                        imageSize: imageSize,
+                                        orientation: orientation)
+        let roll = vision?.roll ?? lidar?.roll
+        let yaw = vision?.yaw ?? lidar?.yaw
+        let pitch = vision?.pitch ?? lidar?.pitch
+        guard roll != nil || yaw != nil || pitch != nil else { return nil }
 
-        let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
-        let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
-        let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
-        let snapshot = HeadPoseSnapshot(rollDegrees: roll,
-                                        yawDegrees: yaw,
-                                        pitchDegrees: pitch,
+        let snapshot = HeadPoseSnapshot(rollDegrees: roll ?? 0,
+                                        yawDegrees: yaw ?? 0,
+                                        pitchDegrees: pitch ?? 0,
                                         timestamp: timestamp,
                                         sensor: .liDAR)
         return snapshot.isValid ? snapshot : nil
+    }
+
+    /// Usa a pose nativa do Vision quando ela estiver disponivel para algum eixo.
+    private func visionHeadPoseAngles(from face: VNFaceObservation) -> RearLiDARHeadPoseAngles? {
+        let roll = face.roll.map { radiansToDegrees(Float($0.doubleValue)) }
+        let yaw = face.yaw.map { radiansToDegrees(Float($0.doubleValue)) }
+        let pitch = face.pitch.map { radiansToDegrees(Float($0.doubleValue)) }
+        guard roll != nil || yaw != nil || pitch != nil else { return nil }
+        return RearLiDARHeadPoseAngles(roll: roll, yaw: yaw, pitch: pitch)
+    }
+
+    /// Estima a pose com landmarks e LiDAR quando o Vision nao entrega todos os eixos.
+    private func liDARHeadPoseAngles(from face: VNFaceObservation,
+                                     centralPoint: NormalizedPoint,
+                                     centralCameraPoint: SIMD3<Float>,
+                                     frame: ARFrame,
+                                     depthMap: CVPixelBuffer,
+                                     imageSize: CGSize,
+                                     orientation: CGImagePropertyOrientation) -> RearLiDARHeadPoseAngles? {
+        let eyePoints = resolvedEyeLandmarkPoints(face: face, imageSize: imageSize)
+            .sorted { $0.x < $1.x }
+        guard eyePoints.count >= 2 else { return nil }
+
+        let imageLeftEye = eyePoints[0]
+        let imageRightEye = eyePoints[1]
+        let roll = clampedPoseDegrees(
+            radiansToDegrees(Float(atan2(Double(imageRightEye.y - imageLeftEye.y),
+                                         Double(imageRightEye.x - imageLeftEye.x))))
+        )
+
+        guard let leftDepth = medianDepth(from: depthMap,
+                                          at: imageLeftEye,
+                                          orientation: orientation,
+                                          radius: Constants.localDepthRadius),
+              let rightDepth = medianDepth(from: depthMap,
+                                           at: imageRightEye,
+                                           orientation: orientation,
+                                           radius: Constants.localDepthRadius),
+              let leftCameraPoint = cameraPoint(for: imageLeftEye,
+                                                depth: leftDepth,
+                                                frame: frame,
+                                                orientation: orientation),
+              let rightCameraPoint = cameraPoint(for: imageRightEye,
+                                                 depth: rightDepth,
+                                                 frame: frame,
+                                                 orientation: orientation),
+              let lowerFacePoint = lowerFaceReferencePoint(from: face,
+                                                           centralPoint: centralPoint,
+                                                           imageSize: imageSize),
+              let lowerDepth = medianDepth(from: depthMap,
+                                           at: lowerFacePoint,
+                                           orientation: orientation,
+                                           radius: Constants.localDepthRadius),
+              let lowerCameraPoint = cameraPoint(for: lowerFacePoint,
+                                                 depth: lowerDepth,
+                                                 frame: frame,
+                                                 orientation: orientation),
+              let horizontalAxis = normalizedVector(rightCameraPoint - leftCameraPoint),
+              let verticalAxis = normalizedVector(lowerCameraPoint - ((leftCameraPoint + rightCameraPoint) * 0.5)),
+              var faceForward = normalizedVector(simd_cross(horizontalAxis, verticalAxis)) else {
+            return RearLiDARHeadPoseAngles(roll: roll, yaw: nil, pitch: nil)
+        }
+
+        let cameraDirection = normalizedVector(-centralCameraPoint) ?? SIMD3<Float>(0, 0, -1)
+        if simd_dot(faceForward, cameraDirection) < 0 {
+            faceForward = -faceForward
+        }
+
+        let forwardDepth = max(-faceForward.z, 0.0001)
+        let yaw = clampedPoseDegrees(radiansToDegrees(atan2(faceForward.x, forwardDepth)))
+        let pitch = clampedPoseDegrees(radiansToDegrees(atan2(faceForward.y, forwardDepth)))
+        return RearLiDARHeadPoseAngles(roll: roll, yaw: yaw, pitch: pitch)
+    }
+
+    private func resolvedEyeLandmarkPoints(face: VNFaceObservation,
+                                           imageSize: CGSize) -> [NormalizedPoint] {
+        let imageWidth = Int(imageSize.width)
+        let imageHeight = Int(imageSize.height)
+        guard imageWidth > 0, imageHeight > 0 else { return [] }
+
+        return [
+            normalizedPoint(from: face.landmarks?.rightPupil ?? face.landmarks?.rightEye,
+                            face: face,
+                            imageWidth: imageWidth,
+                            imageHeight: imageHeight),
+            normalizedPoint(from: face.landmarks?.leftPupil ?? face.landmarks?.leftEye,
+                            face: face,
+                            imageWidth: imageWidth,
+                            imageHeight: imageHeight)
+        ]
+            .compactMap { $0 }
+            .map { NormalizedPoint(x: $0.x, y: $0.y).clamped() }
+    }
+
+    private func lowerFaceReferencePoint(from face: VNFaceObservation,
+                                         centralPoint: NormalizedPoint,
+                                         imageSize: CGSize) -> NormalizedPoint? {
+        let imageWidth = Int(imageSize.width)
+        let imageHeight = Int(imageSize.height)
+        guard imageWidth > 0, imageHeight > 0 else { return nil }
+
+        let points = normalizedPoints(from: face.landmarks?.noseCrest,
+                                      face: face,
+                                      imageWidth: imageWidth,
+                                      imageHeight: imageHeight) +
+            normalizedPoints(from: face.landmarks?.medianLine,
+                             face: face,
+                             imageWidth: imageWidth,
+                             imageHeight: imageHeight)
+        if let lower = points
+            .filter({ $0.y > centralPoint.y })
+            .max(by: { $0.y < $1.y }) {
+            return NormalizedPoint(x: lower.x, y: lower.y).clamped()
+        }
+
+        let fallbackY = min(centralPoint.y + 0.16, 0.95)
+        return NormalizedPoint(x: centralPoint.x, y: fallbackY).clamped()
     }
 
     private func orientedSize(for pixelBuffer: CVPixelBuffer,
@@ -699,6 +828,12 @@ final class RearLiDARMeasurementEngine {
 
     private func radiansToDegrees(_ radians: Float) -> Float {
         radians * (180.0 / .pi)
+    }
+
+    private func clampedPoseDegrees(_ degrees: Float) -> Float {
+        guard degrees.isFinite else { return 0 }
+        return min(max(degrees, -Constants.maximumFallbackPoseDegrees),
+                   Constants.maximumFallbackPoseDegrees)
     }
 
     private func rawDepthPoint(from point: NormalizedPoint,
