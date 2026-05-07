@@ -503,6 +503,9 @@ struct CameraView: View {
         }
 
         if !verificationManager.faceAligned {
+            if cameraManager.cameraPosition == .back {
+                return "Ajuste o celular ate o PC ficar no centro do oval."
+            }
             return "Ajuste o celular ate o nariz ficar exatamente no centro do oval."
         }
 

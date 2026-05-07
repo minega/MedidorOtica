@@ -17,6 +17,11 @@ struct CaptureReadinessEngineTests {
         #expect(VerificationType.distance.description.contains("40cm"))
     }
 
+    @Test func rearLiDARDistanceStartsAtFiftyCentimeters() async throws {
+        #expect(RearLiDARDistanceLimits.minCm == 50.0)
+        #expect(RearLiDARDistanceLimits.maxCm == 100.0)
+    }
+
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
         #expect(TrueDepthBlockReason.noRecentSamples.shortMessage == "Aproxime o rosto ate aparecer a malha facial.")
     }
@@ -223,6 +228,28 @@ struct CaptureReadinessEngineTests {
         #expect(evaluation.allChecksPassed(requiresTrackedFaceAnchor: false))
     }
 
+    @Test func rearLiDARReadinessUsesShorterStablePolicy() async throws {
+        let engine = CaptureReadinessEngine()
+        let first = engine.evaluate(input: rearReadyInput(timestamp: 7.00))
+        let second = engine.evaluate(input: rearReadyInput(timestamp: 7.08))
+        let third = engine.evaluate(input: rearReadyInput(timestamp: 7.16))
+
+        #expect(!first.isStableReady)
+        #expect(!second.isStableReady)
+        #expect(third.isStableReady)
+        #expect(third.requiredStableSampleCount == RearLiDARCapturePrecisionPolicy.stableSampleCount)
+    }
+
+    @Test func rearLiDARPoseInstructionUsesVisionTolerance() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 1.5,
+                                        yawDegrees: 1.5,
+                                        pitchDegrees: 1.5,
+                                        timestamp: 8,
+                                        sensor: .liDAR)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,
@@ -238,5 +265,20 @@ struct CaptureReadinessEngineTests {
                                     faceAligned: true,
                                     headPoseAvailable: true,
                                     headAligned: true)
+    }
+
+    private func rearReadyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
+        CaptureReadinessInput(evaluation: VerificationFrameEvaluation(timestamp: timestamp,
+                                                                      trackingIsNormal: true,
+                                                                      hasTrackedFaceAnchor: false,
+                                                                      faceDetected: true,
+                                                                      distanceCorrect: true,
+                                                                      faceAligned: true,
+                                                                      headPoseAvailable: true,
+                                                                      headAligned: true),
+                              sessionReady: true,
+                              calibrationReady: true,
+                              requiresTrackedFaceAnchor: false,
+                              policy: .rearLiDAR)
     }
 }

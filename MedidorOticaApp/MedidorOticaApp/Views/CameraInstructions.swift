@@ -15,25 +15,41 @@ enum HeadPoseInstructionBuilder {
 
     /// Escolhe um unico eixo por vez, seguindo a ordem pitch, yaw e roll.
     static func adjustment(from snapshot: HeadPoseSnapshot) -> HeadAxisAdjustment? {
-        if abs(snapshot.pitchDegrees) > pitchToleranceDegrees {
+        let tolerances = tolerances(for: snapshot.sensor)
+
+        if abs(snapshot.pitchDegrees) > tolerances.pitch {
             let correction = displayedDegrees(from: snapshot.pitchDegrees,
-                                              tolerance: pitchToleranceDegrees)
+                                              tolerance: tolerances.pitch)
             return snapshot.pitchDegrees > 0 ? .pitchUp(correction) : .pitchDown(correction)
         }
 
-        if abs(snapshot.yawDegrees) > yawToleranceDegrees {
+        if abs(snapshot.yawDegrees) > tolerances.yaw {
             let correction = displayedDegrees(from: snapshot.yawDegrees,
-                                              tolerance: yawToleranceDegrees)
+                                              tolerance: tolerances.yaw)
             return snapshot.yawDegrees > 0 ? .yawRight(correction) : .yawLeft(correction)
         }
 
-        if abs(snapshot.rollDegrees) > rollToleranceDegrees {
+        if abs(snapshot.rollDegrees) > tolerances.roll {
             let correction = displayedDegrees(from: snapshot.rollDegrees,
-                                              tolerance: rollToleranceDegrees)
+                                              tolerance: tolerances.roll)
             return snapshot.rollDegrees > 0 ? .rollLeft(correction) : .rollRight(correction)
         }
 
         return nil
+    }
+
+    /// Retorna tolerancias coerentes com o sensor que gerou a pose.
+    private static func tolerances(for sensor: VerificationManager.SensorType) -> (roll: Float, yaw: Float, pitch: Float) {
+        switch sensor {
+        case .liDAR:
+            return (RearLiDARCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees)
+        default:
+            return (rollToleranceDegrees,
+                    yawToleranceDegrees,
+                    pitchToleranceDegrees)
+        }
     }
 
     /// Mostra apenas o quanto falta corrigir apos a tolerancia.
@@ -261,6 +277,10 @@ struct CameraInstructions: View {
 
     // MARK: - Centralizacao
     private func centeringGuidance() -> String {
+        if verificationManager.activeSensor == .liDAR {
+            return rearLiDARCenteringGuidance()
+        }
+
         let rawX = verificationManager.facePosition["x"] ?? 0
         let rawY = verificationManager.facePosition["y"] ?? 0
         let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
@@ -298,6 +318,40 @@ struct CameraInstructions: View {
         return "📱 ⏳ Segure o celular reto sem girar"
     }
 
+    /// Instrucao traseira baseada no deslocamento visual do PC no preview LiDAR.
+    private func rearLiDARCenteringGuidance() -> String {
+        let xPos = verificationManager.facePosition["x"] ?? 0
+        let yPos = verificationManager.facePosition["y"] ?? 0
+        let horizontalOffset = abs(xPos)
+        let verticalOffset = abs(yPos)
+        let horizontalTolerance = RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance * 100
+        let verticalTolerance = RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance * 100
+
+        if horizontalOffset <= horizontalTolerance && verticalOffset <= verticalTolerance {
+            return "📱 ⏳ Segure parado no centro do PC"
+        }
+
+        if horizontalOffset >= verticalOffset {
+            if xPos > 0 {
+                return "📱 ➡️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a direita"
+            }
+
+            if xPos < 0 {
+                return "📱 ⬅️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a esquerda"
+            }
+        } else {
+            if yPos > 0 {
+                return "📱 ⬇️ Baixe o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
+
+            if yPos < 0 {
+                return "📱 ⬆️ Levante o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
+        }
+
+        return "📱 ↔️ Ajuste fino ate o PC ficar no centro"
+    }
+
     // MARK: - Cabeca
     /// Toda instrucao da etapa 4 precisa apontar um eixo real.
     private func headAlignmentGuidance() -> String {
@@ -327,7 +381,7 @@ struct VerificationMenu: View {
             progressHeader()
             ForEach(verificationManager.verifications) { verification in
                 HStack(spacing: 6) {
-                    Text(verification.isChecked ? "OK" : verification.type.menuTitle)
+                    Text(verification.isChecked ? "OK" : menuTitle(for: verification.type))
                         .font(.caption)
                         .foregroundColor(.white)
 
@@ -376,5 +430,14 @@ struct VerificationMenu: View {
                     .foregroundColor(verificationManager.allVerificationsChecked ? .green : .orange)
             }
         }
+    }
+
+    private func menuTitle(for type: VerificationType) -> String {
+        if type == .distance,
+           verificationManager.activeSensor == .liDAR {
+            return "\(Int(RearLiDARDistanceLimits.minCm))-\(Int(RearLiDARDistanceLimits.maxCm)) cm"
+        }
+
+        return type.menuTitle
     }
 }

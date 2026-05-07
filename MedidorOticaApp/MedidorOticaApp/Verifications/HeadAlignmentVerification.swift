@@ -44,9 +44,10 @@ extension VerificationManager {
             }
 
             guard let snapshot else { continue }
-            let isAligned = snapshot.isAligned(rollTolerance: HeadAlignmentConstants.rollToleranceDegrees,
-                                               yawTolerance: HeadAlignmentConstants.yawToleranceDegrees,
-                                               pitchTolerance: HeadAlignmentConstants.pitchToleranceDegrees)
+            let tolerances = headAlignmentTolerances(for: sensor)
+            let isAligned = snapshot.isAligned(rollTolerance: tolerances.roll,
+                                               yawTolerance: tolerances.yaw,
+                                               pitchTolerance: tolerances.pitch)
             publishHeadPose(snapshot, isHeadAligned: isAligned)
             return (true, isAligned)
         }
@@ -96,6 +97,20 @@ extension VerificationManager {
     /// para evitar apagar a ultima pose valida antes da UI decidir se pode reutiliza-la.
     private func reportUnavailableHeadPose(reason: String) {
         print("Pose da cabeca indisponivel: \(reason)")
+    }
+
+    /// Retorna tolerancias separadas para TrueDepth e LiDAR traseiro.
+    private func headAlignmentTolerances(for sensor: SensorType) -> (roll: Float, yaw: Float, pitch: Float) {
+        switch sensor {
+        case .liDAR:
+            return (RearLiDARCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees)
+        default:
+            return (HeadAlignmentConstants.rollToleranceDegrees,
+                    HeadAlignmentConstants.yawToleranceDegrees,
+                    HeadAlignmentConstants.pitchToleranceDegrees)
+        }
     }
 
     // MARK: - Angulos de Euler

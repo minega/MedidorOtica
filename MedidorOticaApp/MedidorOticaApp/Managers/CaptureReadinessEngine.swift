@@ -41,21 +41,21 @@ final class CaptureReadinessEngine {
     static let defaultMaximumFrameGap: TimeInterval = CapturePrecisionPolicy.maximumFrameGap
     static let defaultMaximumCaptureAge: TimeInterval = CapturePrecisionPolicy.maximumCaptureAge
 
-    private let requiredStableSampleCount: Int
-    private let maximumFrameGap: TimeInterval
-    private let maximumCaptureAge: TimeInterval
+    private let defaultPolicy: CaptureReadinessPolicy
 
     // MARK: - Estado interno
     private var stableSampleCount = 0
     private var lastAcceptedTimestamp: TimeInterval?
+    private var activeMaximumCaptureAge = CaptureReadinessEngine.defaultMaximumCaptureAge
 
     // MARK: - Inicializacao
     init(requiredStableSampleCount: Int = CaptureReadinessEngine.defaultStableSampleCount,
          maximumFrameGap: TimeInterval = CaptureReadinessEngine.defaultMaximumFrameGap,
          maximumCaptureAge: TimeInterval = CaptureReadinessEngine.defaultMaximumCaptureAge) {
-        self.requiredStableSampleCount = max(requiredStableSampleCount, 1)
-        self.maximumFrameGap = maximumFrameGap
-        self.maximumCaptureAge = maximumCaptureAge
+        self.defaultPolicy = CaptureReadinessPolicy(requiredStableSampleCount: max(requiredStableSampleCount, 1),
+                                                    maximumFrameGap: maximumFrameGap,
+                                                    maximumCaptureAge: maximumCaptureAge)
+        self.activeMaximumCaptureAge = maximumCaptureAge
     }
 
     // MARK: - API publica
@@ -67,30 +67,37 @@ final class CaptureReadinessEngine {
 
     /// Avalia o frame atual e retorna o nivel de prontidao da captura.
     func evaluate(input: CaptureReadinessInput) -> CaptureReadinessStatus {
+        let policy = resolvedPolicy(for: input)
+        activeMaximumCaptureAge = policy.maximumCaptureAge
+
         guard let blockingReason = hardBlockReason(for: input) else {
-            guard isTimestampContinuous(input.evaluation.timestamp) else {
+            guard isTimestampContinuous(input.evaluation.timestamp, policy: policy) else {
                 reset()
-                return makeStatus(blockReason: .staleFrame)
+                return makeStatus(blockReason: .staleFrame, policy: policy)
             }
 
-            registerStableSample(timestamp: input.evaluation.timestamp)
-            guard stableSampleCount >= requiredStableSampleCount else {
-                return makeStatus(blockReason: .unstableFrame)
+            registerStableSample(timestamp: input.evaluation.timestamp, policy: policy)
+            guard stableSampleCount >= policy.requiredStableSampleCount else {
+                return makeStatus(blockReason: .unstableFrame, policy: policy)
             }
-            return makeStatus(blockReason: nil)
+            return makeStatus(blockReason: nil, policy: policy)
         }
 
         reset()
-        return makeStatus(blockReason: blockingReason)
+        return makeStatus(blockReason: blockingReason, policy: policy)
     }
 
     /// Verifica se o frame informado ainda e recente o bastante para capturar.
     func isFrameFresh(_ timestamp: TimeInterval) -> Bool {
         guard let lastAcceptedTimestamp else { return false }
-        return abs(timestamp - lastAcceptedTimestamp) <= maximumCaptureAge
+        return abs(timestamp - lastAcceptedTimestamp) <= activeMaximumCaptureAge
     }
 
     // MARK: - Helpers
+    private func resolvedPolicy(for input: CaptureReadinessInput) -> CaptureReadinessPolicy {
+        input.policy ?? defaultPolicy
+    }
+
     private func hardBlockReason(for input: CaptureReadinessInput) -> CameraCaptureBlockReason? {
         guard input.sessionReady else { return .sessionUnavailable }
         guard input.evaluation.trackingIsNormal else { return .trackingUnavailable }
@@ -105,24 +112,27 @@ final class CaptureReadinessEngine {
         return nil
     }
 
-    private func isTimestampContinuous(_ timestamp: TimeInterval) -> Bool {
+    private func isTimestampContinuous(_ timestamp: TimeInterval,
+                                       policy: CaptureReadinessPolicy) -> Bool {
         guard let lastAcceptedTimestamp else { return true }
         let delta = timestamp - lastAcceptedTimestamp
-        return delta.isFinite && delta >= 0 && delta <= maximumFrameGap
+        return delta.isFinite && delta >= 0 && delta <= policy.maximumFrameGap
     }
 
-    private func registerStableSample(timestamp: TimeInterval) {
-        if !isTimestampContinuous(timestamp) {
+    private func registerStableSample(timestamp: TimeInterval,
+                                      policy: CaptureReadinessPolicy) {
+        if !isTimestampContinuous(timestamp, policy: policy) {
             stableSampleCount = 0
         }
 
-        stableSampleCount = min(stableSampleCount + 1, requiredStableSampleCount)
+        stableSampleCount = min(stableSampleCount + 1, policy.requiredStableSampleCount)
         lastAcceptedTimestamp = timestamp
     }
 
-    private func makeStatus(blockReason: CameraCaptureBlockReason?) -> CaptureReadinessStatus {
+    private func makeStatus(blockReason: CameraCaptureBlockReason?,
+                            policy: CaptureReadinessPolicy) -> CaptureReadinessStatus {
         CaptureReadinessStatus(blockReason: blockReason,
                                stableSampleCount: stableSampleCount,
-                               requiredStableSampleCount: requiredStableSampleCount)
+                               requiredStableSampleCount: policy.requiredStableSampleCount)
     }
 }

@@ -289,10 +289,12 @@ final class CameraManager: NSObject, ObservableObject {
         guard captureState != .capturing, captureState != .captured else { return }
 
         let readiness = calibrationReadiness()
+        let policy: CaptureReadinessPolicy? = cameraPosition == .back ? .rearLiDAR : nil
         let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
                                           sessionReady: isMeasurementSessionReady,
                                           calibrationReady: readiness.ready,
-                                          requiresTrackedFaceAnchor: cameraPosition == .front)
+                                          requiresTrackedFaceAnchor: cameraPosition == .front,
+                                          policy: policy)
         let status = captureReadinessEngine.evaluate(input: input)
         applyReadiness(status, calibrationHint: readiness.hint)
     }

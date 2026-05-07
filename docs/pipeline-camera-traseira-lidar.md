@@ -9,11 +9,24 @@ Criar uma captura traseira parecida com a frontal, usando `ARWorldTrackingConfig
 ## Regras do modo traseiro
 
 - Usar apenas dispositivos com LiDAR compativel.
-- Manter o rosto entre `60 cm` e `100 cm`.
+- Manter o rosto entre `50 cm` e `100 cm`.
 - Nao exigir `ARFaceAnchor`, pois a camera traseira usa `ARFrame` com profundidade de cena.
 - Usar `Vision` para pupilas, linha media facial e pose aproximada.
-- Usar a profundidade LiDAR no plano do `PC` para distancia, centralizacao e escala.
+- Usar a profundidade LiDAR no plano do `PC` para distancia e escala.
+- Usar o deslocamento visual do `PC` no preview para centralizacao, pois e a referencia que o usuario enxerga ao ajustar o celular.
+- Manter a captura traseira com politica propria de estabilidade, sem alterar os limites da camera frontal.
 - Exibir aviso no pos-captura para revisar pupilas, `PC` e `DNP longe` antes de salvar.
+
+## Camera traseira principal
+
+O fluxo traseiro deve permanecer em `ARWorldTrackingConfiguration` com `sceneDepth`/`smoothedSceneDepth`. Esse caminho entrega a imagem RGB e o mapa de profundidade calibrados no mesmo `ARFrame`, o que e mais importante para precisao do que tentar forcar ultra-wide ou tele.
+
+Para este app, a melhor base traseira e a camera principal associada ao LiDAR:
+
+- melhor qualidade e menor ruido que ultra-wide em rosto a `50-100 cm`;
+- menor deformacao facial que ultra-wide;
+- profundidade alinhada ao frame do ARKit;
+- tele nao e uma boa base porque reduz campo util, aumenta tremor aparente e nao e o caminho padrao do `sceneDepth`.
 
 ## Arquivos do fluxo traseiro
 

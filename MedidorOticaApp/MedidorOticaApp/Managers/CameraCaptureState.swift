@@ -250,21 +250,45 @@ struct VerificationFrameEvaluation: Equatable, Sendable {
 }
 
 // MARK: - Entrada e saida do motor de prontidao
+/// Politica usada pelo motor de estabilidade conforme o sensor ativo.
+struct CaptureReadinessPolicy: Equatable, Sendable {
+    let requiredStableSampleCount: Int
+    let maximumFrameGap: TimeInterval
+    let maximumCaptureAge: TimeInterval
+
+    /// Politica padrao usada pela camera frontal TrueDepth.
+    static let trueDepth = CaptureReadinessPolicy(
+        requiredStableSampleCount: CapturePrecisionPolicy.stableSampleCount,
+        maximumFrameGap: CapturePrecisionPolicy.maximumFrameGap,
+        maximumCaptureAge: CapturePrecisionPolicy.maximumCaptureAge
+    )
+
+    /// Politica traseira: Vision/LiDAR oscila mais, entao o bloco bom precisa ser curto.
+    static let rearLiDAR = CaptureReadinessPolicy(
+        requiredStableSampleCount: RearLiDARCapturePrecisionPolicy.stableSampleCount,
+        maximumFrameGap: RearLiDARCapturePrecisionPolicy.maximumFrameGap,
+        maximumCaptureAge: RearLiDARCapturePrecisionPolicy.maximumCaptureAge
+    )
+}
+
 /// Dados consumidos pelo motor de estabilidade da captura.
 struct CaptureReadinessInput: Equatable, Sendable {
     let evaluation: VerificationFrameEvaluation
     let sessionReady: Bool
     let calibrationReady: Bool
     let requiresTrackedFaceAnchor: Bool
+    let policy: CaptureReadinessPolicy?
 
     init(evaluation: VerificationFrameEvaluation,
          sessionReady: Bool,
          calibrationReady: Bool,
-         requiresTrackedFaceAnchor: Bool = true) {
+         requiresTrackedFaceAnchor: Bool = true,
+         policy: CaptureReadinessPolicy? = nil) {
         self.evaluation = evaluation
         self.sessionReady = sessionReady
         self.calibrationReady = calibrationReady
         self.requiresTrackedFaceAnchor = requiresTrackedFaceAnchor
+        self.policy = policy
     }
 }
 

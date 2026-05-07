@@ -15,8 +15,29 @@ import simd
 // MARK: - Limites traseiros
 /// Limites de distancia para o fluxo traseiro com LiDAR.
 struct RearLiDARDistanceLimits {
-    static let minCm: Float = 60.0
+    static let minCm: Float = 50.0
     static let maxCm: Float = 100.0
+}
+
+// MARK: - Precisao traseira
+/// Limites exclusivos do fluxo traseiro com LiDAR.
+enum RearLiDARCapturePrecisionPolicy {
+    /// Tolerancia horizontal do PC no preview traseiro.
+    static let horizontalCenteringTolerance: Float = 0.0070
+    /// Tolerancia vertical do PC no preview traseiro.
+    static let verticalCenteringTolerance: Float = 0.0080
+    /// Tolerancia de roll para pose medida pelo Vision.
+    static let rollToleranceDegrees: Float = 2.0
+    /// Tolerancia de yaw para pose medida pelo Vision.
+    static let yawToleranceDegrees: Float = 2.0
+    /// Tolerancia de pitch para pose medida pelo Vision.
+    static let pitchToleranceDegrees: Float = 2.2
+    /// Quantidade de frames bons exigida no modo traseiro.
+    static let stableSampleCount = 3
+    /// Maior intervalo aceito entre frames traseiros consecutivos.
+    static let maximumFrameGap: TimeInterval = 0.18
+    /// Idade maxima do frame traseiro no disparo final.
+    static let maximumCaptureAge: TimeInterval = 0.16
 }
 
 // MARK: - Analise traseira
@@ -27,6 +48,8 @@ struct RearLiDARFrameAnalysis {
     let faceBounds: NormalizedRect
     let centralPoint: NormalizedPoint
     let centralCameraPoint: SIMD3<Float>
+    let centralDepthMeters: Float
+    let previewCenterOffsetMeters: SIMD2<Float>
     let averageEyeDepthMeters: Float
     let projectedFaceWidthRatio: Float
     let projectedFaceHeightRatio: Float
@@ -138,7 +161,12 @@ final class RearLiDARMeasurementEngine {
               let centralCameraPoint = cameraPoint(for: centralPoint,
                                                    depth: centralDepth,
                                                    frame: frame,
-                                                   orientation: cgOrientation) else {
+                                                   orientation: cgOrientation),
+              let previewOffset = previewCenterOffsetMeters(for: centralPoint,
+                                                            depth: centralDepth,
+                                                            imageSize: imageSize,
+                                                            frame: frame,
+                                                            orientation: cgOrientation) else {
             return nil
         }
 
@@ -148,6 +176,8 @@ final class RearLiDARMeasurementEngine {
                                               faceBounds: bounds,
                                               centralPoint: centralPoint,
                                               centralCameraPoint: centralCameraPoint,
+                                              centralDepthMeters: centralDepth,
+                                              previewCenterOffsetMeters: previewOffset,
                                               averageEyeDepthMeters: eyeDepth,
                                               projectedFaceWidthRatio: Float(bounds.width),
                                               projectedFaceHeightRatio: Float(bounds.height),
@@ -353,8 +383,7 @@ final class RearLiDARMeasurementEngine {
                         orientation: orientation,
                         radius: Constants.localDepthRadius)
         }
-        guard !depths.isEmpty else { return nil }
-        return depths.reduce(0, +) / Float(depths.count)
+        return robustDepth(from: depths)
     }
 
     private func medianDepth(from depthMap: CVPixelBuffer,
@@ -489,6 +518,30 @@ final class RearLiDARMeasurementEngine {
                                    orientation: orientation)
     }
 
+    /// Calcula o deslocamento do PC em relacao ao centro visual do preview.
+    private func previewCenterOffsetMeters(for point: NormalizedPoint,
+                                           depth: Float,
+                                           imageSize: CGSize,
+                                           frame: ARFrame,
+                                           orientation: CGImagePropertyOrientation) -> SIMD2<Float>? {
+        let focal = orientedFocalLengths(from: frame.camera.intrinsics,
+                                         orientation: orientation)
+        guard focal.fx > 0,
+              focal.fy > 0,
+              imageSize.width > 0,
+              imageSize.height > 0,
+              depth.isFinite,
+              depth > 0 else {
+            return nil
+        }
+
+        let clamped = point.clamped()
+        let deltaX = (Double(clamped.x) - 0.5) * Double(imageSize.width)
+        let deltaY = (Double(clamped.y) - 0.5) * Double(imageSize.height)
+        return SIMD2<Float>(Float(deltaX / focal.fx) * depth,
+                            Float(deltaY / focal.fy) * depth)
+    }
+
     private func makeHeadPose(from face: VNFaceObservation,
                               timestamp: TimeInterval) -> HeadPoseSnapshot? {
         guard face.roll != nil || face.yaw != nil || face.pitch != nil else {
@@ -579,6 +632,19 @@ final class RearLiDARMeasurementEngine {
         let usable = Array(sorted.dropFirst(trim).dropLast(trim))
         let finalValues = usable.isEmpty ? sorted : usable
         return finalValues.reduce(0, +) / Double(finalValues.count)
+    }
+
+    private func robustDepth(from values: [Float]) -> Float? {
+        let sorted = values
+            .filter { $0.isFinite && $0 >= Constants.minimumReadableDepthMeters && $0 <= Constants.maximumValidDepthMeters }
+            .sorted()
+        guard !sorted.isEmpty else { return nil }
+
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) * 0.5
+        }
+        return sorted[middle]
     }
 
     private func cachedFrameAnalysis(timestamp: TimeInterval,

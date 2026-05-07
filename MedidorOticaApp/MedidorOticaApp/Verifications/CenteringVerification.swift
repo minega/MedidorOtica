@@ -102,9 +102,10 @@ extension VerificationManager {
             return false
         }
 
-        let metrics = FaceCenteringMetrics(horizontal: analysis.centralCameraPoint.x,
-                                           vertical: analysis.centralCameraPoint.y,
-                                           noseAlignment: analysis.centralCameraPoint.x)
+        let previewOffset = analysis.previewCenterOffsetMeters
+        let metrics = FaceCenteringMetrics(horizontal: previewOffset.x,
+                                           vertical: previewOffset.y,
+                                           noseAlignment: previewOffset.x)
         return evaluateCentering(using: metrics,
                                  allowAlignmentAssist: allowAlignmentAssist)
     }
@@ -154,9 +155,15 @@ extension VerificationManager {
     /// Avalia se o rosto esta centralizado com base nas metricas calculadas.
     private func evaluateCentering(using metrics: FaceCenteringMetrics,
                                    allowAlignmentAssist: Bool) -> Bool {
-        let horizontalTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.horizontalTolerance
-        let verticalTolerance = activeSensor == .liDAR ? Float(0.0040) : CenteringConstants.verticalTolerance
-        let centralPointTolerance = activeSensor == .liDAR ? Float(0.0035) : CenteringConstants.centralPointTolerance
+        let horizontalTolerance = activeSensor == .liDAR ?
+            RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
+            CenteringConstants.horizontalTolerance
+        let verticalTolerance = activeSensor == .liDAR ?
+            RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance :
+            CenteringConstants.verticalTolerance
+        let centralPointTolerance = activeSensor == .liDAR ?
+            RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
+            CenteringConstants.centralPointTolerance
         let isHorizontallyAligned = abs(metrics.horizontal) < horizontalTolerance
         let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
         let isNoseAligned = abs(metrics.noseAlignment) < centralPointTolerance

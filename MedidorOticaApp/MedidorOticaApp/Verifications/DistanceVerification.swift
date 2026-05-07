@@ -81,13 +81,17 @@ extension VerificationManager {
                 guard let anchor = faceAnchor else { continue }
                 return makeTrueDepthMeasurement(faceAnchor: anchor, frame: frame)
             case .liDAR:
-                let distance = getMeasuredDistanceWithLiDAR(frame: frame)
+                guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
+                    .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
+                    print("ERRO: analise LiDAR indisponivel")
+                    return nil
+                }
+
+                let distance = getMeasuredDistanceWithLiDAR(analysis: analysis)
                 guard distance > 0 else { return nil }
-                let analysis = CameraManager.shared.rearLiDARMeasurementEngine
-                    .analyze(frame: frame, cgOrientation: currentCGOrientation())
                 return DistanceMeasurement(distance: distance,
-                                           projectedFaceWidthRatio: analysis?.projectedFaceWidthRatio ?? 0,
-                                           projectedFaceHeightRatio: analysis?.projectedFaceHeightRatio ?? 0)
+                                           projectedFaceWidthRatio: analysis.projectedFaceWidthRatio,
+                                           projectedFaceHeightRatio: analysis.projectedFaceHeightRatio)
             case .none:
                 continue
             }
@@ -167,17 +171,11 @@ extension VerificationManager {
 
     // MARK: - LiDAR
     /// Mede a distancia usando o sensor LiDAR.
-    private func getMeasuredDistanceWithLiDAR(frame: ARFrame) -> Float {
-        guard let analysis = CameraManager.shared.rearLiDARMeasurementEngine
-            .analyze(frame: frame, cgOrientation: currentCGOrientation()) else {
-            print("ERRO: analise LiDAR indisponivel")
-            return 0
-        }
-
-        let averageDepth = analysis.averageEyeDepthMeters
-        guard averageDepth > 0, averageDepth < DistanceConstants.maxValidDepth else { return 0 }
-        print("LiDAR olhos: \(String(format: "%.1f", averageDepth * 100)) cm")
-        return averageDepth
+    private func getMeasuredDistanceWithLiDAR(analysis: RearLiDARFrameAnalysis) -> Float {
+        let pcDepth = analysis.centralDepthMeters
+        guard pcDepth > 0, pcDepth < DistanceConstants.maxValidDepth else { return 0 }
+        print("LiDAR PC: \(String(format: "%.1f", pcDepth * 100)) cm")
+        return pcDepth
     }
 
     private func allowedDistanceRange(for sensor: SensorType) -> ClosedRange<Float> {
