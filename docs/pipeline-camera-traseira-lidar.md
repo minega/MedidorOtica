@@ -9,7 +9,7 @@ Criar uma captura traseira parecida com a frontal, usando `ARWorldTrackingConfig
 ## Regras do modo traseiro
 
 - Usar apenas dispositivos com LiDAR compativel.
-- Manter o rosto entre `50 cm` e `100 cm`.
+- Manter o rosto entre `35 cm` e `55 cm`, mirando perto de `45 cm` quando possivel.
 - Nao exigir `ARFaceAnchor`, pois a camera traseira usa `ARFrame` com profundidade de cena.
 - Usar `Vision` para pupilas, linha media facial e pose aproximada.
 - Usar a profundidade LiDAR no plano do `PC` para distancia e escala.
@@ -23,7 +23,7 @@ O fluxo traseiro deve permanecer em `ARWorldTrackingConfiguration` com `sceneDep
 
 Para este app, a melhor base traseira e a camera principal associada ao LiDAR:
 
-- melhor qualidade e menor ruido que ultra-wide em rosto a `50-100 cm`;
+- melhor qualidade e menor ruido que ultra-wide em rosto a `35-55 cm`;
 - menor deformacao facial que ultra-wide;
 - profundidade alinhada ao frame do ARKit;
 - tele nao e uma boa base porque reduz campo util, aumenta tremor aparente e nao e o caminho padrao do `sceneDepth`.

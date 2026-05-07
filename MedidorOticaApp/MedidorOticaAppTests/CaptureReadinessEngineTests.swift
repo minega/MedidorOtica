@@ -17,9 +17,9 @@ struct CaptureReadinessEngineTests {
         #expect(VerificationType.distance.description.contains("40cm"))
     }
 
-    @Test func rearLiDARDistanceStartsAtFiftyCentimeters() async throws {
-        #expect(RearLiDARDistanceLimits.minCm == 50.0)
-        #expect(RearLiDARDistanceLimits.maxCm == 100.0)
+    @Test func rearLiDARDistanceUsesShortCaptureRange() async throws {
+        #expect(RearLiDARDistanceLimits.minCm == 35.0)
+        #expect(RearLiDARDistanceLimits.maxCm == 55.0)
     }
 
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {

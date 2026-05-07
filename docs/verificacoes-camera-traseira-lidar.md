@@ -4,7 +4,8 @@ Este documento e exclusivo do modo traseiro. A camera frontal TrueDepth continua
 
 ## Distancia
 
-- A faixa valida traseira e `50-100 cm`.
+- A faixa valida traseira e `35-55 cm`.
+- O alvo pratico de enquadramento e ficar perto de `45 cm`, evitando o rosto pequeno no preview.
 - A distancia oficial vem da profundidade LiDAR no plano do `PC`, nao da faixa `30-40 cm` da camera frontal.
 - As amostras auxiliares de olhos e centro da face sao usadas apenas para robustez contra ruido do mapa de profundidade.
 

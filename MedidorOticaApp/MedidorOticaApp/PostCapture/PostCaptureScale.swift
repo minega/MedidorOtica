@@ -33,7 +33,7 @@ extension PostCaptureCalibration {
                              abs(verticalReferenceMM - PostCaptureCalibration.default.verticalReferenceMM) < 0.0001
         if matchesDefault { return false }
 
-        // Aceita intervalo amplo para TrueDepth frontal e LiDAR traseiro a 50-100 cm.
+        // Aceita intervalo amplo para TrueDepth frontal e LiDAR traseiro a 35-55 cm.
         let horizontalRange: ClosedRange<Double> = 50...1600
         let verticalRange: ClosedRange<Double> = 50...1600
         guard horizontalRange.contains(horizontalReferenceMM),

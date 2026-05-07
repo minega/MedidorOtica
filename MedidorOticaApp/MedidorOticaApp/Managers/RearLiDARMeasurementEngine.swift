@@ -15,8 +15,8 @@ import simd
 // MARK: - Limites traseiros
 /// Limites de distancia para o fluxo traseiro com LiDAR.
 struct RearLiDARDistanceLimits {
-    static let minCm: Float = 50.0
-    static let maxCm: Float = 100.0
+    static let minCm: Float = 35.0
+    static let maxCm: Float = 55.0
 }
 
 // MARK: - Precisao traseira
