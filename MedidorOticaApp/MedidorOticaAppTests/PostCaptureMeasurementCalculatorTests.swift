@@ -32,6 +32,37 @@ struct PostCaptureMeasurementCalculatorTests {
         #expect(leftEye.temporalBarX >= leftEye.nasalBarX)
     }
 
+    // MARK: - Posicionamento inicial das barras
+    @Test func rearLiDARInitialBarsFollowMeasuredDNPProportion() async throws {
+        let scale = PostCaptureScale(calibration: PostCaptureCalibration(horizontalReferenceMM: 250,
+                                                                         verticalReferenceMM: 180))
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let pupil = NormalizedPoint(x: 0.38, y: 0.52)
+
+        let offsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: center,
+                                                                       pupilPoint: pupil,
+                                                                       scale: scale,
+                                                                       preferDNPAnchoring: true)
+
+        #expect(abs(offsets.nasal - 0.036) < 0.0001)
+        #expect(abs(offsets.temporal - 0.24) < 0.0001)
+    }
+
+    @Test func frontInitialBarsKeepSensorScalePlacement() async throws {
+        let scale = PostCaptureScale(calibration: PostCaptureCalibration(horizontalReferenceMM: 300,
+                                                                         verticalReferenceMM: 180))
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let pupil = NormalizedPoint(x: 0.38, y: 0.52)
+
+        let offsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: center,
+                                                                       pupilPoint: pupil,
+                                                                       scale: scale,
+                                                                       preferDNPAnchoring: false)
+
+        #expect(abs(offsets.nasal - 0.03) < 0.0001)
+        #expect(abs(offsets.temporal - 0.2) < 0.0001)
+    }
+
     // MARK: - Cenário padrão com calibração conhecida
     @Test func convertsNormalizedDistancesUsingCalibration() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)

@@ -16,8 +16,9 @@ Criar uma captura traseira parecida com a frontal, usando `ARWorldTrackingConfig
 - Usar o deslocamento visual do `PC` no preview para centralizacao, pois e a referencia que o usuario enxerga ao ajustar o celular.
 - Renderizar a foto final com a mesma orientacao que o `Vision`/LiDAR usou para calcular `PC`, face bounds e escala local.
 - Salvar uma geometria ocular 3D estimada por LiDAR para a pos-captura traseira nao cair no estado de geometria indisponivel.
-- Expandir o recorte da pos-captura traseira para incluir pupilas, PC e barras iniciais, evitando prender a temporal no limite do recorte.
-- Estimar pose por landmarks + LiDAR quando o `Vision` nao entregar todos os eixos de alinhamento.
+- Manter o recorte da pos-captura baseado no `faceBounds`; o posicionamento das barras deve ser corrigido na escala, nao no recorte.
+- Posicionar as barras iniciais traseiras a `9 mm` e `60 mm` do `PC` usando a DNP medida daquele olho como ancora visual quando a leitura for confiavel.
+- Estimar pose por landmarks + LiDAR e so liberar captura quando `roll`, `yaw` e `pitch` tiverem sido medidos no frame atual.
 - Manter a captura traseira com politica propria de estabilidade, sem alterar os limites da camera frontal.
 - Exibir aviso no pos-captura para revisar pupilas, `PC` e `DNP longe` antes de salvar.
 

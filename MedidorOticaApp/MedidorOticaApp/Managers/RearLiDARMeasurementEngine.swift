@@ -680,14 +680,14 @@ final class RearLiDARMeasurementEngine {
                                         depthMap: depthMap,
                                         imageSize: imageSize,
                                         orientation: orientation)
-        let roll = vision?.roll ?? lidar?.roll
-        let yaw = vision?.yaw ?? lidar?.yaw
-        let pitch = vision?.pitch ?? lidar?.pitch
-        guard roll != nil || yaw != nil || pitch != nil else { return nil }
+        let roll = lidar?.roll ?? vision?.roll
+        let yaw = lidar?.yaw ?? vision?.yaw
+        let pitch = lidar?.pitch ?? vision?.pitch
+        guard let roll, let yaw, let pitch else { return nil }
 
-        let snapshot = HeadPoseSnapshot(rollDegrees: roll ?? 0,
-                                        yawDegrees: yaw ?? 0,
-                                        pitchDegrees: pitch ?? 0,
+        let snapshot = HeadPoseSnapshot(rollDegrees: roll,
+                                        yawDegrees: yaw,
+                                        pitchDegrees: pitch,
                                         timestamp: timestamp,
                                         sensor: .liDAR)
         return snapshot.isValid ? snapshot : nil
@@ -760,9 +760,23 @@ final class RearLiDARMeasurementEngine {
         }
 
         let forwardDepth = max(-faceForward.z, 0.0001)
-        let yaw = clampedPoseDegrees(radiansToDegrees(atan2(faceForward.x, forwardDepth)))
+        let normalYaw = clampedPoseDegrees(radiansToDegrees(atan2(faceForward.x, forwardDepth)))
+        let yaw = depthYawDegrees(leftCameraPoint: leftCameraPoint,
+                                  rightCameraPoint: rightCameraPoint) ?? normalYaw
         let pitch = clampedPoseDegrees(radiansToDegrees(atan2(faceForward.y, forwardDepth)))
         return RearLiDARHeadPoseAngles(roll: roll, yaw: yaw, pitch: pitch)
+    }
+
+    private func depthYawDegrees(leftCameraPoint: SIMD3<Float>,
+                                 rightCameraPoint: SIMD3<Float>) -> Float? {
+        let eyeAxis = rightCameraPoint - leftCameraPoint
+        let horizontalDistance = max(abs(eyeAxis.x), 0.0001)
+        guard eyeAxis.z.isFinite,
+              horizontalDistance.isFinite else {
+            return nil
+        }
+
+        return clampedPoseDegrees(radiansToDegrees(atan2(eyeAxis.z, horizontalDistance)))
     }
 
     private func resolvedEyeLandmarkPoints(face: VNFaceObservation,

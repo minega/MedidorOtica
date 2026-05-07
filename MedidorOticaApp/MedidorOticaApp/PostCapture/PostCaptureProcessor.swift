@@ -43,7 +43,8 @@ final class PostCaptureProcessor {
     /// - Returns: Estrutura com configuração inicial calculada.
     func analyze(image: UIImage,
                  scale: PostCaptureScale,
-                 preferredCentralPoint: NormalizedPoint? = nil) async throws -> PostCaptureAnalysisResult {
+                 preferredCentralPoint: NormalizedPoint? = nil,
+                 isRearLiDARCapture: Bool = false) async throws -> PostCaptureAnalysisResult {
         let orientedImage = image.normalizedOrientation()
 
         guard let cgImage = orientedImage.cgImage else {
@@ -66,7 +67,8 @@ final class PostCaptureProcessor {
                                           imageSize: imageSize,
                                           orientation: orientation,
                                           scale: scale,
-                                          preferredCentralPoint: preferredCentralPoint)
+                                          preferredCentralPoint: preferredCentralPoint,
+                                          isRearLiDARCapture: isRearLiDARCapture)
         return PostCaptureAnalysisResult(configuration: analysis.configuration,
                                          detectedPupils: analysis.detectedPupils,
                                          centralCandidates: analysis.centralCandidates)
@@ -77,9 +79,10 @@ final class PostCaptureProcessor {
                                     imageSize: CGSize,
                                     orientation: CGImagePropertyOrientation,
                                     scale: PostCaptureScale,
-                                    preferredCentralPoint: NormalizedPoint?) -> (configuration: PostCaptureConfiguration,
-                                                                                 detectedPupils: PostCaptureAnalysisResult.DetectedPupils,
-                                                                                 centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates) {
+                                    preferredCentralPoint: NormalizedPoint?,
+                                    isRearLiDARCapture: Bool) -> (configuration: PostCaptureConfiguration,
+                                                                  detectedPupils: PostCaptureAnalysisResult.DetectedPupils,
+                                                                  centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates) {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -132,11 +135,13 @@ final class PostCaptureProcessor {
         let rightEyeData = initialData(for: resolvedRightPupil,
                                        isRightEye: true,
                                        centralPoint: centralPoint,
-                                       scale: scale)
+                                       scale: scale,
+                                       isRearLiDARCapture: isRearLiDARCapture)
         let leftEyeData = initialData(for: resolvedLeftPupil,
                                       isRightEye: false,
                                       centralPoint: centralPoint,
                                       scale: scale,
+                                      isRearLiDARCapture: isRearLiDARCapture,
                                       mirroredFrom: rightEyeData)
 
         let configuration = PostCaptureConfiguration(centralPoint: centralPoint,
@@ -451,6 +456,7 @@ final class PostCaptureProcessor {
                              isRightEye: Bool,
                              centralPoint: NormalizedPoint,
                              scale: PostCaptureScale,
+                             isRearLiDARCapture: Bool,
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
         // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
         if !isRightEye, point == nil, let mirror = reference {
@@ -463,10 +469,12 @@ final class PostCaptureProcessor {
                                          y: point?.y ?? defaultY).clamped()
 
         // Conversões de milímetros para valores normalizados
-        let nasalOffset = scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM,
-                                                     at: centralPoint)
-        let temporalOffset = scale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM,
-                                                        at: centralPoint)
+        let horizontalOffsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: centralPoint,
+                                                                                pupilPoint: pupilPoint,
+                                                                                scale: scale,
+                                                                                preferDNPAnchoring: isRearLiDARCapture)
+        let nasalOffset = horizontalOffsets.nasal
+        let temporalOffset = horizontalOffsets.temporal
         let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM,
                                                       at: pupilPoint)
         let superiorOffset = scale.normalizedVertical(PostCaptureScale.superiorOffsetMM,
@@ -495,6 +503,59 @@ final class PostCaptureProcessor {
                                   temporalBarX: clampedTemporal,
                                   inferiorBarY: inferior,
                                   superiorBarY: superior)
+    }
+}
+
+// MARK: - Posicionamento inicial das barras
+/// Calcula os offsets iniciais das barras sem alterar a medicao final.
+enum PostCaptureInitialBarPlacement {
+    private enum Constants {
+        static let minimumReliableDNP: Double = 10
+        static let maximumReliableDNP: Double = 45
+        static let minimumPixelDistance: CGFloat = 0.002
+    }
+
+    /// Resolve offsets horizontais para posicionar as barras nasal e temporal a partir do PC.
+    static func horizontalOffsets(centralPoint: NormalizedPoint,
+                                  pupilPoint: NormalizedPoint,
+                                  scale: PostCaptureScale,
+                                  preferDNPAnchoring: Bool) -> (nasal: CGFloat, temporal: CGFloat) {
+        if preferDNPAnchoring,
+           let anchored = dnpAnchoredOffsets(centralPoint: centralPoint,
+                                             pupilPoint: pupilPoint,
+                                             scale: scale) {
+            return anchored
+        }
+
+        return (scale.normalizedHorizontal(PostCaptureScale.nasalOffsetMM,
+                                           at: centralPoint),
+                scale.normalizedHorizontal(PostCaptureScale.temporalOffsetMM,
+                                           at: centralPoint))
+    }
+
+    private static func dnpAnchoredOffsets(centralPoint: NormalizedPoint,
+                                           pupilPoint: NormalizedPoint,
+                                           scale: PostCaptureScale) -> (nasal: CGFloat, temporal: CGFloat)? {
+        let pixelDistance = abs(pupilPoint.x - centralPoint.x)
+        guard pixelDistance >= Constants.minimumPixelDistance else { return nil }
+
+        let dnpMillimeters = scale.horizontalMillimeters(between: pupilPoint.x,
+                                                         and: centralPoint.x,
+                                                         at: (pupilPoint.y + centralPoint.y) * 0.5)
+        guard dnpMillimeters.isFinite,
+              dnpMillimeters >= Constants.minimumReliableDNP,
+              dnpMillimeters <= Constants.maximumReliableDNP else {
+            return nil
+        }
+
+        let normalizedPerMillimeter = pixelDistance / CGFloat(dnpMillimeters)
+        return (sanitized(offset: normalizedPerMillimeter * PostCaptureScale.nasalOffsetMM),
+                sanitized(offset: normalizedPerMillimeter * PostCaptureScale.temporalOffsetMM))
+    }
+
+    private static func sanitized(offset: CGFloat) -> CGFloat {
+        guard offset.isFinite else { return 0 }
+        return min(max(offset, 0), 1)
     }
 }
 
