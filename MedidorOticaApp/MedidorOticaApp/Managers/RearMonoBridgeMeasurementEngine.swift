@@ -439,3 +439,6 @@ final class RearMonoBridgeMeasurementEngine {
 // MARK: - Concurrency
 /// O motor possui cache serializado por fila dedicada.
 extension RearMonoBridgeMeasurementEngine: @unchecked Sendable {}
+
+/// O pixel buffer e transportado entre filas de captura e verificacao sem mutacao pelo app.
+extension RearMonoBridgeFrame: @unchecked Sendable {}

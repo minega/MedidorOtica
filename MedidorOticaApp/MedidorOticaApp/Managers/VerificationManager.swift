@@ -590,15 +590,18 @@ final class VerificationManager: ObservableObject {
     private func publishRearMonoBridgeDistance(analysis: RearMonoBridgeFrameAnalysis,
                                                isValid: Bool) {
         let distanceInCm = analysis.estimatedDistanceCm
+        let projectedWidthRatio = analysis.projectedFaceWidthRatio
+        let projectedHeightRatio = analysis.projectedFaceHeightRatio
+        let isFaceTooSmall = projectedHeightRatio < 0.33
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastMeasuredDistance = distanceInCm
-            self.projectedFaceWidthRatio = analysis.projectedFaceWidthRatio
-            self.projectedFaceHeightRatio = analysis.projectedFaceHeightRatio
-            self.projectedFaceTooSmall = analysis.projectedFaceHeightRatio < 0.33
+            self.projectedFaceWidthRatio = projectedWidthRatio
+            self.projectedFaceHeightRatio = projectedHeightRatio
+            self.projectedFaceTooSmall = isFaceTooSmall
 
             if !isValid {
-                print("Aviso Mono traseiro: enquadramento fora da faixa visual: \(String(format: "%.2f", analysis.projectedFaceHeightRatio))")
+                print("Aviso Mono traseiro: enquadramento fora da faixa visual: \(String(format: "%.2f", projectedHeightRatio))")
             }
         }
     }
