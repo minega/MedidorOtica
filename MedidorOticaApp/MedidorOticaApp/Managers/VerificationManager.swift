@@ -426,11 +426,13 @@ final class VerificationManager: ObservableObject {
     private func publishRearDepthDistance(analysis: RearDepthFrameAnalysis,
                                           isValid: Bool) {
         let distanceInCm = analysis.centralDepthMeters * 100
+        let projectedWidthRatio = analysis.projectedFaceWidthRatio
+        let projectedHeightRatio = analysis.projectedFaceHeightRatio
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastMeasuredDistance = distanceInCm
-            self.projectedFaceWidthRatio = analysis.projectedFaceWidthRatio
-            self.projectedFaceHeightRatio = analysis.projectedFaceHeightRatio
+            self.projectedFaceWidthRatio = projectedWidthRatio
+            self.projectedFaceHeightRatio = projectedHeightRatio
             self.projectedFaceTooSmall = false
 
             if !isValid {
