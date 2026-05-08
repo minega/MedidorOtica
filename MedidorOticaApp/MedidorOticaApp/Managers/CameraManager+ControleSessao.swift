@@ -12,12 +12,18 @@ extension CameraManager {
     // MARK: - Sessao de medicao
     /// Inicia a sessao principal de medicao no sensor informado.
     func startMeasurementSession(cameraType: CameraType,
+                                 rearDepthMode: RearDepthMode = .liDAR,
                                  completion: @escaping (Bool) -> Void) {
         switch cameraType {
         case .front:
             startTrueDepthMeasurementSession(completion: completion)
         case .back:
-            startRearLiDARMeasurementSession(completion: completion)
+            switch rearDepthMode {
+            case .liDAR:
+                startRearLiDARMeasurementSession(completion: completion)
+            case .estimatedDepth:
+                startRearDepthFallbackMeasurementSession(completion: completion)
+            }
         }
     }
 
@@ -42,6 +48,7 @@ extension CameraManager {
         arSession = newSession
         cameraPosition = .front
         isUsingARSession = true
+        isUsingRearDepthFallbackSession = false
         isSessionRunning = true
         clearError()
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
@@ -70,6 +77,7 @@ extension CameraManager {
         arSession = newSession
         cameraPosition = .back
         isUsingARSession = true
+        isUsingRearDepthFallbackSession = false
         isSessionRunning = true
         clearError()
 
@@ -79,6 +87,60 @@ extension CameraManager {
         VerificationManager.shared.updateActiveSensor(using: self)
         updateLensMonitoring(for: .back)
         completion(true)
+    }
+
+    /// Inicia a sessao traseira separada com AVDepthData, sem LiDAR.
+    private func startRearDepthFallbackMeasurementSession(completion: @escaping (Bool) -> Void) {
+        guard canStartRearDepthFallbackMeasurement() else {
+            completion(false)
+            return
+        }
+
+        stop()
+        beginPreparingCapture()
+
+        sessionQueue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            self.cleanupSession()
+            self.session.beginConfiguration()
+            if self.session.canSetSessionPreset(.high) {
+                self.session.sessionPreset = .high
+            }
+
+            guard let device = RearDepthFallbackMeasurementEngine.supportedDepthDevice(),
+                  self.configureRearDepthFallbackInput(device: device),
+                  self.rearDepthCaptureCoordinator.configure(session: self.session,
+                                                             device: device,
+                                                             frameHandler: { [weak self] frame in
+                                                                 self?.handleRearDepthFallbackFrame(frame)
+                                                             }) else {
+                self.session.commitConfiguration()
+                DispatchQueue.main.async {
+                    self.publishError(.cameraUnavailable)
+                    completion(false)
+                }
+                return
+            }
+
+            self.session.commitConfiguration()
+            self.session.startRunning()
+
+            DispatchQueue.main.async {
+                let started = self.session.isRunning
+                self.cameraPosition = .back
+                self.isUsingARSession = false
+                self.isUsingRearDepthFallbackSession = started
+                self.isSessionRunning = started
+                self.clearError()
+                VerificationManager.shared.updateActiveSensor(using: self)
+                self.updateLensMonitoring(for: .back)
+                completion(started)
+            }
+        }
     }
 
     /// Cria a configuracao principal da sessao TrueDepth.
@@ -119,12 +181,15 @@ extension CameraManager {
     func stop() {
         if isUsingARSession {
             stopARSession()
+        } else if isUsingRearDepthFallbackSession {
+            stopRearDepthFallbackSession()
         } else if isSessionRunning {
             stopCaptureSession()
         }
 
         isSessionRunning = false
         isUsingARSession = false
+        isUsingRearDepthFallbackSession = false
         resetCapturePipeline(resetCalibration: true)
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
         setCaptureState(.idle, hint: "Camera parada.", progress: 0)
@@ -134,6 +199,16 @@ extension CameraManager {
 
     /// Reinicia a sessao atual apos interrupcoes ou falhas do ARKit.
     func restartSession(recoveryReason: TrueDepthBlockReason? = nil) {
+        if isUsingRearDepthFallbackSession {
+            guard hasRearDepthFallback else {
+                stop()
+                return
+            }
+
+            startMeasurementSession(cameraType: .back, rearDepthMode: .estimatedDepth) { _ in }
+            return
+        }
+
         if cameraPosition == .back {
             guard hasLiDAR else {
                 stop()
@@ -197,6 +272,17 @@ extension CameraManager {
         return true
     }
 
+    private func canStartRearDepthFallbackMeasurement() -> Bool {
+        guard hasRearDepthFallback,
+              RearDepthFallbackMeasurementEngine.isSupported else {
+            notifyUnsupportedDevice(reason: "Este dispositivo nao fornece profundidade traseira por camera dupla.",
+                                    sensor: "Depth")
+            return false
+        }
+
+        return true
+    }
+
     private func notifyUnsupportedDevice(reason: String,
                                         sensor: String = "TrueDepth") {
         publishError(.cameraUnavailable)
@@ -210,6 +296,15 @@ extension CameraManager {
         arSession?.pause()
         arSession?.delegate = nil
         arSession = nil
+    }
+
+    private func stopRearDepthFallbackSession() {
+        rearDepthCaptureCoordinator.reset()
+        if session.isRunning {
+            session.stopRunning()
+        }
+        cleanupSession()
+        latestRearDepthFrame = nil
     }
 
     private func stopCaptureSession() {
@@ -226,5 +321,28 @@ extension CameraManager {
         session.outputs.forEach { session.removeOutput($0) }
         session.commitConfiguration()
         videoDeviceInput = nil
+    }
+
+    private func configureRearDepthFallbackInput(device: AVCaptureDevice) -> Bool {
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            guard session.canAddInput(input) else {
+                publishError(.cannotAddInput)
+                return false
+            }
+
+            session.addInput(input)
+            videoDeviceInput = input
+            return true
+        } catch {
+            publishError(.createCaptureInput(error))
+            return false
+        }
+    }
+
+    private func handleRearDepthFallbackFrame(_ frame: RearDepthFrame) {
+        latestRearDepthFrame = frame
+        lastFrameTimestamp = frame.timestamp
+        VerificationManager.shared.processRearDepthFrame(frame)
     }
 }

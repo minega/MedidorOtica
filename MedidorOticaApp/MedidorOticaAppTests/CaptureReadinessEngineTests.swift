@@ -23,6 +23,18 @@ struct CaptureReadinessEngineTests {
         #expect(RearLiDARDistanceLimits.maxCm == 55.0)
     }
 
+    @Test func rearDepthDistanceUsesPracticalCaptureRange() async throws {
+        #expect(RearDepthDistanceLimits.minCm == 35.0)
+        #expect(RearDepthDistanceLimits.maxCm == 55.0)
+    }
+
+    @Test func rearDepthModeMessagesExplainLiDARToggle() async throws {
+        #expect(RearDepthMode.liDAR.sensorName == "LiDAR")
+        #expect(RearDepthMode.estimatedDepth.sensorName == "Depth")
+        #expect(RearDepthMode.liDAR.toggleMessage.contains("LiDAR ativo"))
+        #expect(RearDepthMode.estimatedDepth.toggleMessage.contains("LiDAR desligado"))
+    }
+
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
         #expect(TrueDepthBlockReason.noRecentSamples.shortMessage == "Aproxime o rosto ate aparecer a malha facial.")
     }
@@ -251,6 +263,16 @@ struct CaptureReadinessEngineTests {
         #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
     }
 
+    @Test func rearDepthPoseInstructionUsesDedicatedTolerance() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 2.2,
+                                        yawDegrees: 2.2,
+                                        pitchDegrees: 2.4,
+                                        timestamp: 8.5,
+                                        sensor: .rearDepth)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
+    }
+
     @Test func rearLiDARAssistToleranceIsWiderThanFinalTolerance() async throws {
         #expect(RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance)
@@ -299,6 +321,20 @@ struct CaptureReadinessEngineTests {
         #expect(!status.isStableReady)
     }
 
+    @Test func rearDepthReadinessDoesNotRequireFaceAnchorAndUsesDedicatedPolicy() async throws {
+        let engine = CaptureReadinessEngine()
+        let first = engine.evaluate(input: rearDepthReadyInput(timestamp: 11.00))
+        let second = engine.evaluate(input: rearDepthReadyInput(timestamp: 11.05))
+        let third = engine.evaluate(input: rearDepthReadyInput(timestamp: 11.10))
+        let fourth = engine.evaluate(input: rearDepthReadyInput(timestamp: 11.15))
+
+        #expect(!first.isStableReady)
+        #expect(!second.isStableReady)
+        #expect(!third.isStableReady)
+        #expect(fourth.isStableReady)
+        #expect(fourth.requiredStableSampleCount == RearDepthCapturePrecisionPolicy.stableSampleCount)
+    }
+
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
         CaptureReadinessInput(evaluation: readyEvaluation(timestamp: timestamp),
                               sessionReady: true,
@@ -329,5 +365,20 @@ struct CaptureReadinessEngineTests {
                               calibrationReady: true,
                               requiresTrackedFaceAnchor: false,
                               policy: .rearLiDAR)
+    }
+
+    private func rearDepthReadyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
+        CaptureReadinessInput(evaluation: VerificationFrameEvaluation(timestamp: timestamp,
+                                                                      trackingIsNormal: true,
+                                                                      hasTrackedFaceAnchor: false,
+                                                                      faceDetected: true,
+                                                                      distanceCorrect: true,
+                                                                      faceAligned: true,
+                                                                      headPoseAvailable: true,
+                                                                      headAligned: true),
+                              sessionReady: true,
+                              calibrationReady: true,
+                              requiresTrackedFaceAnchor: false,
+                              policy: .rearDepth)
     }
 }

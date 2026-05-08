@@ -39,6 +39,8 @@ extension VerificationManager {
                                                          frame: frame)
             case .liDAR:
                 snapshot = makeLiDARHeadPoseSnapshot(from: frame)
+            case .rearDepth:
+                snapshot = nil
             case .none:
                 snapshot = nil
             }
@@ -106,6 +108,10 @@ extension VerificationManager {
             return (RearLiDARCapturePrecisionPolicy.rollToleranceDegrees,
                     RearLiDARCapturePrecisionPolicy.yawToleranceDegrees,
                     RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees)
+        case .rearDepth:
+            return (RearDepthCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearDepthCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearDepthCapturePrecisionPolicy.pitchToleranceDegrees)
         default:
             return (HeadAlignmentConstants.rollToleranceDegrees,
                     HeadAlignmentConstants.yawToleranceDegrees,

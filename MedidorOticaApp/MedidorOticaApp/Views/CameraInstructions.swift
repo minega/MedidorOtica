@@ -45,6 +45,10 @@ enum HeadPoseInstructionBuilder {
             return (RearLiDARCapturePrecisionPolicy.rollToleranceDegrees,
                     RearLiDARCapturePrecisionPolicy.yawToleranceDegrees,
                     RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees)
+        case .rearDepth:
+            return (RearDepthCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearDepthCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearDepthCapturePrecisionPolicy.pitchToleranceDegrees)
         default:
             return (rollToleranceDegrees,
                     yawToleranceDegrees,
@@ -123,6 +127,9 @@ struct CameraInstructions: View {
             return guidance(for: reason)
         case .stableReady:
             if cameraManager.cameraPosition == .back {
+                if verificationManager.activeSensor == .rearDepth {
+                    return "🙂 👀 Depth pronto. Olhe longe"
+                }
                 return "🙂 👀 Olhe para um ponto distante. Captura imediata"
             }
             return "🙂 ✅ Mantenha a posicao. Captura automatica imediata"
@@ -224,7 +231,11 @@ struct CameraInstructions: View {
 
     private func calibrationGuidance() -> String {
         if cameraManager.cameraPosition == .back {
-            return "📱 ↔️ Mantenha o rosto entre \(Int(RearLiDARDistanceLimits.minCm)) e \(Int(RearLiDARDistanceLimits.maxCm)) cm"
+            let usesRearDepth = verificationManager.activeSensor == .rearDepth ||
+                cameraManager.isUsingRearDepthFallbackSession
+            let minDistance = usesRearDepth ? RearDepthDistanceLimits.minCm : RearLiDARDistanceLimits.minCm
+            let maxDistance = usesRearDepth ? RearDepthDistanceLimits.maxCm : RearLiDARDistanceLimits.maxCm
+            return "📱 ↔️ Mantenha o rosto entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
         }
 
         if let failure = cameraManager.trueDepthFailureReason {
@@ -281,6 +292,10 @@ struct CameraInstructions: View {
             return rearLiDARCenteringGuidance()
         }
 
+        if verificationManager.activeSensor == .rearDepth {
+            return rearDepthCenteringGuidance()
+        }
+
         let rawX = verificationManager.facePosition["x"] ?? 0
         let rawY = verificationManager.facePosition["y"] ?? 0
         let (xPos, yPos) = verificationManager.adjustOffsets(horizontal: rawX, vertical: rawY)
@@ -326,6 +341,40 @@ struct CameraInstructions: View {
         let verticalOffset = abs(yPos)
         let horizontalTolerance = RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance * 100
         let verticalTolerance = RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance * 100
+
+        if horizontalOffset <= horizontalTolerance && verticalOffset <= verticalTolerance {
+            return "📱 ⏳ Segure parado no centro do PC"
+        }
+
+        if horizontalOffset >= verticalOffset {
+            if xPos > 0 {
+                return "📱 ➡️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a direita"
+            }
+
+            if xPos < 0 {
+                return "📱 ⬅️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a esquerda"
+            }
+        } else {
+            if yPos > 0 {
+                return "📱 ⬇️ Baixe o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
+
+            if yPos < 0 {
+                return "📱 ⬆️ Levante o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
+        }
+
+        return "📱 ↔️ Ajuste fino ate o PC ficar no centro"
+    }
+
+    /// Instrucao traseira baseada no PC do fluxo Depth, separada do LiDAR.
+    private func rearDepthCenteringGuidance() -> String {
+        let xPos = verificationManager.facePosition["x"] ?? 0
+        let yPos = verificationManager.facePosition["y"] ?? 0
+        let horizontalOffset = abs(xPos)
+        let verticalOffset = abs(yPos)
+        let horizontalTolerance = RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance * 100
+        let verticalTolerance = RearDepthCapturePrecisionPolicy.verticalCenteringTolerance * 100
 
         if horizontalOffset <= horizontalTolerance && verticalOffset <= verticalTolerance {
             return "📱 ⏳ Segure parado no centro do PC"
@@ -433,9 +482,15 @@ struct VerificationMenu: View {
     }
 
     private func menuTitle(for type: VerificationType) -> String {
-        if type == .distance,
-           verificationManager.activeSensor == .liDAR {
-            return "\(Int(RearLiDARDistanceLimits.minCm))-\(Int(RearLiDARDistanceLimits.maxCm)) cm"
+        if type == .distance {
+            switch verificationManager.activeSensor {
+            case .liDAR:
+                return "\(Int(RearLiDARDistanceLimits.minCm))-\(Int(RearLiDARDistanceLimits.maxCm)) cm"
+            case .rearDepth:
+                return "\(Int(RearDepthDistanceLimits.minCm))-\(Int(RearDepthDistanceLimits.maxCm)) cm"
+            default:
+                break
+            }
         }
 
         return type.menuTitle

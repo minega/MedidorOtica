@@ -51,6 +51,11 @@ extension CameraManager {
             return
         }
 
+        if isUsingRearDepthFallbackSession {
+            captureRearDepthFallbackPhoto(completion: completion)
+            return
+        }
+
         markCaptureStarted()
         captureARPhotoAttempt(attempt: 0, completion: completion)
     }
@@ -216,6 +221,74 @@ extension CameraManager {
                                   captureCentralPoint: calibration.centralPoint,
                                   eyeGeometrySnapshot: calibration.eyeGeometrySnapshot,
                                   frameTimestamp: context.frame.timestamp,
+                                  orientation: calibration.cgOrientation,
+                                  captureWarning: calibration.warning)
+        return .success(photo)
+    }
+
+    /// Renderiza a foto traseira no fluxo separado com AVDepthData, sem ARKit/LiDAR.
+    private func captureRearDepthFallbackPhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        guard let frame = latestRearDepthFrame else {
+            failCapture(with: .missingDepthData, completion: completion)
+            return
+        }
+
+        guard captureReadinessEngine.isFrameFresh(frame.timestamp) else {
+            failCapture(with: .staleFrame, completion: completion)
+            return
+        }
+
+        let evaluation = VerificationManager.shared.rearDepthEvaluationForCapture(frame)
+        handleVerificationEvaluation(evaluation)
+        guard evaluation.allChecksPassed(requiresTrackedFaceAnchor: false) else {
+            failCapture(with: .sessionNotReady, completion: completion)
+            return
+        }
+
+        markCaptureStarted()
+        switch renderRearDepthFallbackCapturedPhoto(from: frame) {
+        case .success(let photo):
+            DispatchQueue.main.async {
+                self.markCaptureCompleted()
+                completion(photo)
+            }
+        case .failure(let error):
+            failCapture(with: error, completion: completion)
+        }
+    }
+
+    /// Monta a foto final a partir do frame sincronizado de video e profundidade estimada.
+    private func renderRearDepthFallbackCapturedPhoto(from frame: RearDepthFrame) -> Result<CapturedPhoto, CameraError> {
+        guard let analysis = rearDepthFallbackMeasurementEngine.analyze(frame: frame) else {
+            return .failure(.missingDepthData)
+        }
+
+        let ciImage = CIImage(cvPixelBuffer: frame.pixelBuffer)
+        let orientedCIImage = ciImage.oriented(forExifOrientation: analysis.cgOrientation.exifOrientation)
+
+        guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
+                                                                 from: orientedCIImage.extent) else {
+            return .failure(.captureFailed)
+        }
+
+        let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
+        guard let calibration = rearDepthFallbackMeasurementEngine.captureCalibration(frame: frame,
+                                                                                      imageSize: imageSize) else {
+            return .failure(.missingDepthData)
+        }
+
+        logCalibration(calibration.global,
+                       cropRect: CGRect(origin: .zero, size: imageSize),
+                       frameTimestamp: frame.timestamp,
+                       label: "OK Calibracao local Depth traseiro")
+
+        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
+        let photo = CapturedPhoto(image: image,
+                                  calibration: calibration.global,
+                                  localCalibration: calibration.local,
+                                  captureCentralPoint: calibration.centralPoint,
+                                  eyeGeometrySnapshot: calibration.eyeGeometrySnapshot,
+                                  frameTimestamp: frame.timestamp,
                                   orientation: calibration.cgOrientation,
                                   captureWarning: calibration.warning)
         return .success(photo)

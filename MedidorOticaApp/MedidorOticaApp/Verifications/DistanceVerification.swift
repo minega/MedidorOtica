@@ -92,6 +92,8 @@ extension VerificationManager {
                 return DistanceMeasurement(distance: distance,
                                            projectedFaceWidthRatio: analysis.projectedFaceWidthRatio,
                                            projectedFaceHeightRatio: analysis.projectedFaceHeightRatio)
+            case .rearDepth:
+                continue
             case .none:
                 continue
             }
@@ -182,6 +184,8 @@ extension VerificationManager {
         switch sensor {
         case .liDAR:
             return (RearLiDARDistanceLimits.minCm / 100)...(RearLiDARDistanceLimits.maxCm / 100)
+        case .rearDepth:
+            return (RearDepthDistanceLimits.minCm / 100)...(RearDepthDistanceLimits.maxCm / 100)
         default:
             return DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters
         }

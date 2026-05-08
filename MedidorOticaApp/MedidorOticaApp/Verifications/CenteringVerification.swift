@@ -60,6 +60,8 @@ extension VerificationManager {
             case .liDAR:
                 return checkCenteringWithLiDAR(frame: frame,
                                                allowAlignmentAssist: allowAlignmentAssist)
+            case .rearDepth:
+                continue
             case .none:
                 continue
             }
@@ -161,12 +163,18 @@ extension VerificationManager {
                                    allowAlignmentAssist: Bool) -> Bool {
         let horizontalTolerance = activeSensor == .liDAR ?
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
+            activeSensor == .rearDepth ?
+            RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance :
             CenteringConstants.horizontalTolerance
         let verticalTolerance = activeSensor == .liDAR ?
             RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance :
+            activeSensor == .rearDepth ?
+            RearDepthCapturePrecisionPolicy.verticalCenteringTolerance :
             CenteringConstants.verticalTolerance
         let centralPointTolerance = activeSensor == .liDAR ?
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
+            activeSensor == .rearDepth ?
+            RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance :
             CenteringConstants.centralPointTolerance
         let isHorizontallyAligned = abs(metrics.horizontal) < horizontalTolerance
         let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
@@ -199,6 +207,10 @@ extension VerificationManager {
             return abs(metrics.horizontal) < RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
                 abs(metrics.vertical) < RearLiDARCapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
                 abs(metrics.noseAlignment) < RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        case .rearDepth:
+            return abs(metrics.horizontal) < RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+                abs(metrics.vertical) < RearDepthCapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
+                abs(metrics.noseAlignment) < RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance
         case .none:
             return false
         }

@@ -42,6 +42,7 @@ final class VerificationManager: ObservableObject {
         case none
         case trueDepth
         case liDAR
+        case rearDepth
     }
 
     // MARK: - Configuracao
@@ -63,11 +64,25 @@ final class VerificationManager: ObservableObject {
 
     // MARK: - Distancia
     var minDistance: Float {
-        activeSensor == .liDAR ? RearLiDARDistanceLimits.minCm : DistanceLimits.minCm
+        switch activeSensor {
+        case .liDAR:
+            return RearLiDARDistanceLimits.minCm
+        case .rearDepth:
+            return RearDepthDistanceLimits.minCm
+        default:
+            return DistanceLimits.minCm
+        }
     }
 
     var maxDistance: Float {
-        activeSensor == .liDAR ? RearLiDARDistanceLimits.maxCm : DistanceLimits.maxCm
+        switch activeSensor {
+        case .liDAR:
+            return RearLiDARDistanceLimits.maxCm
+        case .rearDepth:
+            return RearDepthDistanceLimits.maxCm
+        default:
+            return DistanceLimits.maxCm
+        }
     }
 
     // MARK: - Inicializacao
@@ -103,6 +118,21 @@ final class VerificationManager: ObservableObject {
         }
     }
 
+    /// Processa um frame traseiro com `AVDepthData`, sem usar TrueDepth ou LiDAR.
+    func processRearDepthFrame(_ frame: RearDepthFrame) {
+        guard reserveProcessingSlot(at: Date()) else { return }
+
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            defer { self.releaseProcessingSlot() }
+
+            let evaluation = self.makeRearDepthEvaluation(from: frame)
+            DispatchQueue.main.async { [weak self] in
+                self?.apply(evaluation: evaluation)
+            }
+        }
+    }
+
     /// Permite resetar todas as verificacoes externamente.
     func reset() {
         let work = { [self] in
@@ -127,6 +157,11 @@ final class VerificationManager: ObservableObject {
     func evaluationForCapture(_ frame: ARFrame) -> VerificationFrameEvaluation {
         guard canProcessCurrentSensorFrame() else { return .empty }
         return makeEvaluation(from: frame)
+    }
+
+    /// Reavalia um frame traseiro sem LiDAR para validar a captura final.
+    func rearDepthEvaluationForCapture(_ frame: RearDepthFrame) -> VerificationFrameEvaluation {
+        makeRearDepthEvaluation(from: frame)
     }
 
     /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
@@ -167,6 +202,8 @@ final class VerificationManager: ObservableObject {
                 guard !requireFaceAnchor || faceAnchorAvailable else { return false }
             case .liDAR:
                 guard hasLiDAR else { return false }
+            case .rearDepth:
+                guard CameraManager.shared.hasRearDepthFallback else { return false }
             case .none:
                 return false
             }
@@ -182,11 +219,13 @@ final class VerificationManager: ObservableObject {
         if !activeAdded {
             if activeSensor != .trueDepth { _ = addIfAvailable(.trueDepth) }
             if activeSensor != .liDAR { _ = addIfAvailable(.liDAR) }
+            if activeSensor != .rearDepth { _ = addIfAvailable(.rearDepth) }
         }
 
         if orderedSensors.isEmpty {
             _ = addIfAvailable(.trueDepth)
             _ = addIfAvailable(.liDAR)
+            _ = addIfAvailable(.rearDepth)
         }
 
         return orderedSensors
@@ -319,7 +358,152 @@ final class VerificationManager: ObservableObject {
                                            headAligned: headAlignment.isAligned)
     }
 
-    private func apply(evaluation: VerificationFrameEvaluation) {
+    /// Cria uma avaliacao consistente para o modo traseiro sem LiDAR.
+    private func makeRearDepthEvaluation(from frame: RearDepthFrame) -> VerificationFrameEvaluation {
+        let manager = CameraManager.shared
+        guard let analysis = manager.rearDepthFallbackMeasurementEngine.analyze(frame: frame) else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: false,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        let distanceCorrect = rearDepthDistanceIsValid(analysis.centralDepthMeters)
+        publishRearDepthDistance(analysis: analysis,
+                                 isValid: distanceCorrect)
+        guard distanceCorrect else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: true,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        let headAlignment = rearDepthHeadAlignment(from: analysis)
+        let allowAlignmentAssist = headAlignment.headPoseAvailable && !headAlignment.isAligned
+        let centering = rearDepthCentering(from: analysis,
+                                           allowAlignmentAssist: allowAlignmentAssist)
+        publishRearDepthCentering(centering)
+        guard centering.isCentered else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: true,
+                                               distanceCorrect: true,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        if let snapshot = analysis.headPose {
+            publishRearDepthHeadPose(snapshot,
+                                     isHeadAligned: headAlignment.isAligned)
+        }
+
+        return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                           trackingIsNormal: true,
+                                           hasTrackedFaceAnchor: false,
+                                           faceDetected: true,
+                                           distanceCorrect: true,
+                                           faceAligned: true,
+                                           headPoseAvailable: headAlignment.headPoseAvailable,
+                                           headAligned: headAlignment.isAligned)
+    }
+
+    private func rearDepthDistanceIsValid(_ distanceMeters: Float) -> Bool {
+        guard distanceMeters.isFinite, distanceMeters > 0 else { return false }
+        let range = (RearDepthDistanceLimits.minCm / 100)...(RearDepthDistanceLimits.maxCm / 100)
+        return range.contains(distanceMeters)
+    }
+
+    private func publishRearDepthDistance(analysis: RearDepthFrameAnalysis,
+                                          isValid: Bool) {
+        let distanceInCm = analysis.centralDepthMeters * 100
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lastMeasuredDistance = distanceInCm
+            self.projectedFaceWidthRatio = analysis.projectedFaceWidthRatio
+            self.projectedFaceHeightRatio = analysis.projectedFaceHeightRatio
+            self.projectedFaceTooSmall = false
+
+            if !isValid {
+                print("Aviso Depth traseiro: distancia fora da faixa: \(String(format: "%.1f", distanceInCm)) cm")
+            }
+        }
+    }
+
+    private func rearDepthHeadAlignment(from analysis: RearDepthFrameAnalysis) -> (headPoseAvailable: Bool, isAligned: Bool) {
+        guard let snapshot = analysis.headPose else { return (false, false) }
+        let aligned = abs(snapshot.rollDegrees) <= RearDepthCapturePrecisionPolicy.rollToleranceDegrees &&
+            abs(snapshot.yawDegrees) <= RearDepthCapturePrecisionPolicy.yawToleranceDegrees &&
+            abs(snapshot.pitchDegrees) <= RearDepthCapturePrecisionPolicy.pitchToleranceDegrees
+        return (true, aligned)
+    }
+
+    private func rearDepthCentering(from analysis: RearDepthFrameAnalysis,
+                                    allowAlignmentAssist: Bool) -> (horizontal: Float, vertical: Float, isCentered: Bool, isStrict: Bool, isAssisted: Bool) {
+        let strictOffset = analysis.previewCenterOffsetMeters
+        let strictCentered = abs(strictOffset.x) < RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance &&
+            abs(strictOffset.y) < RearDepthCapturePrecisionPolicy.verticalCenteringTolerance
+        let assistedOffset = RearDepthCenteringAssist.assistedOffset(strictOffset: strictOffset,
+                                                                     neutralOffset: analysis.alignmentAssistCenterOffsetMeters,
+                                                                     headPose: analysis.headPose)
+        let assistedCentered = allowAlignmentAssist &&
+            abs(assistedOffset.x) < RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+            abs(assistedOffset.y) < RearDepthCapturePrecisionPolicy.alignmentAssistVerticalTolerance
+        let visibleOffset = allowAlignmentAssist ? assistedOffset : strictOffset
+        return (visibleOffset.x,
+                visibleOffset.y,
+                strictCentered || assistedCentered,
+                strictCentered,
+                assistedCentered)
+    }
+
+    private func publishRearDepthCentering(_ centering: (horizontal: Float, vertical: Float, isCentered: Bool, isStrict: Bool, isAssisted: Bool)) {
+        let horizontalCm = centering.horizontal * 100
+        let verticalCm = centering.vertical * 100
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.facePosition = [
+                "x": horizontalCm,
+                "y": verticalCm,
+                "z": horizontalCm
+            ]
+            self.faceAligned = centering.isCentered
+        }
+
+        print("""
+        Centralizacao Depth traseiro (cm):
+           - Horizontal: \(String(format: "%+.2f", horizontalCm)) cm
+           - Vertical:   \(String(format: "%+.2f", verticalCm)) cm
+           - Estrito:    \(centering.isStrict ? "OK" : "ERRO")
+           - Assistido:  \(centering.isAssisted ? "SIM" : "NAO")
+        """)
+    }
+
+    private func publishRearDepthHeadPose(_ snapshot: HeadPoseSnapshot,
+                                          isHeadAligned: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.headPoseSnapshot = snapshot
+            self.alignmentData = [
+                "roll": snapshot.rollDegrees,
+                "yaw": snapshot.yawDegrees,
+                "pitch": snapshot.pitchDegrees
+            ]
+            print("Alinhamento Depth traseiro: Roll=\(snapshot.rollDegrees)°, Yaw=\(snapshot.yawDegrees)°, Pitch=\(snapshot.pitchDegrees)°, Alinhado=\(isHeadAligned)")
+        }
+    }
+
+    func apply(evaluation: VerificationFrameEvaluation) {
         faceDetected = evaluation.faceDetected
         distanceCorrect = evaluation.distanceCorrect
         faceAligned = evaluation.faceAligned
@@ -408,7 +592,8 @@ final class VerificationManager: ObservableObject {
         let resolvedSensor = resolveActiveSensor(prefersFrontSensor: prefersFrontSensor,
                                                  hasTrueDepthSupport: hasTrueDepthSupport,
                                                  hasLiDARSupport: hasLiDARSupport,
-                                                 usesARSession: usesARSession)
+                                                 usesARSession: usesARSession,
+                                                 manager: manager)
 
         let capabilitiesChanged = hasTrueDepth != hasTrueDepthSupport ||
                                   hasLiDAR != hasLiDARSupport
@@ -430,14 +615,21 @@ final class VerificationManager: ObservableObject {
     private func resolveActiveSensor(prefersFrontSensor: Bool,
                                      hasTrueDepthSupport: Bool,
                                      hasLiDARSupport: Bool,
-                                     usesARSession: Bool) -> SensorType {
+                                     usesARSession: Bool,
+                                     manager: CameraManager) -> SensorType {
         if usesARSession {
             if prefersFrontSensor, hasTrueDepthSupport { return .trueDepth }
             if !prefersFrontSensor, hasLiDARSupport { return .liDAR }
         }
 
+        if manager.isUsingRearDepthFallbackSession,
+           manager.hasRearDepthFallback {
+            return .rearDepth
+        }
+
         if hasTrueDepthSupport { return .trueDepth }
         if hasLiDARSupport { return .liDAR }
+        if manager.hasRearDepthFallback { return .rearDepth }
         return .none
     }
 

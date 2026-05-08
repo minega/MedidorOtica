@@ -88,9 +88,11 @@ final class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning = false
     @Published private(set) var hasTrueDepth = false
     @Published private(set) var hasLiDAR = false
+    @Published private(set) var hasRearDepthFallback = false
     @Published private(set) var isFrontCameraEnabled = true
     @Published private(set) var frontLensCondition: CameraLensCondition = .unknown
     @Published var isUsingARSession = false
+    @Published private(set) var isUsingRearDepthFallbackSession = false
     @Published private(set) var captureState: CameraCaptureState = .idle
     @Published private(set) var captureHint = CameraCaptureBlockReason.preparingSession.shortMessage
     @Published private(set) var captureProgress = 0.0
@@ -113,6 +115,8 @@ final class CameraManager: NSObject, ObservableObject {
     private(set) var hardwareHasLiDAR = false
     let calibrationEstimator = TrueDepthCalibrationEstimator()
     let rearLiDARMeasurementEngine = RearLiDARMeasurementEngine()
+    let rearDepthFallbackMeasurementEngine = RearDepthFallbackMeasurementEngine()
+    let rearDepthCaptureCoordinator = RearDepthCaptureCoordinator()
 
     // MARK: - Capture State
     let captureReadinessEngine = CaptureReadinessEngine()
@@ -120,6 +124,7 @@ final class CameraManager: NSObject, ObservableObject {
     var lastCalibrationFailure: (code: Int, message: String)?
     private(set) var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
     var lastFrameTimestamp: TimeInterval = 0
+    var latestRearDepthFrame: RearDepthFrame?
     var lastSuccessfulCalibrationTimestamp: TimeInterval?
     private let trueDepthRecoveryPolicy = TrueDepthRecoveryPolicy()
     private var trueDepthBootstrapStartTimestamp: TimeInterval?
@@ -208,9 +213,10 @@ final class CameraManager: NSObject, ObservableObject {
         isFrontCameraEnabled = true
         hardwareHasTrueDepth = ARFaceTrackingConfiguration.isSupported
         hardwareHasLiDAR = RearLiDARMeasurementEngine.isSupported
+        hasRearDepthFallback = RearDepthFallbackMeasurementEngine.isSupported
         hasTrueDepth = hardwareHasTrueDepth
         hasLiDAR = hardwareHasLiDAR
-        print("Sensores disponiveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
+        print("Sensores disponiveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR), Depth traseiro: \(hasRearDepthFallback)")
     }
 
     // MARK: - Capture Pipeline
@@ -219,6 +225,9 @@ final class CameraManager: NSObject, ObservableObject {
         guard isUsingARSession,
               isSessionRunning,
               arSession != nil else {
+            if isUsingRearDepthFallbackSession {
+                return isSessionRunning && cameraPosition == .back && hasRearDepthFallback
+            }
             return false
         }
 
@@ -289,7 +298,12 @@ final class CameraManager: NSObject, ObservableObject {
         guard captureState != .capturing, captureState != .captured else { return }
 
         let readiness = calibrationReadiness()
-        let policy: CaptureReadinessPolicy? = cameraPosition == .back ? .rearLiDAR : nil
+        let policy: CaptureReadinessPolicy?
+        if cameraPosition == .back {
+            policy = isUsingRearDepthFallbackSession ? .rearDepth : .rearLiDAR
+        } else {
+            policy = nil
+        }
         let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
                                           sessionReady: isMeasurementSessionReady,
                                           calibrationReady: readiness.ready,
@@ -312,6 +326,7 @@ final class CameraManager: NSObject, ObservableObject {
         captureReadinessEngine.reset()
         lastVerificationEvaluation = .empty
         lastFrameTimestamp = 0
+        latestRearDepthFrame = nil
         if Thread.isMainThread {
             captureProgress = 0
         } else {

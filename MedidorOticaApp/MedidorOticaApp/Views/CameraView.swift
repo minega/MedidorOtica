@@ -20,6 +20,7 @@ struct CameraView: View {
     // MARK: - Estado de UI
     @State private var isAutoCaptureEnabled = true
     @State private var selectedCameraType: CameraType = .front
+    @State private var rearDepthMode: RearDepthMode = .liDAR
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedPhoto: CapturedPhoto?
@@ -47,6 +48,10 @@ struct CameraView: View {
 
     private var shouldShowVerificationMenu: Bool {
         showVerifications
+    }
+
+    private var topSensorName: String {
+        selectedCameraType == .front ? selectedCameraType.sensorName : rearDepthMode.sensorName
     }
 
     // MARK: - View
@@ -147,21 +152,7 @@ struct CameraView: View {
 
             Spacer()
 
-            Text(selectedCameraType.sensorName)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .environment(\.colorScheme, .light)
-                .appGlassSurface(cornerRadius: 14,
-                                 borderOpacity: 0.12,
-                                 tintOpacity: 0.24,
-                                 tintColor: .black,
-                                 variant: .regular,
-                                 interactive: false,
-                                 fallbackMaterial: .thinMaterial)
+            sensorModeButton
 
             cameraTopButton(systemName: "camera.rotate",
                             foregroundColor: selectedCameraType == .back ? .cyan : .white) {
@@ -203,6 +194,29 @@ struct CameraView: View {
                          fallbackMaterial: .thinMaterial)
         .clipShape(Circle())
         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
+    }
+
+    private var sensorModeButton: some View {
+        Button(action: toggleRearDepthMode) {
+            Text(topSensorName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(selectedCameraType != .back)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 14,
+                         borderOpacity: 0.12,
+                         tintOpacity: 0.24,
+                         tintColor: .black,
+                         variant: .regular,
+                         interactive: selectedCameraType == .back,
+                         fallbackMaterial: .thinMaterial)
     }
 
     private var captureButton: some View {
@@ -289,15 +303,16 @@ struct CameraView: View {
             guard permissionGranted else { return }
 
             cameraManager.checkAvailableSensors()
+            resolveRearDepthModeIfNeeded()
             guard canUseSelectedSensor() else {
-                alertMessage = selectedCameraType == .front ?
-                    "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao." :
-                    "Este dispositivo nao possui LiDAR traseiro compativel para a medicao."
+                alertMessage = unavailableSensorMessage(for: selectedCameraType,
+                                                        rearDepthMode: rearDepthMode)
                 showingAlert = true
                 return
             }
 
-            cameraManager.startMeasurementSession(cameraType: selectedCameraType) { success in
+            cameraManager.startMeasurementSession(cameraType: selectedCameraType,
+                                                  rearDepthMode: rearDepthMode) { success in
                 DispatchQueue.main.async {
                     if success {
                         cameraInitialized = true
@@ -316,12 +331,73 @@ struct CameraView: View {
         case .front:
             return cameraManager.hasTrueDepth
         case .back:
+            return isRearDepthModeAvailable(rearDepthMode)
+        }
+    }
+
+    private func isRearDepthModeAvailable(_ mode: RearDepthMode) -> Bool {
+        switch mode {
+        case .liDAR:
             return cameraManager.hasLiDAR
+        case .estimatedDepth:
+            return cameraManager.hasRearDepthFallback
+        }
+    }
+
+    private func resolveRearDepthModeIfNeeded() {
+        guard selectedCameraType == .back else { return }
+
+        if rearDepthMode == .liDAR,
+           !cameraManager.hasLiDAR,
+           cameraManager.hasRearDepthFallback {
+            rearDepthMode = .estimatedDepth
+            return
+        }
+
+        if rearDepthMode == .estimatedDepth,
+           !cameraManager.hasRearDepthFallback,
+           cameraManager.hasLiDAR {
+            rearDepthMode = .liDAR
+        }
+    }
+
+    private func unavailableSensorMessage(for cameraType: CameraType,
+                                          rearDepthMode: RearDepthMode) -> String {
+        switch cameraType {
+        case .front:
+            return "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao."
+        case .back:
+            switch rearDepthMode {
+            case .liDAR:
+                return "Este dispositivo nao possui LiDAR traseiro compativel para a medicao."
+            case .estimatedDepth:
+                return "Este dispositivo nao fornece profundidade traseira por camera dupla."
+            }
         }
     }
 
     private func switchCameraMode() {
         selectedCameraType = selectedCameraType == .front ? .back : .front
+        isProcessing = false
+        setupCamera()
+    }
+
+    private func toggleRearDepthMode() {
+        guard selectedCameraType == .back else { return }
+
+        cameraManager.checkAvailableSensors()
+        let nextMode: RearDepthMode = rearDepthMode == .liDAR ? .estimatedDepth : .liDAR
+        guard isRearDepthModeAvailable(nextMode) else {
+            alertMessage = unavailableSensorMessage(for: .back,
+                                                    rearDepthMode: nextMode)
+            showingAlert = true
+            notificationGenerator.notificationOccurred(.warning)
+            return
+        }
+
+        rearDepthMode = nextMode
+        alertMessage = nextMode.toggleMessage
+        showingAlert = true
         isProcessing = false
         setupCamera()
     }

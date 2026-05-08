@@ -44,7 +44,7 @@ final class PostCaptureProcessor {
     func analyze(image: UIImage,
                  scale: PostCaptureScale,
                  preferredCentralPoint: NormalizedPoint? = nil,
-                 isRearLiDARCapture: Bool = false) async throws -> PostCaptureAnalysisResult {
+                 usesRearCameraDepthCapture: Bool = false) async throws -> PostCaptureAnalysisResult {
         let orientedImage = image.normalizedOrientation()
 
         guard let cgImage = orientedImage.cgImage else {
@@ -68,7 +68,7 @@ final class PostCaptureProcessor {
                                           orientation: orientation,
                                           scale: scale,
                                           preferredCentralPoint: preferredCentralPoint,
-                                          isRearLiDARCapture: isRearLiDARCapture)
+                                          usesRearCameraDepthCapture: usesRearCameraDepthCapture)
         return PostCaptureAnalysisResult(configuration: analysis.configuration,
                                          detectedPupils: analysis.detectedPupils,
                                          centralCandidates: analysis.centralCandidates)
@@ -80,9 +80,9 @@ final class PostCaptureProcessor {
                                     orientation: CGImagePropertyOrientation,
                                     scale: PostCaptureScale,
                                     preferredCentralPoint: NormalizedPoint?,
-                                    isRearLiDARCapture: Bool) -> (configuration: PostCaptureConfiguration,
-                                                                  detectedPupils: PostCaptureAnalysisResult.DetectedPupils,
-                                                                  centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates) {
+                                    usesRearCameraDepthCapture: Bool) -> (configuration: PostCaptureConfiguration,
+                                                                          detectedPupils: PostCaptureAnalysisResult.DetectedPupils,
+                                                                          centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates) {
         let landmarks = observation.landmarks
         let box = observation.boundingBox
         let width = Int(imageSize.width)
@@ -136,12 +136,12 @@ final class PostCaptureProcessor {
                                        isRightEye: true,
                                        centralPoint: centralPoint,
                                        scale: scale,
-                                       isRearLiDARCapture: isRearLiDARCapture)
+                                       usesRearCameraDepthCapture: usesRearCameraDepthCapture)
         let leftEyeData = initialData(for: resolvedLeftPupil,
                                       isRightEye: false,
                                       centralPoint: centralPoint,
                                       scale: scale,
-                                      isRearLiDARCapture: isRearLiDARCapture,
+                                      usesRearCameraDepthCapture: usesRearCameraDepthCapture,
                                       mirroredFrom: rightEyeData)
 
         let configuration = PostCaptureConfiguration(centralPoint: centralPoint,
@@ -456,7 +456,7 @@ final class PostCaptureProcessor {
                              isRightEye: Bool,
                              centralPoint: NormalizedPoint,
                              scale: PostCaptureScale,
-                             isRearLiDARCapture: Bool,
+                             usesRearCameraDepthCapture: Bool,
                              mirroredFrom reference: EyeMeasurementData? = nil) -> EyeMeasurementData {
         // Quando o olho esquerdo não possuir detecção, espelha o direito para manter simetria.
         if !isRightEye, point == nil, let mirror = reference {
@@ -472,7 +472,7 @@ final class PostCaptureProcessor {
         let horizontalOffsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: centralPoint,
                                                                                 pupilPoint: pupilPoint,
                                                                                 scale: scale,
-                                                                                preferDNPAnchoring: isRearLiDARCapture)
+                                                                                preferDNPAnchoring: usesRearCameraDepthCapture)
         let nasalOffset = horizontalOffsets.nasal
         let temporalOffset = horizontalOffsets.temporal
         let inferiorOffset = scale.normalizedVertical(PostCaptureScale.inferiorOffsetMM,

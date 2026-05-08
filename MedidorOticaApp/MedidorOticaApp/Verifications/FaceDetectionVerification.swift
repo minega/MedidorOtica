@@ -29,6 +29,8 @@ extension VerificationManager {
                 if checkFaceDetectionWithTrueDepth(frame: frame) { return true }
             case .liDAR:
                 if checkFaceDetectionWithLiDAR(frame: frame) { return true }
+            case .rearDepth:
+                continue
             case .none:
                 continue
             }

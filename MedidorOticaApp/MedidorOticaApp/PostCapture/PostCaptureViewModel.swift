@@ -165,7 +165,7 @@ final class PostCaptureViewModel: ObservableObject {
             let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage,
                                                                        scale: scale,
                                                                        preferredCentralPoint: captureCentralPoint,
-                                                                       isRearLiDARCapture: isRearLiDARCapture)
+                                                                       usesRearCameraDepthCapture: usesRearCameraDepthCapture)
             await MainActor.run {
                 self.configuration = result.configuration
                 self.detectedPupils = result.detectedPupils
@@ -464,9 +464,18 @@ final class PostCaptureViewModel: ObservableObject {
     }
 
     // MARK: - Pré-visualização
-    /// Indica se a captura veio do fluxo traseiro sem alterar a camera frontal.
-    private var isRearLiDARCapture: Bool {
+    /// Indica se a captura veio de um fluxo traseiro com escala de profundidade.
+    private var usesRearCameraDepthCapture: Bool {
         if captureWarning?.localizedCaseInsensitiveContains("LiDAR traseiro") == true {
+            return true
+        }
+
+        if captureWarning?.localizedCaseInsensitiveContains("Depth traseiro") == true {
+            return true
+        }
+
+        if eyeGeometrySnapshot?.fixationConfidenceReason?
+            .localizedCaseInsensitiveContains("Depth traseiro") == true {
             return true
         }
 

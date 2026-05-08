@@ -269,6 +269,13 @@ struct CaptureReadinessPolicy: Equatable, Sendable {
         maximumFrameGap: RearLiDARCapturePrecisionPolicy.maximumFrameGap,
         maximumCaptureAge: RearLiDARCapturePrecisionPolicy.maximumCaptureAge
     )
+
+    /// Politica traseira sem LiDAR: depth estimado exige um frame bom a mais.
+    static let rearDepth = CaptureReadinessPolicy(
+        requiredStableSampleCount: RearDepthCapturePrecisionPolicy.stableSampleCount,
+        maximumFrameGap: RearDepthCapturePrecisionPolicy.maximumFrameGap,
+        maximumCaptureAge: RearDepthCapturePrecisionPolicy.maximumCaptureAge
+    )
 }
 
 /// Dados consumidos pelo motor de estabilidade da captura.
