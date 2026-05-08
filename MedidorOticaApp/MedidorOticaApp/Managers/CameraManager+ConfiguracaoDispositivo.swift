@@ -47,9 +47,12 @@ extension CameraManager {
         }
     }
 
-    /// Alternancia desabilitada enquanto a medicao usa somente TrueDepth.
+    /// Alterna entre o fluxo frontal TrueDepth e o fluxo traseiro LiDAR.
     func switchCamera() {
-        print("Alternancia de camera desabilitada (TrueDepth obrigatorio).")
+        let nextType: CameraType = cameraPosition == .front ? .back : .front
+        startMeasurementSession(cameraType: nextType) { success in
+            print(success ? "Camera alternada para \(nextType.sensorName)" : "Nao foi possivel alternar camera.")
+        }
     }
 
     /// Liga ou desliga o flash, caso disponivel.
@@ -81,13 +84,8 @@ extension CameraManager {
     func setup(position: AVCaptureDevice.Position,
                arSession: ARSession? = nil,
                completion: @escaping (Bool) -> Void) {
-        guard position == .front else {
-            publishARError("A medicao permanece restrita ao TrueDepth frontal.")
-            completion(false)
-            return
-        }
-
-        startMeasurementSession(completion: completion)
+        let cameraType: CameraType = position == .front ? .front : .back
+        startMeasurementSession(cameraType: cameraType, completion: completion)
     }
 
     // MARK: - Helpers

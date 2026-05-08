@@ -2,14 +2,33 @@
 //  CameraType.swift
 //  MedidorOticaApp
 //
-//  Enum que define qual câmera utilizar (frontal ou traseira).
+//  Define os tipos de camera usados pelos fluxos de medicao.
 //
 
-import Foundation
+import AVFoundation
 
-/// Tipos de câmera suportados pelo aplicativo
+/// Tipos de camera suportados pelo aplicativo.
 enum CameraType {
-    case front    // Câmera frontal (TrueDepth)
-    case back     // Câmera traseira (LiDAR)
-}
+    case front
+    case back
 
+    /// Nome curto do sensor usado na interface.
+    var sensorName: String {
+        switch self {
+        case .front:
+            return "TrueDepth"
+        case .back:
+            return "LiDAR"
+        }
+    }
+
+    /// Posicao fisica da camera associada ao tipo.
+    var capturePosition: AVCaptureDevice.Position {
+        switch self {
+        case .front:
+            return .front
+        case .back:
+            return .back
+        }
+    }
+}

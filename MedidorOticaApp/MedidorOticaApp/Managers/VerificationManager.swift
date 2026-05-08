@@ -22,8 +22,12 @@ final class VerificationManager: ObservableObject {
     @Published var faceAligned = false
     @Published var headAligned = false
     @Published var lastMeasuredDistance: Float = 0.0
+    @Published var projectedFaceTooSmall = false
+    @Published var projectedFaceWidthRatio: Float = 0.0
+    @Published var projectedFaceHeightRatio: Float = 0.0
     @Published var hasTrueDepth = false
     @Published var hasLiDAR = false
+    @Published var headPoseSnapshot: HeadPoseSnapshot?
     @Published var alignmentData: [String: Float] = [:]
     @Published var facePosition: [String: Float] = [:]
     @Published private(set) var activeSensor: SensorType = .none
@@ -34,7 +38,7 @@ final class VerificationManager: ObservableObject {
 
     // MARK: - Sensor
     /// Representa o sensor ativo para as verificacoes AR.
-    enum SensorType {
+    enum SensorType: Sendable {
         case none
         case trueDepth
         case liDAR
@@ -47,12 +51,24 @@ final class VerificationManager: ObservableObject {
                                                 qos: .userInitiated)
     private let processingGateQueue = DispatchQueue(label: "com.oticaManzolli.verification.gate")
     private var isProcessingFrame = false
+    private var trueDepthGateOpen = false
     private var lastFrameTime = Date.distantPast
     private let frameInterval: TimeInterval = 1.0 / 15.0
 
+    /// Mantem a ultima pose valida por poucos frames para evitar sumir com a instrucao
+    /// quando o ARKit oscila, sem liberar captura com leitura velha.
+    private enum HeadPoseRetention {
+        static let reuseWindow: TimeInterval = 0.25
+    }
+
     // MARK: - Distancia
-    var minDistance: Float { DistanceLimits.minCm }
-    var maxDistance: Float { DistanceLimits.maxCm }
+    var minDistance: Float {
+        activeSensor == .liDAR ? RearLiDARDistanceLimits.minCm : DistanceLimits.minCm
+    }
+
+    var maxDistance: Float {
+        activeSensor == .liDAR ? RearLiDARDistanceLimits.maxCm : DistanceLimits.maxCm
+    }
 
     // MARK: - Inicializacao
     private init() {
@@ -62,12 +78,14 @@ final class VerificationManager: ObservableObject {
     // MARK: - Estado composto
     /// Verifica se todas as verificacoes obrigatorias estao corretas.
     var allVerificationsChecked: Bool {
-        faceDetected && distanceCorrect && faceAligned && headAligned
+        guard activeSensor != .trueDepth || trueDepthGateOpen else { return false }
+        return faceDetected && distanceCorrect && faceAligned && headAligned
     }
 
     // MARK: - Processamento de frame
     /// Processa um `ARFrame` realizando todas as verificacoes sequenciais.
     func processARFrame(_ frame: ARFrame) {
+        guard canProcessCurrentSensorFrame() else { return }
         guard reserveProcessingSlot(at: Date()) else { return }
 
         if case .limited = frame.camera.trackingState {
@@ -107,7 +125,20 @@ final class VerificationManager: ObservableObject {
 
     /// Reavalia um frame especifico de forma sincrona para validar a captura final.
     func evaluationForCapture(_ frame: ARFrame) -> VerificationFrameEvaluation {
-        makeEvaluation(from: frame)
+        guard canProcessCurrentSensorFrame() else { return .empty }
+        return makeEvaluation(from: frame)
+    }
+
+    /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
+    func setTrueDepthGate(isOpen: Bool) {
+        let shouldReset = processingGateQueue.sync {
+            guard trueDepthGateOpen != isOpen else { return false }
+            trueDepthGateOpen = isOpen
+            return !isOpen
+        }
+
+        guard shouldReset else { return }
+        reset()
     }
 
     // MARK: - Gerenciamento de sensores
@@ -238,6 +269,7 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: false,
                                                distanceCorrect: false,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
@@ -249,10 +281,21 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: true,
                                                distanceCorrect: false,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
-        let faceAligned = checkFaceCentering(using: frame, faceAnchor: faceAnchor)
+        // A pose e medida antes da centralizacao para permitir uma faixa
+        // assistida enquanto a pessoa corrige os eixos. No LiDAR, a analise
+        // do frame fica em cache e tambem alimenta a previsao de centralizacao.
+        let shouldPreflightHeadPose = activeSensor == .trueDepth || activeSensor == .liDAR
+        let preliminaryHeadAlignment: (headPoseAvailable: Bool, isAligned: Bool)? = shouldPreflightHeadPose ?
+            evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor) :
+            nil
+        let faceAligned = checkFaceCentering(using: frame,
+                                             faceAnchor: faceAnchor,
+                                             allowAlignmentAssist: preliminaryHeadAlignment?.headPoseAvailable == true &&
+                                                preliminaryHeadAlignment?.isAligned == false)
         guard faceAligned else {
             return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                                trackingIsNormal: trackingIsNormal,
@@ -260,17 +303,20 @@ final class VerificationManager: ObservableObject {
                                                faceDetected: true,
                                                distanceCorrect: true,
                                                faceAligned: false,
+                                               headPoseAvailable: false,
                                                headAligned: false)
         }
 
-        let headAligned = checkHeadAlignment(using: frame, faceAnchor: faceAnchor)
+        let headAlignment = preliminaryHeadAlignment ??
+            evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor)
         return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                            trackingIsNormal: trackingIsNormal,
                                            hasTrackedFaceAnchor: hasTrackedFaceAnchor,
                                            faceDetected: true,
                                            distanceCorrect: true,
                                            faceAligned: true,
-                                           headAligned: headAligned)
+                                           headPoseAvailable: headAlignment.headPoseAvailable,
+                                           headAligned: headAlignment.isAligned)
     }
 
     private func apply(evaluation: VerificationFrameEvaluation) {
@@ -282,14 +328,32 @@ final class VerificationManager: ObservableObject {
 
         if !evaluation.faceDetected {
             lastMeasuredDistance = 0
+            projectedFaceTooSmall = false
+            projectedFaceWidthRatio = 0
+            projectedFaceHeightRatio = 0
+            headPoseSnapshot = nil
             alignmentData = [:]
             facePosition = [:]
-        } else if !evaluation.faceAligned {
+        } else if shouldClearHeadPose(for: evaluation) {
+            headPoseSnapshot = nil
             alignmentData = [:]
         }
 
         updateVerificationStatus(throttled: true)
         evaluationHandler?(evaluation)
+    }
+
+    /// Limpa a pose apenas quando o fluxo realmente saiu da etapa 4
+    /// ou quando a leitura antiga ja ficou velha demais para orientar o usuario.
+    private func shouldClearHeadPose(for evaluation: VerificationFrameEvaluation) -> Bool {
+        guard evaluation.faceDetected else { return true }
+        guard evaluation.distanceCorrect else { return true }
+        guard evaluation.faceAligned else { return true }
+        guard !evaluation.headPoseAvailable else { return false }
+        guard let snapshot = headPoseSnapshot else { return true }
+
+        let delta = evaluation.timestamp - snapshot.timestamp
+        return !delta.isFinite || delta < 0 || delta > HeadPoseRetention.reuseWindow
     }
 
     // MARK: - Gate de processamento
@@ -309,6 +373,12 @@ final class VerificationManager: ObservableObject {
         }
     }
 
+    private func canProcessCurrentSensorFrame() -> Bool {
+        processingGateQueue.sync {
+            activeSensor != .trueDepth || trueDepthGateOpen
+        }
+    }
+
     // MARK: - Estado derivado
     private func resetAllVerifications() {
         faceDetected = false
@@ -316,6 +386,10 @@ final class VerificationManager: ObservableObject {
         faceAligned = false
         headAligned = false
         lastMeasuredDistance = 0
+        projectedFaceTooSmall = false
+        projectedFaceWidthRatio = 0
+        projectedFaceHeightRatio = 0
+        headPoseSnapshot = nil
         alignmentData = [:]
         facePosition = [:]
 
@@ -368,6 +442,9 @@ final class VerificationManager: ObservableObject {
     }
 
     private func clearSensorDependentState() {
+        processingGateQueue.sync {
+            trueDepthGateOpen = false
+        }
         resetAllVerifications()
         currentStep = .faceDetection
         updateVerificationStatus(throttled: false)
@@ -404,5 +481,3 @@ private extension ARCamera {
         return false
     }
 }
-
-extension VerificationManager: @unchecked Sendable {}

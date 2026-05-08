@@ -2,121 +2,144 @@
 //  HeadAlignmentVerification.swift
 //  MedidorOticaApp
 //
-//  Verificação 4: Alinhamento da cabeça
-//  Usando ARKit para medições precisas com margem de erro de ±3 graus
+//  Verificacao 4: mede a pose atual da cabeca nos 3 eixos.
 //
 
 import ARKit
 import Vision
 import simd
 
-// Extensão para verificação de alinhamento da cabeça
+// MARK: - Verificacao 4
 extension VerificationManager {
-    // MARK: - Verificação 4: Alinhamento da Cabeça
-    /// Verifica se a cabeça está alinhada em todos os eixos
-    
-    func checkHeadAlignment(using frame: ARFrame, faceAnchor: ARFaceAnchor?) -> Bool {
-        // Verificação de alinhamento com tolerância de ±3 graus
-        // conforme especificação do projeto
+    private enum HeadAlignmentConstants {
+        /// Tolerancias independentes para os tres eixos, priorizando a DNP.
+        static let rollToleranceDegrees = CapturePrecisionPolicy.rollToleranceDegrees
+        static let yawToleranceDegrees = CapturePrecisionPolicy.yawToleranceDegrees
+        static let pitchToleranceDegrees = CapturePrecisionPolicy.pitchToleranceDegrees
+    }
 
-        // Define a margem de erro exatamente como ±3 graus
-        let alignmentToleranceDegrees: Float = 3.0
+    /// Mede a pose atual da cabeca e informa se a etapa 4 esta liberada.
+    func evaluateHeadAlignment(using frame: ARFrame,
+                               faceAnchor: ARFaceAnchor?) -> (headPoseAvailable: Bool, isAligned: Bool) {
+        let sensors = preferredSensors(requireFaceAnchor: true,
+                                       faceAnchorAvailable: faceAnchor != nil)
 
-        var rollDegrees: Float?
-        var yawDegrees: Float?
-        var pitchDegrees: Float?
-
-        let sensors = preferredSensors(requireFaceAnchor: true, faceAnchorAvailable: faceAnchor != nil)
-
-        guard !sensors.isEmpty else { return false }
+        guard !sensors.isEmpty else {
+            reportUnavailableHeadPose(reason: "Nenhum sensor conseguiu medir a pose da cabeca.")
+            return (false, false)
+        }
 
         for sensor in sensors {
+            let snapshot: HeadPoseSnapshot?
+
             switch sensor {
             case .trueDepth:
-                guard let anchor = faceAnchor else { continue }
-                // Calcula os ângulos relativos compensando a orientação atual do dispositivo
-                // para que a leitura permaneça coerente em qualquer rotação do iPhone
-                let euler = extractRelativeEulerAngles(faceAnchor: anchor, frame: frame)
-                let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
-                rollDegrees  = radiansToDegrees(euler.roll) * sign
-                yawDegrees   = radiansToDegrees(euler.yaw) * sign
-                pitchDegrees = radiansToDegrees(euler.pitch)
-                break
+                guard let faceAnchor else { continue }
+                snapshot = makeTrueDepthHeadPoseSnapshot(faceAnchor: faceAnchor,
+                                                         frame: frame)
             case .liDAR:
-                guard let angles = headAnglesWithVision(from: frame) else { continue }
-                rollDegrees = angles.roll
-                yawDegrees = angles.yaw
-                pitchDegrees = angles.pitch
-                break
+                snapshot = makeLiDARHeadPoseSnapshot(from: frame)
             case .none:
-                continue
+                snapshot = nil
             }
+
+            guard let snapshot else { continue }
+            let tolerances = headAlignmentTolerances(for: sensor)
+            let isAligned = snapshot.isAligned(rollTolerance: tolerances.roll,
+                                               yawTolerance: tolerances.yaw,
+                                               pitchTolerance: tolerances.pitch)
+            publishHeadPose(snapshot, isHeadAligned: isAligned)
+            return (true, isAligned)
         }
 
-        guard
-            let rollDegrees,
-            let yawDegrees,
-            let pitchDegrees
-        else {
-            return false
-        }
-        
-        // Verifica se todos os ângulos estão dentro da margem de tolerância
-        let isRollAligned = abs(rollDegrees) <= alignmentToleranceDegrees
-        let isYawAligned = abs(yawDegrees) <= alignmentToleranceDegrees
-        let isPitchAligned = abs(pitchDegrees) <= alignmentToleranceDegrees
+        reportUnavailableHeadPose(reason: "A pose da cabeca nao ficou disponivel neste frame.")
+        return (false, false)
+    }
 
-        // A cabeça está alinhada se todos os ângulos estiverem dentro da tolerância
-        let isHeadAligned = isRollAligned && isYawAligned && isPitchAligned
-        
+    /// Calcula a pose diretamente do ARFaceAnchor relativo a camera.
+    private func makeTrueDepthHeadPoseSnapshot(faceAnchor: ARFaceAnchor,
+                                               frame: ARFrame) -> HeadPoseSnapshot? {
+        let euler = extractRelativeEulerAngles(faceAnchor: faceAnchor, frame: frame)
+        let sign: Float = CameraManager.shared.cameraPosition == .front ? -1 : 1
+        let snapshot = HeadPoseSnapshot(rollDegrees: radiansToDegrees(euler.roll) * sign,
+                                        yawDegrees: radiansToDegrees(euler.yaw) * sign,
+                                        pitchDegrees: radiansToDegrees(euler.pitch),
+                                        timestamp: frame.timestamp,
+                                        sensor: .trueDepth)
+
+        return snapshot.isValid ? snapshot : nil
+    }
+
+    /// Calcula a pose com Vision para o caminho do LiDAR.
+    private func makeLiDARHeadPoseSnapshot(from frame: ARFrame) -> HeadPoseSnapshot? {
+        CameraManager.shared.rearLiDARMeasurementEngine
+            .analyze(frame: frame, cgOrientation: currentCGOrientation())?
+            .headPose
+    }
+
+    /// Publica a pose atual para a UI e para o gate de captura.
+    private func publishHeadPose(_ snapshot: HeadPoseSnapshot,
+                                 isHeadAligned: Bool) {
         DispatchQueue.main.async {
-            // Armazena dados sobre o desalinhamento para feedback mais preciso
+            self.headPoseSnapshot = snapshot
             self.alignmentData = [
-                "roll": rollDegrees,
-                "yaw": yawDegrees,
-                "pitch": pitchDegrees
+                "roll": snapshot.rollDegrees,
+                "yaw": snapshot.yawDegrees,
+                "pitch": snapshot.pitchDegrees
             ]
 
-            print("Alinhamento da cabeça: Roll=\(rollDegrees)°, Yaw=\(yawDegrees)°, Pitch=\(pitchDegrees)°, Alinhado=\(isHeadAligned)")
+            print("Alinhamento da cabeca: Roll=\(snapshot.rollDegrees)°, Yaw=\(snapshot.yawDegrees)°, Pitch=\(snapshot.pitchDegrees)°, Alinhado=\(isHeadAligned)")
         }
-        
-        return isHeadAligned
     }
-    
-    // Estrutura para armazenar os ângulos de Euler
+
+    /// Apenas registra a indisponibilidade do frame atual.
+    /// A limpeza efetiva fica centralizada no `VerificationManager.apply(evaluation:)`
+    /// para evitar apagar a ultima pose valida antes da UI decidir se pode reutiliza-la.
+    private func reportUnavailableHeadPose(reason: String) {
+        print("Pose da cabeca indisponivel: \(reason)")
+    }
+
+    /// Retorna tolerancias separadas para TrueDepth e LiDAR traseiro.
+    private func headAlignmentTolerances(for sensor: SensorType) -> (roll: Float, yaw: Float, pitch: Float) {
+        switch sensor {
+        case .liDAR:
+            return (RearLiDARCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees)
+        default:
+            return (HeadAlignmentConstants.rollToleranceDegrees,
+                    HeadAlignmentConstants.yawToleranceDegrees,
+                    HeadAlignmentConstants.pitchToleranceDegrees)
+        }
+    }
+
+    // MARK: - Angulos de Euler
     private struct EulerAngles {
-        var pitch: Float // Rotação em X (cabeça para cima/baixo)
-        var yaw: Float   // Rotação em Y (cabeça para esquerda/direita)
-        var roll: Float  // Rotação em Z (inclinação lateral da cabeça)
+        let pitch: Float
+        let yaw: Float
+        let roll: Float
     }
-    
-    // Extrai os ângulos de Euler a partir da matriz de transformação 4x4
+
+    /// Extrai angulos de Euler a partir da matriz 4x4.
     private func extractEulerAngles(from transform: simd_float4x4) -> EulerAngles {
-        // A matriz de transformação do ARFaceAnchor contém informações de rotação
-        // Os elementos da matriz 3x3 superior podem ser convertidos para ângulos de Euler
+        let quaternion = simd_quatf(transform)
+        let qw = quaternion.real
+        let qx = quaternion.imag.x
+        let qy = quaternion.imag.y
+        let qz = quaternion.imag.z
 
-        // Utiliza quaternions para evitar problemas de gimbal lock
-        let quat = simd_quatf(transform)
-
-        let qw = quat.real
-        let qx = quat.imag.x
-        let qy = quat.imag.y
-        let qz = quat.imag.z
-
-        // Fórmulas padrão de conversão quaternion -> ângulos de Euler
-        let pitch = atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy))
-        let yaw   = asin(max(-1, min(1, 2 * (qw * qy - qz * qx))))
-        let roll  = atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+        let pitch = atan2(2 * (qw * qx + qy * qz),
+                          1 - 2 * (qx * qx + qy * qy))
+        let yaw = asin(max(-1, min(1, 2 * (qw * qy - qz * qx))))
+        let roll = atan2(2 * (qw * qz + qx * qy),
+                         1 - 2 * (qy * qy + qz * qz))
 
         return EulerAngles(pitch: pitch, yaw: yaw, roll: roll)
     }
 
-    /// Extrai os ângulos de Euler relativos à câmera para compensar inclinações do dispositivo
-    /// - Parameters:
-    ///   - faceAnchor: Anchor do rosto com dados de rotação absoluta
-    ///   - frame: Frame atual contendo a orientação da câmera
-    /// - Returns: Ângulos de Euler alinhados ao referencial da câmera
-    private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor, frame: ARFrame) -> EulerAngles {
+    /// Mede a pose do rosto no referencial da camera atual.
+    private func extractRelativeEulerAngles(faceAnchor: ARFaceAnchor,
+                                            frame: ARFrame) -> EulerAngles {
         let worldToCamera = simd_inverse(frame.camera.transform)
         let relativeTransform = simd_mul(worldToCamera, faceAnchor.transform)
         let orientationMatrix = simd_float4x4(orientationCompensation())
@@ -124,15 +147,51 @@ extension VerificationManager {
         return extractEulerAngles(from: compensatedTransform)
     }
 
-    // MARK: - Compensação de orientação
-    /// Retorna um quaternion que ajusta o referencial conforme a orientação atual
+    /// Converte um angulo de radianos para graus.
+    private func radiansToDegrees(_ radians: Float) -> Float {
+        radians * (180.0 / .pi)
+    }
+
+    // MARK: - Vision
+    /// Le a pose da cabeca com Vision para a camera LiDAR.
+    private func headAnglesWithVision(from frame: ARFrame) -> (roll: Float, yaw: Float, pitch: Float)? {
+        let request = makeLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: currentCGOrientation(),
+                                            options: [:])
+
+        do {
+            try handler.perform([request])
+            guard let face = request.results?.first as? VNFaceObservation else { return nil }
+
+            let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
+            let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
+            let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
+
+            let rollRad = roll * .pi / 180
+            let yawRad = yaw * .pi / 180
+            let pitchRad = pitch * .pi / 180
+            let faceQuaternion = simd_quaternion(pitchRad, SIMD3<Float>(1, 0, 0)) *
+                simd_quaternion(yawRad, SIMD3<Float>(0, 1, 0)) *
+                simd_quaternion(rollRad, SIMD3<Float>(0, 0, 1))
+            let adjusted = simd_mul(orientationCompensation(), faceQuaternion)
+            let euler = extractEulerAngles(from: simd_float4x4(adjusted))
+
+            return (radiansToDegrees(euler.roll),
+                    radiansToDegrees(euler.yaw),
+                    radiansToDegrees(euler.pitch))
+        } catch {
+            print("Erro ao calcular angulos com Vision: \(error)")
+            return nil
+        }
+    }
+
+    /// Compensa a orientacao da tela no caminho do Vision.
     private func orientationCompensation() -> simd_quatf {
         switch currentCGOrientation() {
         case .left, .leftMirrored:
-            // Compensa imagens que chegam giradas 90° para a esquerda rotacionando no sentido horário
             return simd_quaternion(-Float.pi / 2, SIMD3<Float>(0, 0, 1))
         case .right, .rightMirrored:
-            // Compensa imagens que chegam giradas 90° para a direita rotacionando no sentido anti-horário
             return simd_quaternion(Float.pi / 2, SIMD3<Float>(0, 0, 1))
         case .down, .downMirrored:
             return simd_quaternion(Float.pi, SIMD3<Float>(0, 0, 1))
@@ -140,43 +199,16 @@ extension VerificationManager {
             return simd_quaternion(0, SIMD3<Float>(0, 0, 1))
         }
     }
-    
-    // Converte ângulo de radianos para graus
-    private func radiansToDegrees(_ radians: Float) -> Float {
-        radians * (180.0 / .pi)
-    }
+}
 
-    // Obtém ângulos de rotação da cabeça usando Vision (para LiDAR)
-    private func headAnglesWithVision(from frame: ARFrame) -> (roll: Float, yaw: Float, pitch: Float)? {
-        let request = makeLandmarksRequest()
-        let handler = VNImageRequestHandler(
-            cvPixelBuffer: frame.capturedImage,
-            orientation: currentCGOrientation(),
-            options: [:]
-        )
-        do {
-            try handler.perform([request])
-            guard let face = request.results?.first as? VNFaceObservation else { return nil }
-            let roll = radiansToDegrees(Float(face.roll?.doubleValue ?? 0))
-            let yaw = radiansToDegrees(Float(face.yaw?.doubleValue ?? 0))
-            let pitch = radiansToDegrees(Float(face.pitch?.doubleValue ?? 0))
-
-            // Ajusta para a orientação atual da tela
-            let rollRad = roll * .pi / 180
-            let yawRad = yaw * .pi / 180
-            let pitchRad = pitch * .pi / 180
-            let faceQuat = simd_quaternion(pitchRad, SIMD3<Float>(1,0,0)) *
-                           simd_quaternion(yawRad,   SIMD3<Float>(0,1,0)) *
-                           simd_quaternion(rollRad,  SIMD3<Float>(0,0,1))
-            let adjusted = simd_mul(orientationCompensation(), faceQuat)
-            let euler = extractEulerAngles(from: simd_float4x4(adjusted))
-
-            return (radiansToDegrees(euler.roll),
-                    radiansToDegrees(euler.yaw),
-                    radiansToDegrees(euler.pitch))
-        } catch {
-            print("Erro ao calcular ângulos com Vision: \(error)")
-            return nil
-        }
+// MARK: - Helpers da pose
+private extension HeadPoseSnapshot {
+    /// Indica se a pose esta alinhada dentro da tolerancia configurada.
+    func isAligned(rollTolerance: Float,
+                   yawTolerance: Float,
+                   pitchTolerance: Float) -> Bool {
+        abs(rollDegrees) <= rollTolerance &&
+        abs(yawDegrees) <= yawTolerance &&
+        abs(pitchDegrees) <= pitchTolerance
     }
 }

@@ -2,12 +2,12 @@
 //  VerificationModels.swift
 //  MedidorOticaApp
 //
-//  Modelos de dados para as verificações de medição óptica
+//  Modelos usados pelo fluxo de verificacoes da captura.
 //
 
 import Foundation
 
-// Enum para os tipos de verificações
+// MARK: - Tipo de verificacao
 enum VerificationType: Int, CaseIterable, Identifiable {
     case faceDetection = 1
     case distance = 2
@@ -16,52 +16,73 @@ enum VerificationType: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
 
-    /// Indica se a verificação é opcional para o fluxo atual
+    /// Indica se a verificacao e opcional para o fluxo atual.
     var isOptional: Bool {
-        // Mantém um conjunto configurável para futuros tipos opcionais
         Self.optionalTypes.contains(self)
     }
 
-    /// Conjunto de verificações opcionais (vazio por padrão)
+    /// Conjunto de verificacoes opcionais.
     private static let optionalTypes: Set<VerificationType> = []
 
+    /// Texto completo usado em telas detalhadas.
     var title: String {
         switch self {
-        case .faceDetection: return "Rosto detectado"
-        case .distance: return "Distância correta"
-        case .centering: return "Rosto centralizado"
-        case .headAlignment: return "Cabeça alinhada"
+        case .faceDetection:
+            return "Rosto no oval"
+        case .distance:
+            return "Distancia ideal"
+        case .centering:
+            return "Nariz no centro"
+        case .headAlignment:
+            return "Cabeca nos 3 eixos"
         }
     }
-    
+
+    /// Explicacao resumida do que a etapa valida.
     var description: String {
         switch self {
-        case .faceDetection: return "Detecta se há um rosto no oval"
+        case .faceDetection:
+            return "Rosto inteiro dentro do oval"
         case .distance:
-            return "Distância entre \(Int(DistanceLimits.minCm))cm e \(Int(DistanceLimits.maxCm))cm"
-        case .centering: return "Rosto centralizado no oval"
-        case .headAlignment: return "Cabeça sem inclinação"
+            return "Distancia entre \(Int(DistanceLimits.minCm))cm e \(Int(DistanceLimits.maxCm))cm"
+        case .centering:
+            return "Nariz alinhado ao centro do oval"
+        case .headAlignment:
+            return "Rosto reto em roll, yaw e pitch"
         }
     }
 
+    /// Texto curto para o menu lateral da camera.
+    var menuTitle: String {
+        switch self {
+        case .faceDetection:
+            return "Rosto"
+        case .distance:
+            return "\(Int(DistanceLimits.minCm))-\(Int(DistanceLimits.maxCm)) cm"
+        case .centering:
+            return "Nariz"
+        case .headAlignment:
+            return "Cabeca"
+        }
+    }
 }
 
-// Modelo de dados para as verificações
+// MARK: - Item do menu
 struct Verification: Identifiable {
     let id: Int
     let type: VerificationType
     var isChecked: Bool
     var value: String? = nil
-    
+
     var text: String {
-        if let value = value {
+        if let value {
             return "\(type.title): \(value)"
         }
         return type.title
     }
 }
 
-/// Máquina de estados para controlar o passo atual das verificações
+// MARK: - Passo atual
 enum VerificationStep: Int {
     case idle = 0
     case faceDetection
@@ -70,4 +91,3 @@ enum VerificationStep: Int {
     case headAlignment
     case completed
 }
-

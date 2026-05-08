@@ -10,7 +10,7 @@ import CoreGraphics
 
 // MARK: - Pontos Normalizados
 /// Representa um ponto no espaço da imagem utilizando coordenadas normalizadas (0...1).
-struct NormalizedPoint: Codable, Equatable {
+struct NormalizedPoint: Codable, Equatable, Sendable {
     var x: CGFloat
     var y: CGFloat
 
@@ -96,31 +96,28 @@ extension EyeMeasurementData {
     /// Normaliza os valores mantendo a barra nasal sempre próxima ao ponto central informado.
     /// - Parameter centralX: Coordenada X do ponto central utilizado como referência para o lado nasal.
     func normalized(centralX: CGFloat) -> EyeMeasurementData {
+        let minimumHorizontalGap: CGFloat = 0.002
         let reference = min(max(centralX, 0), 1)
+        let pupilValue = pupil.clamped()
         let nasalClamped = min(max(nasalBarX, 0), 1)
         let temporalClamped = min(max(temporalBarX, 0), 1)
         let inferiorClamped = min(max(inferiorBarY, 0), 1)
         let superiorClamped = min(max(superiorBarY, 0), 1)
 
-        let nasalDistance = abs(nasalClamped - reference)
-        let temporalDistance = abs(temporalClamped - reference)
-
-        let nasalValue: CGFloat
-        let temporalValue: CGFloat
-
-        if nasalDistance <= temporalDistance {
-            nasalValue = nasalClamped
-            temporalValue = temporalClamped
-        } else {
-            nasalValue = temporalClamped
-            temporalValue = nasalClamped
-        }
+        let sortedDistances = [abs(nasalClamped - reference), abs(temporalClamped - reference)].sorted()
+        let nearestDistance = sortedDistances.first ?? 0
+        let farthestDistance = max(sortedDistances.last ?? nearestDistance,
+                                   nearestDistance + minimumHorizontalGap)
+        let eyeOnRightSide = pupilValue.x >= reference
+        let sideSign: CGFloat = eyeOnRightSide ? 1 : -1
+        let nasalValue = min(max(reference + (nearestDistance * sideSign), 0), 1)
+        let temporalValue = min(max(reference + (farthestDistance * sideSign), 0), 1)
 
         let inferiorValue = max(inferiorClamped, superiorClamped)
         let superiorValue = min(inferiorClamped, superiorClamped)
 
         return EyeMeasurementData(
-            pupil: pupil.clamped(),
+            pupil: pupilValue,
             nasalBarX: nasalValue,
             temporalBarX: temporalValue,
             inferiorBarY: inferiorValue,
@@ -213,15 +210,215 @@ struct EyeMeasurementSummary: Codable, Equatable {
     var alturaPupilar: Double
 }
 
-/// Informações finais derivadas do fluxo pós-captura.
+/// Referencia monocular completa de DNP perto/longe.
+struct PostCaptureDNPReference: Codable, Equatable {
+    var rightNear: Double
+    var leftNear: Double
+    var rightFar: Double
+    var leftFar: Double
+
+    var totalNear: Double {
+        rightNear + leftNear
+    }
+
+    var totalFar: Double {
+        rightFar + leftFar
+    }
+}
+
+// MARK: - Comparacao por ponte real
+/// Limites usados quando o usuario informa a ponte real da armacao no resumo.
+struct PostCaptureBridgeReferenceLimits {
+    static let plausibleBridgeMM: ClosedRange<Double> = 5...35
+    static let maximumScaleRatio: ClosedRange<Double> = 0.45...2.25
+}
+
+/// Resultado recalculado quando a ponte real e usada como referencia proporcional.
+struct PostCaptureBridgeReferenceComparison: Codable, Equatable {
+    var measuredBridgeMM: Double
+    var requestedBridgeMM: Double
+    var scaleRatio: Double
+    var adjustedRightEye: EyeMeasurementSummary
+    var adjustedLeftEye: EyeMeasurementSummary
+    var adjustedValidatedDNP: PostCaptureDNPReference
+    var adjustedNoseDNP: PostCaptureDNPReference
+    var adjustedBridgeDNP: PostCaptureDNPReference
+    var farDNPConfidence: Double
+    var farDNPConfidenceReason: String?
+
+    /// Diferenca percentual entre a escala dos sensores e a escala derivada da ponte real.
+    var scaleDeltaPercent: Double {
+        (scaleRatio - 1) * 100
+    }
+
+    /// Ponte final forcada pela referencia real informada.
+    var adjustedBridgeMM: Double {
+        requestedBridgeMM
+    }
+
+    /// DNP total perto depois do ajuste proporcional.
+    var adjustedNearTotal: Double {
+        adjustedValidatedDNP.totalNear
+    }
+
+    /// DNP total longe depois do ajuste proporcional.
+    var adjustedFarTotal: Double {
+        adjustedValidatedDNP.totalFar
+    }
+}
+
+/// Informacoes finais derivadas do fluxo pos-captura.
 struct PostCaptureMetrics: Codable, Equatable {
     var rightEye: EyeMeasurementSummary
     var leftEye: EyeMeasurementSummary
     var ponte: Double
+    var validatedDNP: PostCaptureDNPReference
+    var noseDNP: PostCaptureDNPReference
+    var bridgeDNP: PostCaptureDNPReference
+    var dnpConverged: Bool
+    var dnpConvergenceToleranceMM: Double
+    var dnpConvergenceReason: String?
+    var farDNPConfidence: Double
+    var farDNPConfidenceReason: String?
+    var bridgeReferenceComparison: PostCaptureBridgeReferenceComparison?
 
-    /// Retorna a distância pupilar total somando OD e OE.
+    /// Mantem compatibilidade com a UI que ainda le a DNP longe principal por olho.
+    var rightDNPFar: Double { validatedDNP.rightFar }
+    /// Mantem compatibilidade com a UI que ainda le a DNP longe principal por olho.
+    var leftDNPFar: Double { validatedDNP.leftFar }
+
+    /// Inicializa o resumo final preservando compatibilidade com históricos antigos.
+    init(rightEye: EyeMeasurementSummary,
+         leftEye: EyeMeasurementSummary,
+         ponte: Double,
+         validatedDNP: PostCaptureDNPReference? = nil,
+         noseDNP: PostCaptureDNPReference? = nil,
+         bridgeDNP: PostCaptureDNPReference? = nil,
+         dnpConverged: Bool = true,
+         dnpConvergenceToleranceMM: Double = 0.5,
+         dnpConvergenceReason: String? = nil,
+         farDNPConfidence: Double = 0,
+         farDNPConfidenceReason: String? = nil,
+         bridgeReferenceComparison: PostCaptureBridgeReferenceComparison? = nil) {
+        self.rightEye = rightEye
+        self.leftEye = leftEye
+        self.ponte = ponte
+        let defaultReference = PostCaptureDNPReference(rightNear: rightEye.dnp,
+                                                       leftNear: leftEye.dnp,
+                                                       rightFar: rightEye.dnp,
+                                                       leftFar: leftEye.dnp)
+        self.validatedDNP = validatedDNP ?? defaultReference
+        self.noseDNP = noseDNP ?? self.validatedDNP
+        self.bridgeDNP = bridgeDNP ?? self.validatedDNP
+        self.dnpConverged = dnpConverged
+        self.dnpConvergenceToleranceMM = dnpConvergenceToleranceMM
+        self.dnpConvergenceReason = dnpConvergenceReason
+        self.farDNPConfidence = farDNPConfidence
+        self.farDNPConfidenceReason = farDNPConfidenceReason
+        self.bridgeReferenceComparison = bridgeReferenceComparison
+    }
+
+    /// Retorna a DNP total de perto somando OD e OE.
     var distanciaPupilarTotal: Double {
-        rightEye.dnp + leftEye.dnp
+        validatedDNP.totalNear
+    }
+
+    /// Retorna a DNP total equivalente para longe.
+    var distanciaPupilarTotalFar: Double {
+        validatedDNP.totalFar
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rightEye
+        case leftEye
+        case ponte
+        case validatedDNP
+        case noseDNP
+        case bridgeDNP
+        case dnpConverged
+        case dnpConvergenceToleranceMM
+        case dnpConvergenceReason
+        case rightDNPFar
+        case leftDNPFar
+        case farDNPConfidence
+        case farDNPConfidenceReason
+        case bridgeReferenceComparison
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rightEye = try container.decode(EyeMeasurementSummary.self, forKey: .rightEye)
+        let leftEye = try container.decode(EyeMeasurementSummary.self, forKey: .leftEye)
+        let ponte = try container.decode(Double.self, forKey: .ponte)
+        let validatedDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .validatedDNP)
+        let noseDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .noseDNP)
+        let bridgeDNP = try container.decodeIfPresent(PostCaptureDNPReference.self, forKey: .bridgeDNP)
+        let dnpConverged = try container.decodeIfPresent(Bool.self, forKey: .dnpConverged) ?? true
+        let dnpConvergenceToleranceMM = try container.decodeIfPresent(Double.self, forKey: .dnpConvergenceToleranceMM) ?? 0.5
+        let dnpConvergenceReason = try container.decodeIfPresent(String.self, forKey: .dnpConvergenceReason)
+        let rightDNPFar = try container.decodeIfPresent(Double.self, forKey: .rightDNPFar)
+        let leftDNPFar = try container.decodeIfPresent(Double.self, forKey: .leftDNPFar)
+        let farDNPConfidence = try container.decodeIfPresent(Double.self, forKey: .farDNPConfidence) ?? 0
+        let farDNPConfidenceReason = try container.decodeIfPresent(String.self, forKey: .farDNPConfidenceReason)
+        let bridgeReferenceComparison = try container.decodeIfPresent(PostCaptureBridgeReferenceComparison.self,
+                                                                      forKey: .bridgeReferenceComparison)
+
+        let fallbackReference = PostCaptureDNPReference(rightNear: rightEye.dnp,
+                                                        leftNear: leftEye.dnp,
+                                                        rightFar: rightDNPFar ?? rightEye.dnp,
+                                                        leftFar: leftDNPFar ?? leftEye.dnp)
+
+        self.init(rightEye: rightEye,
+                  leftEye: leftEye,
+                  ponte: ponte,
+                  validatedDNP: validatedDNP ?? fallbackReference,
+                  noseDNP: noseDNP,
+                  bridgeDNP: bridgeDNP,
+                  dnpConverged: dnpConverged,
+                  dnpConvergenceToleranceMM: dnpConvergenceToleranceMM,
+                  dnpConvergenceReason: dnpConvergenceReason,
+                  farDNPConfidence: farDNPConfidence,
+                  farDNPConfidenceReason: farDNPConfidenceReason,
+                  bridgeReferenceComparison: bridgeReferenceComparison)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rightEye, forKey: .rightEye)
+        try container.encode(leftEye, forKey: .leftEye)
+        try container.encode(ponte, forKey: .ponte)
+        try container.encode(validatedDNP, forKey: .validatedDNP)
+        try container.encode(noseDNP, forKey: .noseDNP)
+        try container.encode(bridgeDNP, forKey: .bridgeDNP)
+        try container.encode(dnpConverged, forKey: .dnpConverged)
+        try container.encode(dnpConvergenceToleranceMM, forKey: .dnpConvergenceToleranceMM)
+        try container.encodeIfPresent(dnpConvergenceReason, forKey: .dnpConvergenceReason)
+        try container.encode(validatedDNP.rightFar, forKey: .rightDNPFar)
+        try container.encode(validatedDNP.leftFar, forKey: .leftDNPFar)
+        try container.encode(farDNPConfidence, forKey: .farDNPConfidence)
+        try container.encodeIfPresent(farDNPConfidenceReason, forKey: .farDNPConfidenceReason)
+        try container.encodeIfPresent(bridgeReferenceComparison, forKey: .bridgeReferenceComparison)
+    }
+}
+
+/// Compara variantes do eixo X do PC apenas para a DNP final.
+struct PostCaptureDNPCandidate: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let point: NormalizedPoint
+    let rightDNPNear: Double
+    let leftDNPNear: Double
+    let rightDNPFar: Double
+    let leftDNPFar: Double
+    let farConfidence: Double
+    let farConfidenceReason: String?
+
+    var totalDNPNear: Double {
+        rightDNPNear + leftDNPNear
+    }
+
+    var totalDNPFar: Double {
+        rightDNPFar + leftDNPFar
     }
 }
 
@@ -234,6 +431,7 @@ extension PostCaptureMetrics {
         let rightValue: Double?
         let leftValue: Double?
         let singleValue: Double?
+        let totalValue: Double?
 
         /// Indica quando o item possui valores para ambos os olhos.
         var hasPair: Bool {
@@ -258,27 +456,38 @@ extension PostCaptureMetrics {
                                title: "Horizontal maior",
                                rightValue: rightEye.horizontalMaior,
                                leftValue: leftEye.horizontalMaior,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: nil),
             SummaryMetricEntry(id: "verticalMaior",
                                title: "Vertical maior",
                                rightValue: rightEye.verticalMaior,
                                leftValue: leftEye.verticalMaior,
-                               singleValue: nil),
-            SummaryMetricEntry(id: "dnp",
-                               title: "DNP",
-                               rightValue: rightEye.dnp,
-                               leftValue: leftEye.dnp,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: nil),
+            SummaryMetricEntry(id: "dnpPerto",
+                               title: dnpConverged ? "DNP validada perto" : "DNP validada perto (revise)",
+                               rightValue: validatedDNP.rightNear,
+                               leftValue: validatedDNP.leftNear,
+                               singleValue: nil,
+                               totalValue: distanciaPupilarTotal),
+            SummaryMetricEntry(id: "dnpLonge",
+                               title: farDNPConfidence < 0.65 ? "DNP validada longe (conf. baixa)" : "DNP validada longe",
+                               rightValue: validatedDNP.rightFar,
+                               leftValue: validatedDNP.leftFar,
+                               singleValue: nil,
+                               totalValue: distanciaPupilarTotalFar),
             SummaryMetricEntry(id: "alturaPupilar",
                                title: "Altura pupilar",
                                rightValue: rightEye.alturaPupilar,
                                leftValue: leftEye.alturaPupilar,
-                               singleValue: nil),
+                               singleValue: nil,
+                               totalValue: nil),
             SummaryMetricEntry(id: "ponte",
                                title: "Ponte",
                                rightValue: nil,
                                leftValue: nil,
-                               singleValue: ponte)
+                               singleValue: ponte,
+                               totalValue: nil)
         ]
     }
 
@@ -313,10 +522,146 @@ extension PostCaptureMetrics {
             lines.append("OS: \(trimmedOrder)")
         }
 
-        lines.append("Valores em mm — OD / OE")
+        lines.append("Valores em mm — OD / OE / total")
         lines.append(contentsOf: compactSummaryLines())
+        if let dnpConvergenceReason, !dnpConverged {
+            lines.append("Obs. PC: \(dnpConvergenceReason)")
+        }
+        if let farDNPConfidenceReason, farDNPConfidence < 0.65 {
+            lines.append("Obs.: \(farDNPConfidenceReason)")
+        }
+        if let bridgeReferenceComparison {
+            lines.append("")
+            lines.append(contentsOf: bridgeReferenceComparison.compactSummaryLines(baseMetrics: self))
+        }
 
         return lines.joined(separator: "\n")
+    }
+}
+
+extension PostCaptureMetrics {
+    /// Recalcula todas as medidas por proporcao quando a ponte real da armacao e informada.
+    func applyingBridgeReference(requestedBridgeMM: Double) throws -> PostCaptureMetrics {
+        guard requestedBridgeMM.isFinite,
+              PostCaptureBridgeReferenceLimits.plausibleBridgeMM.contains(requestedBridgeMM) else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe uma ponte real entre 5 e 35 mm.")
+        }
+
+        guard ponte.isFinite, ponte > 0 else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("A ponte medida nao permite recalculo proporcional.")
+        }
+
+        let scaleRatio = requestedBridgeMM / ponte
+        guard scaleRatio.isFinite,
+              PostCaptureBridgeReferenceLimits.maximumScaleRatio.contains(scaleRatio) else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("A ponte real diverge demais da captura. Revise as barras.")
+        }
+
+        var adjusted = self
+        adjusted.bridgeReferenceComparison = PostCaptureBridgeReferenceComparison(
+            measuredBridgeMM: roundedMillimeters(ponte),
+            requestedBridgeMM: roundedMillimeters(requestedBridgeMM),
+            scaleRatio: scaleRatio,
+            adjustedRightEye: scaled(rightEye, by: scaleRatio),
+            adjustedLeftEye: scaled(leftEye, by: scaleRatio),
+            adjustedValidatedDNP: scaled(validatedDNP, by: scaleRatio),
+            adjustedNoseDNP: scaled(noseDNP, by: scaleRatio),
+            adjustedBridgeDNP: scaled(bridgeDNP, by: scaleRatio),
+            farDNPConfidence: farDNPConfidence,
+            farDNPConfidenceReason: farDNPConfidenceReason
+        )
+        return adjusted
+    }
+
+    /// Remove a comparacao por ponte sem alterar as medidas originais dos sensores.
+    func removingBridgeReferenceComparison() -> PostCaptureMetrics {
+        var updated = self
+        updated.bridgeReferenceComparison = nil
+        return updated
+    }
+
+    private func scaled(_ summary: EyeMeasurementSummary,
+                        by ratio: Double) -> EyeMeasurementSummary {
+        EyeMeasurementSummary(horizontalMaior: roundedMillimeters(summary.horizontalMaior * ratio),
+                              verticalMaior: roundedMillimeters(summary.verticalMaior * ratio),
+                              dnp: roundedMillimeters(summary.dnp * ratio),
+                              alturaPupilar: roundedMillimeters(summary.alturaPupilar * ratio))
+    }
+
+    private func scaled(_ reference: PostCaptureDNPReference,
+                        by ratio: Double) -> PostCaptureDNPReference {
+        PostCaptureDNPReference(rightNear: roundedMillimeters(reference.rightNear * ratio),
+                                leftNear: roundedMillimeters(reference.leftNear * ratio),
+                                rightFar: roundedMillimeters(reference.rightFar * ratio),
+                                leftFar: roundedMillimeters(reference.leftFar * ratio))
+    }
+
+    private func roundedMillimeters(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        let precision = 0.01
+        return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
+    }
+}
+
+extension PostCaptureBridgeReferenceComparison {
+    /// Retorna os itens ajustados pela ponte real no mesmo formato do resumo principal.
+    func summaryEntries(baseMetrics: PostCaptureMetrics) -> [PostCaptureMetrics.SummaryMetricEntry] {
+        [
+            PostCaptureMetrics.SummaryMetricEntry(id: "horizontalMaior",
+                                                  title: "Horizontal maior",
+                                                  rightValue: adjustedRightEye.horizontalMaior,
+                                                  leftValue: adjustedLeftEye.horizontalMaior,
+                                                  singleValue: nil,
+                                                  totalValue: nil),
+            PostCaptureMetrics.SummaryMetricEntry(id: "verticalMaior",
+                                                  title: "Vertical maior",
+                                                  rightValue: adjustedRightEye.verticalMaior,
+                                                  leftValue: adjustedLeftEye.verticalMaior,
+                                                  singleValue: nil,
+                                                  totalValue: nil),
+            PostCaptureMetrics.SummaryMetricEntry(id: "dnpPerto",
+                                                  title: baseMetrics.dnpConverged ? "DNP validada perto" : "DNP validada perto (revise)",
+                                                  rightValue: adjustedValidatedDNP.rightNear,
+                                                  leftValue: adjustedValidatedDNP.leftNear,
+                                                  singleValue: nil,
+                                                  totalValue: adjustedNearTotal),
+            PostCaptureMetrics.SummaryMetricEntry(id: "dnpLonge",
+                                                  title: farDNPConfidence < 0.65 ? "DNP validada longe (conf. baixa)" : "DNP validada longe",
+                                                  rightValue: adjustedValidatedDNP.rightFar,
+                                                  leftValue: adjustedValidatedDNP.leftFar,
+                                                  singleValue: nil,
+                                                  totalValue: adjustedFarTotal),
+            PostCaptureMetrics.SummaryMetricEntry(id: "alturaPupilar",
+                                                  title: "Altura pupilar",
+                                                  rightValue: adjustedRightEye.alturaPupilar,
+                                                  leftValue: adjustedLeftEye.alturaPupilar,
+                                                  singleValue: nil,
+                                                  totalValue: nil),
+            PostCaptureMetrics.SummaryMetricEntry(id: "ponte",
+                                                  title: "Ponte",
+                                                  rightValue: nil,
+                                                  leftValue: nil,
+                                                  singleValue: adjustedBridgeMM,
+                                                  totalValue: nil)
+        ]
+    }
+
+    /// Monta linhas compactas para compartilhar a comparacao entre sensor e ponte real.
+    func compactSummaryLines(baseMetrics: PostCaptureMetrics) -> [String] {
+        let formatter = PostCaptureMetrics.summaryNumberFormatter
+        let deltaText = formatter.string(from: NSNumber(value: scaleDeltaPercent)) ?? String(format: "%.1f", scaleDeltaPercent)
+        let bridgeText = formatter.string(from: NSNumber(value: requestedBridgeMM)) ?? String(format: "%.1f", requestedBridgeMM)
+        let baseEntries = baseMetrics.summaryEntries()
+        let adjustedEntries = summaryEntries(baseMetrics: baseMetrics)
+        var lines = ["Comparacao ponte real \(bridgeText) mm (\(deltaText)%):"]
+
+        for index in baseEntries.indices where adjustedEntries.indices.contains(index) {
+            let baseValue = baseEntries[index].compactDisplay(using: formatter)
+            let adjustedValue = adjustedEntries[index].compactDisplay(using: formatter)
+            lines.append("\(baseEntries[index].title): sensor \(baseValue) / ponte \(adjustedValue)")
+        }
+
+        return lines
     }
 }
 
@@ -335,13 +680,16 @@ extension PostCaptureMetrics.SummaryMetricEntry {
 
         let rightText = rightValue.map(format)
         let leftText = leftValue.map(format)
+        let totalText = totalValue.map(format)
 
-        switch (rightText, leftText) {
-        case let (right?, left?):
+        switch (rightText, leftText, totalText) {
+        case let (right?, left?, total?):
+            return "\(right) / \(left) / \(total)"
+        case let (right?, left?, nil):
             return "\(right) / \(left)"
-        case let (right?, nil):
+        case let (right?, nil, nil):
             return right
-        case let (nil, left?):
+        case let (nil, left?, nil):
             return left
         default:
             return "-"

@@ -76,8 +76,28 @@ struct PostCaptureMeasurementValidator {
             throw PostCaptureMeasurementError.invalidGeometry("A pupila do olho \(label) precisa ficar entre as barras verticais.")
         }
 
+        try validateEyeSide(eye, label: label)
+
         guard eye.pupil.y >= eye.superiorBarY, eye.pupil.y <= eye.inferiorBarY else {
             throw PostCaptureMeasurementError.invalidGeometry("A pupila do olho \(label) precisa ficar entre as barras horizontais.")
+        }
+    }
+
+    private func validateEyeSide(_ eye: EyeMeasurementData,
+                                 label: String) throws {
+        let eyeOnRightSide = eye.pupil.x >= centralPoint.x
+
+        if eyeOnRightSide {
+            guard eye.nasalBarX >= centralPoint.x,
+                  eye.temporalBarX >= eye.nasalBarX else {
+                throw PostCaptureMeasurementError.invalidGeometry("As barras do olho \(label) ficaram invertidas em relacao ao PC.")
+            }
+            return
+        }
+
+        guard eye.nasalBarX <= centralPoint.x,
+              eye.temporalBarX <= eye.nasalBarX else {
+            throw PostCaptureMeasurementError.invalidGeometry("As barras do olho \(label) ficaram invertidas em relacao ao PC.")
         }
     }
 }

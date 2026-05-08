@@ -48,18 +48,28 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var faceBounds: NormalizedRect = NormalizedRect()
     /// Representa o recorte efetivamente exibido nas etapas interativas após aplicar margens extras.
     @Published var previewBounds: NormalizedRect = NormalizedRect()
+    @Published var dnpCandidates: [PostCaptureDNPCandidate] = []
+    @Published var bridgeReferenceText = ""
+    @Published var bridgeReferenceError: String?
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
     private let existingConfiguration: PostCaptureConfiguration?
     /// Calibração aplicada à imagem atual.
     let calibration: PostCaptureCalibration
+    /// Mapa local da face usado para reduzir erro de perspectiva.
+    let localCalibration: LocalFaceScaleCalibration
+    /// Aviso opcional gerado no momento da captura para orientar a revisão manual.
+    let captureWarning: String?
+    let captureCentralPoint: NormalizedPoint?
+    let eyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
     let scale: PostCaptureScale
 
     // MARK: - Estados Internos
     private var didMirrorLeftEye = false
     private var detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: false, left: false)
+    private var centralCandidates: PostCaptureAnalysisResult.CentralPointCandidates?
 
     // MARK: - Inicialização
     init(photo: CapturedPhoto, existingMeasurement: Measurement? = nil) {
@@ -67,9 +77,17 @@ final class PostCaptureViewModel: ObservableObject {
         self.baseMeasurement = existingMeasurement
         self.existingConfiguration = existingMeasurement?.postCaptureConfiguration
         self.calibration = existingMeasurement?.postCaptureCalibration ?? photo.calibration
-        self.scale = PostCaptureScale(calibration: self.calibration)
+        self.localCalibration = existingMeasurement?.postCaptureLocalCalibration ?? photo.localCalibration
+        self.captureWarning = photo.captureWarning
+        self.captureCentralPoint = existingMeasurement?.postCaptureCaptureCentralPoint ?? photo.captureCentralPoint
+        self.eyeGeometrySnapshot = existingMeasurement?.postCaptureEyeGeometrySnapshot ?? photo.eyeGeometrySnapshot
+        self.scale = PostCaptureScale(calibration: self.calibration,
+                                      localCalibration: self.localCalibration)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
+        if let bridgeReference = existingMeasurement?.postCaptureMetrics?.bridgeReferenceComparison?.requestedBridgeMM {
+            self.bridgeReferenceText = Self.formattedBridgeReference(bridgeReference)
+        }
         self.isProcessing = true
 
         Task { await prepareInitialState() }
@@ -145,15 +163,19 @@ final class PostCaptureViewModel: ObservableObject {
     private func runAnalysis() async {
         do {
             let result = try await PostCaptureProcessor.shared.analyze(image: capturedImage,
-                                                                       scale: scale)
+                                                                       scale: scale,
+                                                                       preferredCentralPoint: captureCentralPoint,
+                                                                       isRearLiDARCapture: isRearLiDARCapture)
             await MainActor.run {
                 self.configuration = result.configuration
                 self.detectedPupils = result.detectedPupils
+                self.centralCandidates = result.centralCandidates
                 self.normalizeEyeOrdering()
                 self.faceBounds = result.configuration.faceBounds
                 let preview = generateFacePreview(from: result.configuration.faceBounds)
                 self.facePreview = preview.image
                 self.previewBounds = preview.bounds
+                self.dnpCandidates = self.makeDNPCandidates()
                 self.isProcessing = false
             }
         } catch {
@@ -171,10 +193,19 @@ final class PostCaptureViewModel: ObservableObject {
         await MainActor.run {
             self.configuration = storedConfiguration
             self.detectedPupils = PostCaptureAnalysisResult.DetectedPupils(right: true, left: true)
+            self.centralCandidates = self.makeFallbackCentralCandidates(from: storedConfiguration)
             self.normalizeEyeOrdering()
             self.faceBounds = storedConfiguration.faceBounds
             self.facePreview = preview.image
             self.previewBounds = preview.bounds
+            if let storedMetrics = self.baseMeasurement?.postCaptureMetrics {
+                self.dnpCandidates = self.makeDNPCandidates(noseReference: storedMetrics.noseDNP,
+                                                            bridgeReference: storedMetrics.bridgeDNP,
+                                                            farConfidence: storedMetrics.farDNPConfidence,
+                                                            farConfidenceReason: storedMetrics.farDNPConfidenceReason)
+            } else {
+                self.dnpCandidates = self.makeDNPCandidates()
+            }
             self.isProcessing = false
             self.errorMessage = nil
         }
@@ -352,19 +383,64 @@ final class PostCaptureViewModel: ObservableObject {
         if !scale.isReliable,
            let baseMeasurement,
            let baseMetrics = baseMeasurement.postCaptureMetrics,
-           baseMeasurement.postCaptureConfiguration == configuration {
-            metrics = baseMetrics
+            baseMeasurement.postCaptureConfiguration == configuration {
+            metrics = try metricsApplyingBridgeReferenceIfNeeded(to: baseMetrics)
+            dnpCandidates = makeDNPCandidates(noseReference: baseMetrics.noseDNP,
+                                              bridgeReference: baseMetrics.bridgeDNP,
+                                              farConfidence: baseMetrics.farDNPConfidence,
+                                              farConfidenceReason: baseMetrics.farDNPConfidenceReason)
             return
         }
 
-        // Utiliza a calculadora dedicada para garantir que todas as medidas usem a calibração correta.
-        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
-                                                         centralPoint: configuration.centralPoint,
-                                                         scale: scale)
-        metrics = try calculator.makeMetrics()
+        let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
+        let nosePoint = candidates.faceMidline.clamped()
+        let bridgePoint = candidates.bridge.clamped()
+
+        let noseMetrics = try makeMetrics(for: nosePoint)
+        let bridgeMetrics = try makeMetrics(for: bridgePoint)
+        let convergence = evaluateDNPConvergence(nose: noseMetrics.validatedDNP,
+                                                 bridge: bridgeMetrics.validatedDNP)
+        let validatedPoint = makeValidatedCentralPoint(nosePoint: nosePoint,
+                                                       bridgePoint: bridgePoint,
+                                                       converged: convergence.isConverged)
+        let validatedMetrics = try makeMetrics(for: validatedPoint)
+        let validatedReference = convergence.isConverged ?
+            averagedReference(nose: noseMetrics.validatedDNP,
+                              bridge: bridgeMetrics.validatedDNP) :
+            noseMetrics.validatedDNP
+        let validatedSummary = makeValidatedSummary(from: validatedMetrics,
+                                                    validatedReference: validatedReference,
+                                                    noseReference: noseMetrics.validatedDNP,
+                                                    bridgeReference: bridgeMetrics.validatedDNP,
+                                                    convergence: convergence)
+
+        configuration = configurationForCentralPoint(validatedPoint)
+        metrics = try metricsApplyingBridgeReferenceIfNeeded(to: validatedSummary)
+        dnpCandidates = makeDNPCandidates(noseReference: noseMetrics.validatedDNP,
+                                          bridgeReference: bridgeMetrics.validatedDNP,
+                                          farConfidence: validatedSummary.farDNPConfidence,
+                                          farConfidenceReason: validatedSummary.farDNPConfidenceReason)
     }
 
     // MARK: - Construção de Measurement
+    /// Aplica a ponte real digitada e recalcula a comparacao proporcional.
+    func applyBridgeReferenceFromInput() throws {
+        if metrics == nil {
+            try finalizeMetrics()
+            return
+        }
+
+        guard let currentMetrics = metrics else { return }
+        metrics = try metricsApplyingBridgeReferenceIfNeeded(to: currentMetrics.removingBridgeReferenceComparison())
+    }
+
+    /// Remove a comparacao por ponte real do resumo atual.
+    func clearBridgeReferenceComparison() {
+        bridgeReferenceText = ""
+        bridgeReferenceError = nil
+        metrics = metrics?.removingBridgeReferenceComparison()
+    }
+
     func buildMeasurement(clientName: String, orderNumber: String) -> Measurement? {
         guard let metrics else { return nil }
         let trimmed = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -380,11 +456,24 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureConfiguration: configuration,
                            postCaptureMetrics: metrics,
                            postCaptureCalibration: calibration,
+                           postCaptureLocalCalibration: localCalibration,
+                           postCaptureCaptureCentralPoint: captureCentralPoint,
+                           postCaptureEyeGeometrySnapshot: eyeGeometrySnapshot,
                            id: identifier,
                            date: date)
     }
 
     // MARK: - Pré-visualização
+    /// Indica se a captura veio do fluxo traseiro sem alterar a camera frontal.
+    private var isRearLiDARCapture: Bool {
+        if captureWarning?.localizedCaseInsensitiveContains("LiDAR traseiro") == true {
+            return true
+        }
+
+        return eyeGeometrySnapshot?.fixationConfidenceReason?
+            .localizedCaseInsensitiveContains("LiDAR traseiro") == true
+    }
+
     private func generateFacePreview(from bounds: NormalizedRect) -> (image: UIImage?, bounds: NormalizedRect) {
         guard bounds.width > 0, bounds.height > 0 else {
             return (nil, bounds.clamped())
@@ -476,5 +565,200 @@ final class PostCaptureViewModel: ObservableObject {
             return preview
         }
         return faceBounds.clamped()
+    }
+
+    private func makeFallbackCentralCandidates(from configuration: PostCaptureConfiguration) -> PostCaptureAnalysisResult.CentralPointCandidates {
+        let pupilMidX = (configuration.rightEye.pupil.x + configuration.leftEye.pupil.x) / 2
+        let faceMidX = configuration.faceBounds.x + (configuration.faceBounds.width / 2)
+        let y = configuration.centralPoint.y
+
+        return PostCaptureAnalysisResult.CentralPointCandidates(
+            bridge: configuration.centralPoint,
+            faceMidline: NormalizedPoint(x: faceMidX, y: y).clamped(),
+            pupilMidline: NormalizedPoint(x: pupilMidX, y: y).clamped()
+        )
+    }
+
+    private func makeDNPCandidates(noseReference: PostCaptureDNPReference? = nil,
+                                   bridgeReference: PostCaptureDNPReference? = nil,
+                                   farConfidence: Double? = nil,
+                                   farConfidenceReason: String? = nil) -> [PostCaptureDNPCandidate] {
+        let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
+        return [
+            makeDNPCandidate(id: "nose",
+                             title: "DNP nariz",
+                             point: candidates.faceMidline,
+                             reference: noseReference,
+                             farConfidence: farConfidence,
+                             farConfidenceReason: farConfidenceReason),
+            makeDNPCandidate(id: "bridge",
+                             title: "DNP ponte",
+                             point: candidates.bridge,
+                             reference: bridgeReference,
+                             farConfidence: farConfidence,
+                             farConfidenceReason: farConfidenceReason)
+        ]
+    }
+
+    private func makeDNPCandidate(id: String,
+                                  title: String,
+                                  point: NormalizedPoint,
+                                  reference: PostCaptureDNPReference?,
+                                  farConfidence: Double?,
+                                  farConfidenceReason: String?) -> PostCaptureDNPCandidate {
+        let resolvedFarDNP = PostCaptureFarDNPResolver.resolve(rightPupilNear: configuration.rightEye.pupil,
+                                                               leftPupilNear: configuration.leftEye.pupil,
+                                                               centralPoint: point,
+                                                               scale: scale,
+                                                               eyeGeometry: eyeGeometrySnapshot)
+        let resolvedReference = reference ?? PostCaptureDNPReference(
+            rightNear: sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.rightEye.pupil.x,
+                                                                        and: point.x,
+                                                                        at: midpoint(configuration.rightEye.pupil.y, point.y))),
+            leftNear: sanitizedMillimeters(scale.horizontalMillimeters(between: configuration.leftEye.pupil.x,
+                                                                       and: point.x,
+                                                                       at: midpoint(configuration.leftEye.pupil.y, point.y))),
+            rightFar: resolvedFarDNP.rightDNPFar,
+            leftFar: resolvedFarDNP.leftDNPFar
+        )
+        return PostCaptureDNPCandidate(id: id,
+                                       title: title,
+                                       point: point,
+                                       rightDNPNear: resolvedReference.rightNear,
+                                       leftDNPNear: resolvedReference.leftNear,
+                                       rightDNPFar: resolvedReference.rightFar,
+                                       leftDNPFar: resolvedReference.leftFar,
+                                       farConfidence: farConfidence ?? resolvedFarDNP.confidence,
+                                       farConfidenceReason: farConfidenceReason ?? resolvedFarDNP.confidenceReason)
+    }
+
+    private func sanitizedMillimeters(_ value: Double) -> Double {
+        guard value.isFinite, value >= 0 else { return 0 }
+        let precision = 0.01
+        return (value / precision).rounded(.toNearestOrAwayFromZero) * precision
+    }
+
+    private func metricsApplyingBridgeReferenceIfNeeded(to summary: PostCaptureMetrics) throws -> PostCaptureMetrics {
+        do {
+            guard let bridgeReference = try parsedBridgeReferenceInput() else {
+                bridgeReferenceError = nil
+                return summary.removingBridgeReferenceComparison()
+            }
+
+            let adjusted = try summary.applyingBridgeReference(requestedBridgeMM: bridgeReference)
+            bridgeReferenceError = nil
+            return adjusted
+        } catch {
+            bridgeReferenceError = error.localizedDescription
+            throw error
+        }
+    }
+
+    private func parsedBridgeReferenceInput() throws -> Double? {
+        let trimmed = bridgeReferenceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe a ponte real em mm.")
+        }
+
+        guard PostCaptureBridgeReferenceLimits.plausibleBridgeMM.contains(value) else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe uma ponte real entre 5 e 35 mm.")
+        }
+
+        return value
+    }
+
+    private static func formattedBridgeReference(_ value: Double) -> String {
+        PostCaptureMetrics.summaryNumberFormatter.string(from: NSNumber(value: value))
+        ?? String(format: "%.1f", value)
+    }
+
+    private func makeMetrics(for centralPoint: NormalizedPoint) throws -> PostCaptureMetrics {
+        let resolvedConfiguration = configurationForCentralPoint(centralPoint)
+        let calculator = PostCaptureMeasurementCalculator(configuration: resolvedConfiguration,
+                                                         centralPoint: resolvedConfiguration.centralPoint,
+                                                         scale: scale,
+                                                         eyeGeometrySnapshot: eyeGeometrySnapshot)
+        return try calculator.makeMetrics()
+    }
+
+    private func configurationForCentralPoint(_ centralPoint: NormalizedPoint) -> PostCaptureConfiguration {
+        let clampedPoint = centralPoint.clamped()
+        return PostCaptureConfiguration(centralPoint: clampedPoint,
+                                        rightEye: configuration.rightEye.normalized(centralX: clampedPoint.x),
+                                        leftEye: configuration.leftEye.normalized(centralX: clampedPoint.x),
+                                        faceBounds: configuration.faceBounds)
+    }
+
+    private func makeValidatedCentralPoint(nosePoint: NormalizedPoint,
+                                           bridgePoint: NormalizedPoint,
+                                           converged: Bool) -> NormalizedPoint {
+        guard converged else { return nosePoint.clamped() }
+        return NormalizedPoint(x: midpoint(nosePoint.x, bridgePoint.x),
+                               y: midpoint(nosePoint.y, bridgePoint.y)).clamped()
+    }
+
+    private func averagedReference(nose: PostCaptureDNPReference,
+                                   bridge: PostCaptureDNPReference) -> PostCaptureDNPReference {
+        PostCaptureDNPReference(rightNear: sanitizedMillimeters((nose.rightNear + bridge.rightNear) * 0.5),
+                                leftNear: sanitizedMillimeters((nose.leftNear + bridge.leftNear) * 0.5),
+                                rightFar: sanitizedMillimeters((nose.rightFar + bridge.rightFar) * 0.5),
+                                leftFar: sanitizedMillimeters((nose.leftFar + bridge.leftFar) * 0.5))
+    }
+
+    private func makeValidatedSummary(from metrics: PostCaptureMetrics,
+                                      validatedReference: PostCaptureDNPReference,
+                                      noseReference: PostCaptureDNPReference,
+                                      bridgeReference: PostCaptureDNPReference,
+                                      convergence: (isConverged: Bool, tolerance: Double, reason: String?)) -> PostCaptureMetrics {
+        let rightEye = EyeMeasurementSummary(horizontalMaior: metrics.rightEye.horizontalMaior,
+                                             verticalMaior: metrics.rightEye.verticalMaior,
+                                             dnp: validatedReference.rightNear,
+                                             alturaPupilar: metrics.rightEye.alturaPupilar)
+        let leftEye = EyeMeasurementSummary(horizontalMaior: metrics.leftEye.horizontalMaior,
+                                            verticalMaior: metrics.leftEye.verticalMaior,
+                                            dnp: validatedReference.leftNear,
+                                            alturaPupilar: metrics.leftEye.alturaPupilar)
+
+        return PostCaptureMetrics(rightEye: rightEye,
+                                  leftEye: leftEye,
+                                  ponte: metrics.ponte,
+                                  validatedDNP: validatedReference,
+                                  noseDNP: noseReference,
+                                  bridgeDNP: bridgeReference,
+                                  dnpConverged: convergence.isConverged,
+                                  dnpConvergenceToleranceMM: convergence.tolerance,
+                                  dnpConvergenceReason: convergence.reason,
+                                  farDNPConfidence: metrics.farDNPConfidence,
+                                  farDNPConfidenceReason: metrics.farDNPConfidenceReason)
+    }
+
+    private func evaluateDNPConvergence(nose: PostCaptureDNPReference,
+                                        bridge: PostCaptureDNPReference) -> (isConverged: Bool, tolerance: Double, reason: String?) {
+        let tolerance = 0.5
+        let differences = [
+            abs(nose.rightNear - bridge.rightNear),
+            abs(nose.leftNear - bridge.leftNear),
+            abs(nose.rightFar - bridge.rightFar),
+            abs(nose.leftFar - bridge.leftFar)
+        ]
+        let maximumDifference = differences.max() ?? 0
+        guard maximumDifference > tolerance else {
+            return (true, tolerance, nil)
+        }
+
+        let formattedDifference = PostCaptureMetrics.summaryNumberFormatter
+            .string(from: NSNumber(value: maximumDifference))
+            ?? String(format: "%.1f", maximumDifference)
+        return (false,
+                tolerance,
+                "Nariz e ponte divergiram \(formattedDifference) mm. Refaça a captura para validar a DNP.")
+    }
+
+    private func midpoint(_ first: CGFloat,
+                          _ second: CGFloat) -> CGFloat {
+        (first + second) * 0.5
     }
 }

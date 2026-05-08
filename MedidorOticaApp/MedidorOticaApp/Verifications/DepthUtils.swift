@@ -2,17 +2,80 @@
 //  DepthUtils.swift
 //  MedidorOticaApp
 //
-//  Utilidades para leitura de profundidade e cálculo de pontos médios.
+//  Utilitarios de profundidade, orientacao e referencia geometrica do PC.
 //
 
 import ARKit
 import CoreGraphics
 import Vision
 import UIKit
+import simd
+
+/// Referencia geometrica principal do TrueDepth usada para centralizacao e distancia.
+struct TrueDepthMeasurementReference {
+    let pcCameraPosition: SIMD3<Float>
+    let eyeCenterCameraPosition: SIMD3<Float>
+    let noseTipCameraPosition: SIMD3<Float>
+    let pcNormalizedPoint: NormalizedPoint
+}
 
 extension VerificationManager {
-    // MARK: - Utilidades de Profundidade
-    /// Retorna a profundidade em um ponto específico do depth map.
+    // MARK: - Referencia do PC
+    /// Resolve a referencia do PC no espaco 3D da camera e na imagem orientada.
+    func trueDepthMeasurementReference(faceAnchor: ARFaceAnchor,
+                                       frame: ARFrame,
+                                       noseTipIndex: Int = 9) -> TrueDepthMeasurementReference? {
+        let vertices = faceAnchor.geometry.vertices
+        guard vertices.count > noseTipIndex else { return nil }
+
+        let orientation = currentCGOrientation()
+        let uiOrientation = currentUIOrientation()
+        let viewportSize = measurementViewportSize(for: frame.camera.imageResolution,
+                                                   orientation: orientation)
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+
+        let worldToCamera = simd_inverse(frame.camera.transform)
+        let faceInCamera = simd_mul(worldToCamera, faceAnchor.transform)
+        guard let noseTipCameraPosition = homogeneousCameraPosition(
+            simd_mul(faceInCamera, simd_float4(vertices[noseTipIndex], 1))
+        ) else {
+            return nil
+        }
+
+        let leftEyeCameraTransform = simd_mul(faceInCamera, faceAnchor.leftEyeTransform)
+        let rightEyeCameraTransform = simd_mul(faceInCamera, faceAnchor.rightEyeTransform)
+        let eyeCenterCameraPosition = (cameraTranslation(from: leftEyeCameraTransform) +
+                                      cameraTranslation(from: rightEyeCameraTransform)) / 2
+
+        guard let targetPoint = projectedMeasurementTarget(faceAnchor: faceAnchor,
+                                                           frame: frame,
+                                                           noseTipIndex: noseTipIndex,
+                                                           uiOrientation: uiOrientation,
+                                                           viewportSize: viewportSize) else {
+            return nil
+        }
+
+        let bestCandidate = bridgeMeasurementCandidate(vertices: vertices,
+                                                       faceAnchor: faceAnchor,
+                                                       frame: frame,
+                                                       uiOrientation: uiOrientation,
+                                                       viewportSize: viewportSize,
+                                                       targetPoint: targetPoint,
+                                                       worldToCamera: worldToCamera)
+
+        guard let bestCandidate else { return nil }
+
+        return TrueDepthMeasurementReference(
+            pcCameraPosition: bestCandidate.camera,
+            eyeCenterCameraPosition: eyeCenterCameraPosition,
+            noseTipCameraPosition: noseTipCameraPosition,
+            pcNormalizedPoint: NormalizedPoint.fromAbsolute(bestCandidate.projected,
+                                                            size: viewportSize).clamped()
+        )
+    }
+
+    // MARK: - Leitura de profundidade
+    /// Retorna a profundidade em um ponto especifico do depth map.
     func depthValue(from depthMap: CVPixelBuffer, at point: CGPoint) -> Float? {
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
@@ -31,7 +94,7 @@ extension VerificationManager {
         return value.isFinite ? value : nil
     }
 
-    /// Calcula o ponto médio de uma lista de pontos normalizados.
+    /// Calcula o ponto medio de uma lista de pontos normalizados.
     func averagePoint(from points: [CGPoint]) -> CGPoint {
         guard !points.isEmpty else { return .zero }
 
@@ -42,17 +105,15 @@ extension VerificationManager {
                        y: sumY / CGFloat(points.count))
     }
 
-    /// Retorna a largura e altura considerando a orientação fornecida.
+    /// Retorna a largura e altura considerando a orientacao fornecida.
     func orientedDimensions(for buffer: CVPixelBuffer,
                             orientation: CGImagePropertyOrientation) -> (width: Int, height: Int) {
-        // Reutiliza o helper compartilhado para manter as conversões centralizadas.
-        return VisionGeometryHelper.orientedDimensions(for: buffer, orientation: orientation)
+        VisionGeometryHelper.orientedDimensions(for: buffer, orientation: orientation)
     }
 
-    /// Versão para `CGImage`.
+    /// Versao para `CGImage`.
     func orientedDimensions(for image: CGImage,
                             orientation: CGImagePropertyOrientation) -> (Int, Int) {
-        // Reutiliza o helper compartilhado para manter as conversões centralizadas.
         let tuple = VisionGeometryHelper.orientedDimensions(for: image, orientation: orientation)
         return (tuple.width, tuple.height)
     }
@@ -73,7 +134,7 @@ extension VerificationManager {
         VisionGeometryHelper.clampedNormalizedPoint(point)
     }
 
-    /// Converte uma região de landmarks em um ponto médio normalizado.
+    /// Converte uma regiao de landmarks em um ponto medio normalizado.
     func normalizedPoint(from region: VNFaceLandmarkRegion2D,
                          boundingBox: CGRect,
                          imageWidth: Int,
@@ -86,13 +147,13 @@ extension VerificationManager {
                                              orientation: orientation)
     }
 
-    /// Cria uma `VNDetectFaceLandmarksRequest` com a revisão mais recente.
-    /// - Returns: Requisição configurada para iOS 17 ou superior.
+    /// Cria uma `VNDetectFaceLandmarksRequest` com a revisao mais recente.
+    /// - Returns: Requisicao configurada para iOS 17 ou superior.
     func makeLandmarksRequest() -> VNDetectFaceLandmarksRequest {
         VisionGeometryHelper.makeLandmarksRequest()
     }
 
-    /// Retorna a orientação atual considerando a posição da câmera.
+    /// Retorna a orientacao atual considerando a posicao da camera.
     func currentCGOrientation() -> CGImagePropertyOrientation {
         let position = CameraManager.shared.cameraPosition
         let interfaceOrientation = resolvedInterfaceOrientation()
@@ -109,30 +170,32 @@ extension VerificationManager {
         }
     }
 
-    /// Retorna a orientação de interface atual para projeções do ARKit.
+    /// Retorna a orientacao de interface atual para projecoes do ARKit.
     func currentUIOrientation() -> UIInterfaceOrientation {
         resolvedInterfaceOrientation()
     }
 
-    /// Ajusta os desvios horizontal e vertical conforme a orientação do dispositivo.
+    /// Ajusta os desvios horizontal e vertical conforme a orientacao do dispositivo.
     /// - Parameters:
-    ///   - horizontal: Desvio horizontal em centímetros.
-    ///   - vertical: Desvio vertical em centímetros.
-    /// - Returns: Desvios adaptados à orientação atual.
+    ///   - horizontal: Desvio horizontal em centimetros.
+    ///   - vertical: Desvio vertical em centimetros.
+    /// - Returns: Desvios adaptados a orientacao atual.
     func adjustOffsets(horizontal: Float, vertical: Float) -> (Float, Float) {
+        let portraitMapped = (horizontal: vertical, vertical: -horizontal)
+
         switch resolvedInterfaceOrientation() {
         case .landscapeLeft:
-            return (vertical, -horizontal)
+            return (portraitMapped.vertical, -portraitMapped.horizontal)
         case .landscapeRight:
-            return (-vertical, horizontal)
+            return (-portraitMapped.vertical, portraitMapped.horizontal)
         case .portraitUpsideDown:
-            return (-horizontal, -vertical)
+            return (-portraitMapped.horizontal, -portraitMapped.vertical)
         default:
-            return (horizontal, vertical)
+            return portraitMapped
         }
     }
 
-    /// Resolve a orientação da interface considerando cena ativa e fallback para o giroscópio.
+    /// Resolve a orientacao da interface considerando cena ativa e fallback para o giroscopio.
     private func resolvedInterfaceOrientation() -> UIInterfaceOrientation {
         func sceneOrientation() -> UIInterfaceOrientation? {
             UIApplication.shared.connectedScenes
@@ -163,6 +226,105 @@ extension VerificationManager {
             return .portrait
         }
     }
+
+    /// Converte a resolucao da camera para o viewport efetivo da imagem orientada.
+    private func measurementViewportSize(for resolution: CGSize,
+                                         orientation: CGImagePropertyOrientation) -> CGSize {
+        orientation.isPortrait ?
+            CGSize(width: resolution.height, height: resolution.width) :
+            resolution
+    }
+
+    /// Resolve o alvo 2D do PC usando o dorso do nariz no eixo X e a media das pupilas no eixo Y.
+    private func projectedMeasurementTarget(faceAnchor: ARFaceAnchor,
+                                            frame: ARFrame,
+                                            noseTipIndex: Int,
+                                            uiOrientation: UIInterfaceOrientation,
+                                            viewportSize: CGSize) -> CGPoint? {
+        let vertices = faceAnchor.geometry.vertices
+        guard vertices.count > noseTipIndex else { return nil }
+
+        if let visionTarget = visionPupilMeasurementTarget(frame: frame,
+                                                           viewportSize: viewportSize) {
+            return visionTarget
+        }
+
+        let leftEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
+                                                                      faceAnchor.leftEyeTransform))
+        let rightEyeWorldPoint = transformWorldPosition(from: simd_mul(faceAnchor.transform,
+                                                                       faceAnchor.rightEyeTransform))
+
+        let projectedLeftEye = frame.camera.projectPoint(leftEyeWorldPoint,
+                                                         orientation: uiOrientation,
+                                                         viewportSize: viewportSize)
+        let projectedRightEye = frame.camera.projectPoint(rightEyeWorldPoint,
+                                                          orientation: uiOrientation,
+                                                          viewportSize: viewportSize)
+        guard projectedLeftEye.x.isFinite,
+              projectedRightEye.x.isFinite,
+              projectedLeftEye.y.isFinite,
+              projectedRightEye.y.isFinite else {
+            return nil
+        }
+
+        let averageEyeX = CGFloat((projectedLeftEye.x + projectedRightEye.x) / 2)
+        return CGPoint(x: averageEyeX,
+                       y: CGFloat((projectedLeftEye.y + projectedRightEye.y) / 2))
+    }
+
+    /// Usa as pupilas detectadas pelo Vision para evitar que o centro ocular do ARKit puxe o PC para baixo.
+    func visionPupilMeasurementTarget(frame: ARFrame,
+                                      viewportSize: CGSize) -> CGPoint? {
+        let orientation = currentCGOrientation()
+        let request = makeLandmarksRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage,
+                                            orientation: orientation,
+                                            options: [:])
+
+        do {
+            try handler.perform([request])
+        } catch {
+            return nil
+        }
+
+        guard let face = (request.results as? [VNFaceObservation])?
+            .max(by: { $0.confidence < $1.confidence }),
+              let landmarks = face.landmarks else {
+            return nil
+        }
+
+        let dimensions = VisionGeometryHelper.orientedDimensions(for: frame.capturedImage,
+                                                                 orientation: orientation)
+        guard dimensions.width > 0, dimensions.height > 0 else { return nil }
+
+        guard let rightPupil = normalizedVisionPupil(landmarks.rightPupil ?? landmarks.rightEye,
+                                                     face: face,
+                                                     imageWidth: dimensions.width,
+                                                     imageHeight: dimensions.height),
+              let leftPupil = normalizedVisionPupil(landmarks.leftPupil ?? landmarks.leftEye,
+                                                    face: face,
+                                                    imageWidth: dimensions.width,
+                                                    imageHeight: dimensions.height) else {
+            return nil
+        }
+
+        let averageX = (rightPupil.x + leftPupil.x) / 2
+        let averageY = (rightPupil.y + leftPupil.y) / 2
+        return CGPoint(x: averageX * viewportSize.width,
+                       y: averageY * viewportSize.height)
+    }
+
+    private func normalizedVisionPupil(_ region: VNFaceLandmarkRegion2D?,
+                                       face: VNFaceObservation,
+                                       imageWidth: Int,
+                                       imageHeight: Int) -> CGPoint? {
+        guard let region else { return nil }
+        return VisionGeometryHelper.normalizedPoint(from: region,
+                                                    boundingBox: face.boundingBox,
+                                                    imageWidth: imageWidth,
+                                                    imageHeight: imageHeight,
+                                                    orientation: .up)
+    }
 }
 
 extension CGImagePropertyOrientation {
@@ -181,7 +343,7 @@ extension CGImagePropertyOrientation {
         }
     }
 
-    /// Indica se a orientação é vertical
+    /// Indica se a orientacao e vertical.
     var isPortrait: Bool {
         switch self {
         case .left, .leftMirrored, .right, .rightMirrored:
@@ -191,7 +353,7 @@ extension CGImagePropertyOrientation {
         }
     }
 
-    /// Indica se a orientação é espelhada horizontalmente
+    /// Indica se a orientacao e espelhada horizontalmente.
     var isMirrored: Bool {
         switch self {
         case .upMirrored, .downMirrored, .leftMirrored, .rightMirrored:
@@ -201,8 +363,265 @@ extension CGImagePropertyOrientation {
         }
     }
 
-    /// Valor EXIF utilizado por CoreImage para aplicar rotações e espelhamentos corretamente.
+    /// Valor EXIF utilizado por CoreImage para aplicar rotacoes e espelhamentos corretamente.
     var exifOrientation: Int32 {
         Int32(rawValue)
+    }
+}
+
+// MARK: - Helpers geometricos
+private extension VerificationManager {
+    struct ProjectedBridgeSample {
+        let camera: SIMD3<Float>
+        let projected: CGPoint
+        let localX: Float
+    }
+
+    /// Escolhe um ponto da malha no dorso do nariz, na altura das pupilas.
+    func bridgeMeasurementCandidate(vertices: [simd_float3],
+                                    faceAnchor: ARFaceAnchor,
+                                    frame: ARFrame,
+                                    uiOrientation: UIInterfaceOrientation,
+                                    viewportSize: CGSize,
+                                    targetPoint: CGPoint,
+                                    worldToCamera: simd_float4x4) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let midlineThreshold: Float = 0.0045
+        let verticalTolerance = max(viewportSize.height * 0.08, 24)
+        let horizontalTolerance = max(viewportSize.width * 0.12, 36)
+        let midlineSamples = bridgeMeasurementSamples(vertices: vertices,
+                                                      faceAnchor: faceAnchor,
+                                                      frame: frame,
+                                                      uiOrientation: uiOrientation,
+                                                      viewportSize: viewportSize,
+                                                      worldToCamera: worldToCamera,
+                                                      midlineThreshold: midlineThreshold)
+
+        if let robustBand = robustBridgeMeasurementCandidate(from: midlineSamples,
+                                                             targetPoint: targetPoint,
+                                                             verticalTolerance: verticalTolerance,
+                                                             horizontalTolerance: horizontalTolerance) {
+            return robustBand
+        }
+
+        if let interpolated = interpolatedBridgeMeasurementCandidate(from: midlineSamples,
+                                                                     targetPoint: targetPoint,
+                                                                     verticalTolerance: verticalTolerance,
+                                                                     horizontalTolerance: horizontalTolerance) {
+            return interpolated
+        }
+
+        if let projectedMidline = bestBridgeMeasurementCandidate(from: midlineSamples,
+                                                                 targetPoint: targetPoint,
+                                                                 verticalTolerance: verticalTolerance,
+                                                                 horizontalTolerance: horizontalTolerance) {
+            return projectedMidline
+        }
+
+        let allSamples = bridgeMeasurementSamples(vertices: vertices,
+                                                  faceAnchor: faceAnchor,
+                                                  frame: frame,
+                                                  uiOrientation: uiOrientation,
+                                                  viewportSize: viewportSize,
+                                                  worldToCamera: worldToCamera,
+                                                  midlineThreshold: nil)
+        return allSamples.min { current, next in
+            squaredPixelDistance(from: current.projected, to: targetPoint) <
+                squaredPixelDistance(from: next.projected, to: targetPoint)
+        }.map { sample in
+            (sample.camera,
+             sample.projected,
+             squaredPixelDistance(from: sample.projected, to: targetPoint))
+        }
+    }
+
+    /// Converte os vertices uteis da malha em amostras projetadas para o eixo do PC.
+    func bridgeMeasurementSamples(vertices: [simd_float3],
+                                  faceAnchor: ARFaceAnchor,
+                                  frame: ARFrame,
+                                  uiOrientation: UIInterfaceOrientation,
+                                  viewportSize: CGSize,
+                                  worldToCamera: simd_float4x4,
+                                  midlineThreshold: Float?) -> [ProjectedBridgeSample] {
+        vertices.compactMap { vertex in
+            if let midlineThreshold, abs(vertex.x) > midlineThreshold {
+                return nil
+            }
+
+            let worldPoint = vertexWorldPoint(of: vertex, transform: faceAnchor.transform)
+            let projected = frame.camera.projectPoint(worldPoint,
+                                                      orientation: uiOrientation,
+                                                      viewportSize: viewportSize)
+            guard projected.x.isFinite, projected.y.isFinite else { return nil }
+
+            let cameraPoint = cameraPointFromWorldPosition(worldPoint,
+                                                           worldToCamera: worldToCamera)
+            guard cameraPoint.x.isFinite,
+                  cameraPoint.y.isFinite,
+                  cameraPoint.z.isFinite else {
+                return nil
+            }
+
+            return ProjectedBridgeSample(camera: cameraPoint,
+                                         projected: CGPoint(x: CGFloat(projected.x),
+                                                            y: CGFloat(projected.y)),
+                                         localX: vertex.x)
+        }
+    }
+
+    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
+    func robustBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                          targetPoint: CGPoint,
+                                          verticalTolerance: CGFloat,
+                                          horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let bandSamples = samples.filter { sample in
+            abs(sample.projected.y - targetPoint.y) <= verticalTolerance
+        }
+        guard bandSamples.count >= 4 else { return nil }
+
+        let sortedX = bandSamples.map(\.projected.x).sorted()
+        let medianX = median(of: sortedX)
+        let horizontalDistance = abs(medianX - targetPoint.x)
+        guard horizontalDistance <= horizontalTolerance else { return nil }
+
+        let supportSamples = bandSamples.filter { sample in
+            abs(sample.projected.x - medianX) <= horizontalTolerance
+        }
+        guard !supportSamples.isEmpty else { return nil }
+
+        var weightedCamera = SIMD3<Float>(repeating: 0)
+        var totalWeight: CGFloat = 0
+        for sample in supportSamples {
+            let verticalDistance = abs(sample.projected.y - targetPoint.y)
+            let xDistance = abs(sample.projected.x - medianX)
+            let weight = 1 / max((verticalDistance * 8) + (xDistance * 6) + 1, 1)
+            weightedCamera += sample.camera * Float(weight)
+            totalWeight += weight
+        }
+
+        guard totalWeight > 0 else { return nil }
+        let averagedCamera = weightedCamera / Float(totalWeight)
+        let penalty = (horizontalDistance * horizontalDistance * 0.20) +
+            CGFloat(abs(averagedCamera.x)) * 800
+
+        return (camera: averagedCamera,
+                projected: CGPoint(x: medianX, y: targetPoint.y),
+                distance: penalty)
+    }
+
+    /// Interpola o dorso do nariz exatamente na altura media das pupilas.
+    func interpolatedBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                                targetPoint: CGPoint,
+                                                verticalTolerance: CGFloat,
+                                                horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        let ordered = samples.sorted { $0.projected.y < $1.projected.y }
+        guard ordered.count >= 2 else { return nil }
+
+        var bestCandidate: (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)?
+        for index in 0..<(ordered.count - 1) {
+            let first = ordered[index]
+            let second = ordered[index + 1]
+            let minimumY = min(first.projected.y, second.projected.y)
+            let maximumY = max(first.projected.y, second.projected.y)
+            guard targetPoint.y >= minimumY, targetPoint.y <= maximumY else { continue }
+
+            let deltaY = second.projected.y - first.projected.y
+            guard abs(deltaY) > .ulpOfOne else { continue }
+
+            let progress = (targetPoint.y - first.projected.y) / deltaY
+            let interpolatedX = first.projected.x + ((second.projected.x - first.projected.x) * progress)
+            let horizontalDistance = abs(interpolatedX - targetPoint.x)
+            guard horizontalDistance <= horizontalTolerance else { continue }
+
+            let interpolatedCamera = first.camera + ((second.camera - first.camera) * Float(progress))
+            let averageLocalX = (abs(first.localX) + abs(second.localX)) * 0.5
+            let distance = (horizontalDistance * horizontalDistance * 0.35) +
+                (CGFloat(averageLocalX) * 4000)
+            let candidate = (camera: interpolatedCamera,
+                             projected: CGPoint(x: interpolatedX, y: targetPoint.y),
+                             distance: distance)
+
+            if let current = bestCandidate, current.distance <= candidate.distance {
+                continue
+            }
+            bestCandidate = candidate
+        }
+
+        return bestCandidate
+    }
+
+    /// Usa um vertice real da malha quando a interpolacao nao encontrar um par valido.
+    func bestBridgeMeasurementCandidate(from samples: [ProjectedBridgeSample],
+                                        targetPoint: CGPoint,
+                                        verticalTolerance: CGFloat,
+                                        horizontalTolerance: CGFloat) -> (camera: SIMD3<Float>, projected: CGPoint, distance: CGFloat)? {
+        samples.compactMap { sample in
+            let verticalDistance = abs(sample.projected.y - targetPoint.y)
+            guard verticalDistance <= verticalTolerance else { return nil }
+
+            let horizontalDistance = abs(sample.projected.x - targetPoint.x)
+            guard horizontalDistance <= horizontalTolerance else { return nil }
+
+            let distance = (verticalDistance * verticalDistance * 5) +
+                (horizontalDistance * horizontalDistance * 0.35) +
+                (CGFloat(abs(sample.localX)) * 4000)
+            return (camera: sample.camera,
+                    projected: sample.projected,
+                    distance: distance)
+        }.min { current, next in
+            current.distance < next.distance
+        }
+    }
+
+    /// Converte um vetor homogeneo em coordenadas usuais da camera.
+    func homogeneousCameraPosition(_ vector: simd_float4) -> SIMD3<Float>? {
+        guard vector.w.isFinite, abs(vector.w) > Float.ulpOfOne else { return nil }
+        return SIMD3<Float>(vector.x / vector.w,
+                            vector.y / vector.w,
+                            vector.z / vector.w)
+    }
+
+    /// Extrai a translacao de uma matriz no espaco da camera.
+    func cameraTranslation(from transform: simd_float4x4) -> SIMD3<Float> {
+        let translation = transform.columns.3
+        return SIMD3<Float>(translation.x, translation.y, translation.z)
+    }
+
+    /// Converte um vertice da malha para coordenadas do mundo.
+    func vertexWorldPoint(of vertex: simd_float3,
+                          transform: simd_float4x4) -> simd_float3 {
+        let position = simd_mul(transform, SIMD4<Float>(vertex.x, vertex.y, vertex.z, 1))
+        return simd_float3(position.x, position.y, position.z)
+    }
+
+    /// Extrai a translacao de uma transformacao no mundo.
+    func transformWorldPosition(from transform: simd_float4x4) -> simd_float3 {
+        simd_float3(transform.columns.3.x,
+                    transform.columns.3.y,
+                    transform.columns.3.z)
+    }
+
+    /// Converte um ponto do mundo para o espaco da camera.
+    func cameraPointFromWorldPosition(_ worldPoint: simd_float3,
+                                      worldToCamera: simd_float4x4) -> simd_float3 {
+        let position = simd_mul(worldToCamera, SIMD4<Float>(worldPoint.x, worldPoint.y, worldPoint.z, 1))
+        return simd_float3(position.x, position.y, position.z)
+    }
+
+    /// Mede a distancia quadratica entre dois pontos projetados.
+    func squaredPixelDistance(from first: CGPoint,
+                              to second: CGPoint) -> CGFloat {
+        let deltaX = first.x - second.x
+        let deltaY = first.y - second.y
+        return (deltaX * deltaX) + (deltaY * deltaY)
+    }
+
+    /// Retorna a mediana de uma lista ordenada de valores.
+    func median(of sortedValues: [CGFloat]) -> CGFloat {
+        guard !sortedValues.isEmpty else { return 0 }
+        let middle = sortedValues.count / 2
+        if sortedValues.count.isMultiple(of: 2) {
+            return (sortedValues[middle - 1] + sortedValues[middle]) * 0.5
+        }
+        return sortedValues[middle]
     }
 }

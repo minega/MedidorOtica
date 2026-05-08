@@ -6,9 +6,63 @@
 //
 
 import Testing
+import CoreGraphics
 @testable import MedidorOticaApp
 
 struct PostCaptureMeasurementCalculatorTests {
+    @Test func keepsNasalAndTemporalBarsOnCorrectSideOfCentralPoint() async throws {
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+
+        let rightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.38, y: 0.52),
+                                          nasalBarX: 0.64,
+                                          temporalBarX: 0.56,
+                                          inferiorBarY: 0.72,
+                                          superiorBarY: 0.36)
+            .normalized(centralX: center.x)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.63, y: 0.51),
+                                         nasalBarX: 0.36,
+                                         temporalBarX: 0.44,
+                                         inferiorBarY: 0.70,
+                                         superiorBarY: 0.34)
+            .normalized(centralX: center.x)
+
+        #expect(rightEye.nasalBarX <= center.x)
+        #expect(rightEye.temporalBarX <= rightEye.nasalBarX)
+        #expect(leftEye.nasalBarX >= center.x)
+        #expect(leftEye.temporalBarX >= leftEye.nasalBarX)
+    }
+
+    // MARK: - Posicionamento inicial das barras
+    @Test func rearLiDARInitialBarsFollowMeasuredDNPProportion() async throws {
+        let scale = PostCaptureScale(calibration: PostCaptureCalibration(horizontalReferenceMM: 250,
+                                                                         verticalReferenceMM: 180))
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let pupil = NormalizedPoint(x: 0.38, y: 0.52)
+
+        let offsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: center,
+                                                                       pupilPoint: pupil,
+                                                                       scale: scale,
+                                                                       preferDNPAnchoring: true)
+
+        #expect(abs(offsets.nasal - 0.036) < 0.0001)
+        #expect(abs(offsets.temporal - 0.24) < 0.0001)
+    }
+
+    @Test func frontInitialBarsKeepSensorScalePlacement() async throws {
+        let scale = PostCaptureScale(calibration: PostCaptureCalibration(horizontalReferenceMM: 300,
+                                                                         verticalReferenceMM: 180))
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let pupil = NormalizedPoint(x: 0.38, y: 0.52)
+
+        let offsets = PostCaptureInitialBarPlacement.horizontalOffsets(centralPoint: center,
+                                                                       pupilPoint: pupil,
+                                                                       scale: scale,
+                                                                       preferDNPAnchoring: false)
+
+        #expect(abs(offsets.nasal - 0.03) < 0.0001)
+        #expect(abs(offsets.temporal - 0.2) < 0.0001)
+    }
+
     // MARK: - Cenário padrão com calibração conhecida
     @Test func convertsNormalizedDistancesUsingCalibration() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)
@@ -81,6 +135,31 @@ struct PostCaptureMeasurementCalculatorTests {
         }
     }
 
+    @Test func prefersLocalFaceScaleWhenAvailable() async throws {
+        let globalCalibration = PostCaptureCalibration(horizontalReferenceMM: 160,
+                                                       verticalReferenceMM: 120)
+        let localSamples = (0..<12).map { index in
+            LocalFaceScaleSample(point: NormalizedPoint(x: CGFloat(index % 4) / 3,
+                                                        y: CGFloat(index / 4) / 2),
+                                 horizontalReferenceMM: 80,
+                                 verticalReferenceMM: 60,
+                                 depthMM: 320)
+        }
+
+        let scale = PostCaptureScale(calibration: globalCalibration,
+                                     localCalibration: LocalFaceScaleCalibration(samples: localSamples))
+        let horizontal = scale.horizontalMillimeters(between: 0.20,
+                                                     and: 0.40,
+                                                     at: 0.5)
+        let vertical = scale.verticalMillimeters(between: 0.25,
+                                                 and: 0.55,
+                                                 at: 0.5)
+
+        #expect(abs(horizontal - 16) < 0.01)
+        #expect(abs(vertical - 18) < 0.01)
+        #expect(abs(scale.normalizedHorizontal(8, at: NormalizedPoint(x: 0.5, y: 0.5)) - 0.1) < 0.0001)
+    }
+
     // MARK: - Geometria inválida
     @Test func rejectsGeometryWhenPupilIsOutsideBars() async throws {
         let calibration = PostCaptureCalibration(horizontalReferenceMM: 100, verticalReferenceMM: 80)
@@ -147,6 +226,63 @@ struct PostCaptureMeasurementCalculatorTests {
 
         do {
             _ = try calculator.makeMetrics()
+            #expect(false)
+        } catch let error as PostCaptureMeasurementError {
+            switch error {
+            case .implausibleMeasurement:
+                #expect(true)
+            default:
+                #expect(false)
+            }
+        } catch {
+            #expect(false)
+        }
+    }
+
+    @Test func recalculatesAllMetricsFromRealBridgeReference() async throws {
+        let right = EyeMeasurementSummary(horizontalMaior: 48,
+                                          verticalMaior: 32,
+                                          dnp: 15,
+                                          alturaPupilar: 18)
+        let left = EyeMeasurementSummary(horizontalMaior: 50,
+                                         verticalMaior: 31,
+                                         dnp: 16,
+                                         alturaPupilar: 17)
+        let validated = PostCaptureDNPReference(rightNear: 15,
+                                                leftNear: 16,
+                                                rightFar: 16,
+                                                leftFar: 17)
+        let metrics = PostCaptureMetrics(rightEye: right,
+                                         leftEye: left,
+                                         ponte: 10,
+                                         validatedDNP: validated,
+                                         noseDNP: validated,
+                                         bridgeDNP: validated,
+                                         farDNPConfidence: 0.9)
+
+        let adjusted = try metrics.applyingBridgeReference(requestedBridgeMM: 20)
+        let comparison = try #require(adjusted.bridgeReferenceComparison)
+
+        #expect(metrics.bridgeReferenceComparison == nil)
+        #expect(comparison.scaleRatio == 2)
+        #expect(comparison.adjustedBridgeMM == 20)
+        #expect(comparison.adjustedRightEye.horizontalMaior == 96)
+        #expect(comparison.adjustedLeftEye.verticalMaior == 62)
+        #expect(comparison.adjustedValidatedDNP.totalNear == 62)
+        #expect(comparison.adjustedValidatedDNP.totalFar == 66)
+    }
+
+    @Test func rejectsInvalidRealBridgeReference() async throws {
+        let right = EyeMeasurementSummary(horizontalMaior: 48,
+                                          verticalMaior: 32,
+                                          dnp: 15,
+                                          alturaPupilar: 18)
+        let metrics = PostCaptureMetrics(rightEye: right,
+                                         leftEye: right,
+                                         ponte: 18)
+
+        do {
+            _ = try metrics.applyingBridgeReference(requestedBridgeMM: 40)
             #expect(false)
         } catch let error as PostCaptureMeasurementError {
             switch error {

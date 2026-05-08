@@ -19,8 +19,7 @@ struct CameraView: View {
 
     // MARK: - Estado de UI
     @State private var isAutoCaptureEnabled = true
-    @State private var countdownValue = 0
-    @State private var countdownTimer: Timer?
+    @State private var selectedCameraType: CameraType = .front
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var capturedPhoto: CapturedPhoto?
@@ -32,7 +31,6 @@ struct CameraView: View {
     @State private var notificationObservers: [NSObjectProtocol] = []
 
     private let showDistanceOverlay = true
-    private let showARStatusIndicator = true
 
 #if DEBUG
     private let showAlignmentDebugOverlay = true
@@ -47,6 +45,10 @@ struct CameraView: View {
         cameraManager.isCaptureReady && cameraInitialized && !isProcessing
     }
 
+    private var shouldShowVerificationMenu: Bool {
+        showVerifications
+    }
+
     // MARK: - View
     var body: some View {
         ZStack {
@@ -54,7 +56,6 @@ struct CameraView: View {
             flashOverlay
             ProgressOval(verificationManager: verificationManager,
                          showDistance: showDistanceOverlay)
-            countdownOverlay
             debugOverlay
             controlsOverlay
         }
@@ -106,22 +107,6 @@ struct CameraView: View {
         }
     }
 
-    private var countdownOverlay: some View {
-        Group {
-            if countdownValue > 0 {
-                VStack(spacing: 16) {
-                    Text("Olhe para a camera")
-                        .font(.title2)
-                        .foregroundColor(.white)
-
-                    Text("\(countdownValue)")
-                        .font(.system(size: 72, weight: .bold))
-                        .foregroundColor(.white)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private var debugOverlay: some View {
 #if DEBUG
@@ -141,8 +126,9 @@ struct CameraView: View {
         VStack {
             topBar
 
-            if showVerifications {
+            if shouldShowVerificationMenu {
                 VerificationMenu(verificationManager: verificationManager)
+                    .padding(.top, 8)
             }
 
             CameraInstructions(verificationManager: verificationManager,
@@ -155,64 +141,96 @@ struct CameraView: View {
 
     private var topBar: some View {
         HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.title3)
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
-            }
-
-            if showARStatusIndicator {
-                ARStatusIndicator(cameraManager: cameraManager,
-                                  verificationManager: verificationManager)
+            cameraTopButton(systemName: "xmark", foregroundColor: .white) {
+                dismiss()
             }
 
             Spacer()
 
-            Button(action: { isAutoCaptureEnabled.toggle() }) {
-                Image(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle")
-                    .font(.title3)
-                    .foregroundColor(isAutoCaptureEnabled ? .green : .white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
+            Text(selectedCameraType.sensorName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .environment(\.colorScheme, .light)
+                .appGlassSurface(cornerRadius: 14,
+                                 borderOpacity: 0.12,
+                                 tintOpacity: 0.24,
+                                 tintColor: .black,
+                                 variant: .regular,
+                                 interactive: false,
+                                 fallbackMaterial: .thinMaterial)
+
+            cameraTopButton(systemName: "camera.rotate",
+                            foregroundColor: selectedCameraType == .back ? .cyan : .white) {
+                switchCameraMode()
             }
 
-            Button(action: { cameraManager.toggleFlash() }) {
-                Image(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash")
-                    .font(.title3)
-                    .foregroundColor(cameraManager.isFlashOn ? .yellow : .white)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
+            cameraTopButton(systemName: isAutoCaptureEnabled ? "timer.circle.fill" : "timer.circle",
+                            foregroundColor: isAutoCaptureEnabled ? .green : .white) {
+                isAutoCaptureEnabled.toggle()
+            }
+
+            cameraTopButton(systemName: cameraManager.isFlashOn ? "bolt.fill" : "bolt.slash",
+                            foregroundColor: cameraManager.isFlashOn ? .yellow : .white) {
+                cameraManager.toggleFlash()
             }
         }
         .padding()
         .background(Color.black.opacity(0.3))
     }
 
+    private func cameraTopButton(systemName: String,
+                                 foregroundColor: Color,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 22,
+                         borderOpacity: 0.14,
+                         tintOpacity: 0.32,
+                         tintColor: .black,
+                         variant: .regular,
+                         interactive: true,
+                         fallbackMaterial: .thinMaterial)
+        .clipShape(Circle())
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 4)
+    }
+
     private var captureButton: some View {
         Button(action: capturePhoto) {
             ZStack {
-                Capsule()
-                    .fill(captureEnabled ?
-                          AnyShapeStyle(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.purple]),
-                                                       startPoint: .leading,
-                                                       endPoint: .trailing)) :
-                            AnyShapeStyle(Color.gray))
-                    .frame(width: 140, height: 50)
-                    .shadow(color: .black.opacity(0.2), radius: 3)
-
                 if isProcessing {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.2)
+                        .scaleEffect(1.1)
                 } else {
                     Text("Capturar")
                         .font(.headline)
                         .foregroundColor(.white)
                 }
             }
+            .frame(width: 140, height: 50)
         }
+        .buttonStyle(.plain)
+        .environment(\.colorScheme, .light)
+        .appGlassSurface(cornerRadius: 25,
+                         borderOpacity: 0.16,
+                         tintOpacity: captureEnabled ? 0.28 : 0.18,
+                         tintColor: .black,
+                         variant: .regular,
+                         interactive: captureEnabled,
+                         fallbackMaterial: .thinMaterial)
+        .opacity(captureEnabled ? 1 : 0.84)
+        .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 6)
     }
 
     // MARK: - Ciclo de vida
@@ -222,7 +240,6 @@ struct CameraView: View {
     }
 
     private func handleDisappear() {
-        cancelCountdown(refreshState: false)
         cameraManager.stop()
         cameraInitialized = false
         notificationObservers.forEach { observer in
@@ -233,26 +250,23 @@ struct CameraView: View {
 
     private func handleAutoCaptureChange(_ isEnabled: Bool) {
         if isEnabled {
-            attemptAutoCountdown()
-        } else {
-            cancelCountdown()
+            attemptAutoCapture()
         }
     }
 
     private func handleCaptureStateChange(_ state: CameraCaptureState) {
         switch state {
         case .stableReady:
-            attemptAutoCountdown()
+            attemptAutoCapture()
         case .countdown:
             break
         case .capturing, .captured, .checking(_), .error(_), .idle, .preparing:
-            cancelCountdown(refreshState: false)
+            break
         }
     }
 
     private func handleResultPresentationChange(_ isShowing: Bool) {
         if isShowing {
-            cancelCountdown(refreshState: false)
             cameraManager.stop()
             cameraInitialized = false
             return
@@ -275,13 +289,15 @@ struct CameraView: View {
             guard permissionGranted else { return }
 
             cameraManager.checkAvailableSensors()
-            guard cameraManager.hasTrueDepth else {
-                alertMessage = "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao."
+            guard canUseSelectedSensor() else {
+                alertMessage = selectedCameraType == .front ?
+                    "Este dispositivo nao possui o sensor TrueDepth necessario para a medicao." :
+                    "Este dispositivo nao possui LiDAR traseiro compativel para a medicao."
                 showingAlert = true
                 return
             }
 
-            cameraManager.startMeasurementSession { success in
+            cameraManager.startMeasurementSession(cameraType: selectedCameraType) { success in
                 DispatchQueue.main.async {
                     if success {
                         cameraInitialized = true
@@ -293,6 +309,21 @@ struct CameraView: View {
                 }
             }
         }
+    }
+
+    private func canUseSelectedSensor() -> Bool {
+        switch selectedCameraType {
+        case .front:
+            return cameraManager.hasTrueDepth
+        case .back:
+            return cameraManager.hasLiDAR
+        }
+    }
+
+    private func switchCameraMode() {
+        selectedCameraType = selectedCameraType == .front ? .back : .front
+        isProcessing = false
+        setupCamera()
     }
 
     private func configureCameraProcessing() {
@@ -313,7 +344,9 @@ struct CameraView: View {
                                                            object: nil,
                                                            queue: .main) { notification in
             guard let error = notification.userInfo?["error"] as? CameraError else { return }
-            handleCameraError(error)
+            Task { @MainActor in
+                handleCameraError(error)
+            }
         }
         notificationObservers.append(token)
     }
@@ -322,13 +355,16 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("ARConfigurationFailed"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["error"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "Falha ao configurar ARSession."
+            let message = notification.userInfo?["error"] as? String
+            Task { @MainActor in
+                if let message {
+                    alertMessage = message
+                } else {
+                    alertMessage = "Falha ao configurar ARSession."
+                }
+                cameraManager.stop()
+                showingAlert = true
             }
-            cameraManager.stop()
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -337,12 +373,15 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: .arSessionError,
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let message = notification.userInfo?["message"] as? String {
-                alertMessage = message
-            } else {
-                alertMessage = "A sessao de AR apresentou um erro."
+            let message = notification.userInfo?["message"] as? String
+            Task { @MainActor in
+                if let message {
+                    alertMessage = message
+                } else {
+                    alertMessage = "A sessao de AR apresentou um erro."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -351,14 +390,18 @@ struct CameraView: View {
         let token = NotificationCenter.default.addObserver(forName: NSNotification.Name("DeviceNotCompatible"),
                                                            object: nil,
                                                            queue: .main) { notification in
-            if let reason = notification.userInfo?["reason"] as? String {
-                alertMessage = "Dispositivo nao compativel: \(reason)"
-            } else if let sensor = notification.userInfo?["sensor"] as? String {
-                alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
-            } else {
-                alertMessage = "Dispositivo nao compativel com as medicoes."
+            let reason = notification.userInfo?["reason"] as? String
+            let sensor = notification.userInfo?["sensor"] as? String
+            Task { @MainActor in
+                if let reason {
+                    alertMessage = "Dispositivo nao compativel: \(reason)"
+                } else if let sensor {
+                    alertMessage = "Dispositivo nao possui o sensor \(sensor) necessario."
+                } else {
+                    alertMessage = "Dispositivo nao compativel com as medicoes."
+                }
+                showingAlert = true
             }
-            showingAlert = true
         }
         notificationObservers.append(token)
     }
@@ -416,7 +459,6 @@ struct CameraView: View {
             return
         }
 
-        cancelCountdown(refreshState: false)
         impactGenerator.impactOccurred()
         isProcessing = true
         showFlash = true
@@ -442,63 +484,56 @@ struct CameraView: View {
 
     private func manualCaptureBlockMessage() -> String {
         if !cameraInitialized {
-            return "A camera ainda esta iniciando."
+            return "A camera ainda esta iniciando. Aguarde o preview estabilizar."
+        }
+
+        if cameraManager.cameraPosition == .front,
+           !cameraManager.isTrueDepthSensorAlive {
+            return cameraManager.trueDepthHint()
         }
 
         if !verificationManager.faceDetected {
-            return "Posicione seu rosto para ser detectado."
+            return "Encaixe testa, olhos e queixo dentro do oval."
         }
 
         if !verificationManager.distanceCorrect {
             return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
-                "Aproxime-se da camera." : "Afaste-se da camera."
+                "Afaste um pouco o rosto para entrar na faixa ideal." :
+                "Aproxime um pouco o rosto para entrar na faixa ideal."
         }
 
         if !verificationManager.faceAligned {
-            return "Centralize seu rosto no oval."
+            if cameraManager.cameraPosition == .back {
+                return "Ajuste o celular ate o PC ficar no centro do oval."
+            }
+            return "Ajuste o celular ate o nariz ficar exatamente no centro do oval."
         }
 
         if !verificationManager.headAligned {
-            return "Mantenha sua cabeca reta alinhada com a camera."
+            if let snapshot = verificationManager.headPoseSnapshot,
+               let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) {
+                return adjustment.instruction
+            }
+
+            if cameraManager.captureState == .checking(.headPoseUnavailable) {
+                return "Mostre testa, olhos e queixo para medir os eixos da cabeca."
+            }
+            return "Corrija primeiro o eixo indicado na instrucao da tela antes da captura."
         }
 
         return cameraManager.captureHint
     }
 
-    // MARK: - Contagem automatica
-    private func attemptAutoCountdown() {
+    // MARK: - Captura automatica
+    private func attemptAutoCapture() {
         guard isAutoCaptureEnabled else { return }
         guard cameraManager.captureState == .stableReady else { return }
-        guard countdownTimer == nil else { return }
-        startCountdown()
-    }
-
-    private func startCountdown() {
-        guard isAutoCaptureEnabled else { return }
-        cancelCountdown(refreshState: false)
-        countdownValue = 3
-        cameraManager.setCountdownActive(true)
-
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1,
-                                              repeats: true) { timer in
-            if countdownValue > 1 {
-                countdownValue -= 1
-                return
-            }
-
-            timer.invalidate()
-            countdownTimer = nil
-            countdownValue = 0
+        guard !isProcessing else { return }
+        DispatchQueue.main.async {
+            guard isAutoCaptureEnabled else { return }
+            guard cameraManager.captureState == .stableReady else { return }
+            guard !isProcessing else { return }
             capturePhoto()
-        }
-    }
-
-    private func cancelCountdown(refreshState: Bool = true) {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        countdownValue = 0
-        if refreshState {
-            cameraManager.setCountdownActive(false)
         }
     }
 }
@@ -513,9 +548,10 @@ struct HeadAlignmentDebugOverlay: View {
     @ObservedObject var verificationManager: VerificationManager
 
     var body: some View {
-        let roll = verificationManager.alignmentData["roll"] ?? 0
-        let yaw = verificationManager.alignmentData["yaw"] ?? 0
-        let pitch = verificationManager.alignmentData["pitch"] ?? 0
+        let snapshot = verificationManager.headPoseSnapshot
+        let roll = snapshot?.rollDegrees ?? 0
+        let yaw = snapshot?.yawDegrees ?? 0
+        let pitch = snapshot?.pitchDegrees ?? 0
 
         VStack(alignment: .leading, spacing: 4) {
             Text("🔧 Depuracao Alinhamento")

@@ -14,10 +14,12 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 
 ## 🆕 Novidades
 
-- Verificações simplificadas focadas apenas em rosto, distância e alinhamento.
-- Captura automática com contagem regressiva quando todas as verificações estão verdes, podendo ser desativada pelo botão de timer.
-- Requisitos mínimos atualizados para Swift 5.9.
-- Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições (horizontal maior, vertical maior, ponte, DNP e altura pupilar).
+- Verificações simplificadas focadas em rosto, distância, centralização pelo `PC` e alinhamento.
+- Captura automática instantânea quando um bloco curto de frames perfeitos é confirmado, podendo ser desativada pelo botão de timer.
+- Fluxo pós-captura remodelado com marcação automática da pupila, barras ajustáveis e resumo completo das medições.
+- A calibração local agora usa a malha útil completa do `TrueDepth`, ponto a ponto, para compensar deformações e perspectiva.
+- O `PC` final da pós-captura combina a geometria da foto com a linha média facial e o suporte 3D do `TrueDepth`.
+- O resultado final exibe `DNP validada perto/longe`, `DNP nariz` e `DNP ponte` na mesma tela, calculadas a partir da mesma captura sem tabela fixa.
 
 ## 📂 Estrutura do Projeto
 
@@ -48,6 +50,25 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 | `Models/VerificationModels.swift` | Define `VerificationType` e `Verification` |
 | `Models/Measurement.swift` | Estrutura para armazenar dados de medição |
 
+## 🗺️ Mapa Rápido do Pipeline de Precisão
+
+Se uma conversa nova precisar se localizar rápido, leia nesta ordem:
+
+1. `../docs/pipeline-precisao.md`
+2. `../docs/testflight-release.md`
+3. `MedidorOticaApp/PostCapture/PostCaptureProcessor.swift`
+4. `MedidorOticaApp/PostCapture/PostCaptureCentralPointResolver.swift`
+5. `MedidorOticaApp/PostCapture/PostCaptureFarDNPResolver.swift`
+6. `MedidorOticaApp/Managers/CameraManager+CapturaFoto.swift`
+7. `MedidorOticaApp/Verifications/DepthUtils.swift`
+
+Esses arquivos concentram o que hoje define:
+
+- faixa de captura `30–40 cm`;
+- `PC` na captura e no pós-captura;
+- escala local ponto a ponto do `TrueDepth`;
+- `DNP validada`, `DNP nariz` e `DNP ponte`.
+
 ## 🔍 Fluxo de Verificações
 
 O aplicativo executa verificações em sequência para garantir medições precisas:
@@ -57,16 +78,17 @@ O aplicativo executa verificações em sequência para garantir medições preci
    - Suporte a TrueDepth (frontal) e LiDAR (traseira)
 
 2. **Distância**
-   - Distância ideal: 25-50 cm do sensor
-   - Ajustes em tempo real
+  - Distância ideal: 30-40 cm do sensor
+  - O oval é apenas guia visual; a liberação usa a profundidade real do plano do `PC`
 
 3. **Centralização**
-   - Tolerância de 0.5cm
-   - Garante posicionamento correto
+   - Tolerância final de `X ±0,14 cm` e `Y ±0,20 cm`
+   - Durante o alinhamento da cabeça, uma faixa assistida de `X ±0,30 cm` e `Y ±0,35 cm` evita alternar entre etapas, sem liberar captura fora do limite final
+   - A câmera precisa ficar alinhada com o `PC`
 
 4. **Alinhamento da Cabeça**
-   - Tolerância de ±3.0°
-   - Verifica inclinação e rotação com referência à câmera
+   - Tolerância de `yaw/roll ±1,2°` e `pitch ±1,3°`
+   - Verifica `pitch`, `yaw` e `roll` com referência à câmera
 
 ## 🛠️ Requisitos Técnicos
 
@@ -86,10 +108,31 @@ O aplicativo executa verificações em sequência para garantir medições preci
 
 | Verificação | Tolerância |
 |-------------|------------|
-| Distância | 25-50cm |
-| Centralização | ±0.5cm |
-| Alinhamento | ±3.0° |
-| Olhar | 0.001 |
+| Distância | 30-40cm |
+| Centralização | X ±0,14cm / Y ±0,20cm |
+| Alinhamento | yaw/roll ±1,2° / pitch ±1,3° |
+| Estabilidade | 4 frames válidos seguidos |
+
+## 🔒 Invariantes de Precisão
+
+- Não permitir medições frontais sem `TrueDepth` ativo.
+- Não resumir a malha local válida do `TrueDepth` em poucos pontos quando a calibração da foto estiver disponível.
+- O `PC` deve usar:
+  - eixo `Y`: média da altura das pupilas
+  - eixo `X`: linha média facial corrigida pelo `TrueDepth`, usando o dorso do nariz apenas quando coerente com a simetria do rosto
+- A pós-captura deve preferir a geometria da própria foto, mas pode usar o `PC` 3D da captura como apoio quando ele concorda com a simetria facial.
+- A `DNP longe` deve ser derivada da mesma captura via geometria 3D dos olhos e deconvergência, nunca por tabela fixa.
+- A `DNP validada` precisa convergir entre `DNP nariz` e `DNP ponte`; divergência acima da tolerância deve ser tratada como captura inconsistente.
+- A faixa frontal `30-40 cm` é requisito funcional; mudanças futuras não podem voltar a bloquear por tamanho do rosto no oval.
+- Mudanças em calibração local, `PC` ou `DNP` exigem teste de regressão e atualização desta documentação.
+
+## 🧭 Situação Atual do Cálculo
+
+- `PC.y`: média da altura das pupilas; na captura ao vivo, o app prefere `rightPupil/leftPupil` do `Vision` e usa o centro ocular do ARKit apenas como fallback.
+- `PC.x`: linha média facial na banda óptica, com simetria pupilar como reforço e ponte nasal apenas como refinamento fraco.
+- `DNP validada`: medida final oficial após convergência entre nariz e ponte.
+- `DNP longe`: conversão geométrica da mesma captura, usando distância real do olho até a câmera, profundidade aparente da pupila e diferença angular entre o olhar capturado e o eixo frontal da face.
+- O resumo final mostra `DNP validada perto/longe`, `DNP nariz` e `DNP ponte` para auditoria do eixo `X`.
 
 ## 📏 Fluxo Pós-Captura
 
@@ -117,7 +160,7 @@ Após a captura, o aplicativo abre a etapa de pós-processamento com a imagem re
    - O usuário revisa e ajusta se necessário (apenas por garantia).
 
 6. **Resumo Final**
-   - A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, DNP (OD/OE) e altura pupilar (OD/OE), além da DP total.
+- A tela final apresenta a foto com as marcações e todas as medidas calculadas: horizontal maior (OD/OE), vertical maior (OD/OE), ponte, `DNP validada perto` (OD/OE/total), `DNP validada longe` (OD/OE/total), `DNP nariz`, `DNP ponte` e altura pupilar (OD/OE).
    - É possível compartilhar a composição ou salvar no histórico informando o nome do cliente.
    - Cada item salvo pode ser reaberto posteriormente para editar novamente as etapas.
 
@@ -227,5 +270,12 @@ MedidorOticaApp/
 - Mantenha o dispositivo estável durante a captura
 
 ## 📈 Versão
-*Última atualização: 01/07/2025*
-*Versão: 2.0.0*
+*Última atualização: 03/04/2026*
+*Versão: 2.1.0*
+## Modo traseiro LiDAR
+
+- Novo fluxo opcional com camera traseira e LiDAR, sem calibracao manual do usuario.
+- O app alterna entre `TrueDepth` e `LiDAR` pela barra superior da camera.
+- A traseira trabalha em `60-100 cm` e usa `Vision` para landmarks, LiDAR para profundidade e `LocalFaceScaleCalibration` para escala ponto a ponto.
+- A frontal permanece bloqueada para dispositivos sem `TrueDepth`.
+- A `DNP longe` no modo traseiro precisa de revisao no pos-captura porque o LiDAR nao fornece geometria ocular equivalente ao `ARFaceAnchor`.

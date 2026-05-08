@@ -1,0 +1,203 @@
+# Workflow utilitario para consultar o estado real de uma build no App Store Connect.
+
+name: App Store Build Status
+
+on:
+  push:
+    branches:
+      - "codex/**"
+  workflow_run:
+    workflows:
+      - "iOS Release"
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Numero da build enviada ao App Store Connect"
+        required: false
+        type: string
+      timeout_minutes:
+        description: "Tempo maximo de espera pelo processamento"
+        required: false
+        default: "20"
+        type: string
+
+jobs:
+  poll-build-status:
+    name: Consultar build na Apple
+    runs-on: macos-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+
+    env:
+      APP_STORE_CONNECT_KEY_ID: G5V2B335RL
+      APP_STORE_CONNECT_ISSUER_ID: c585729a-639d-41fa-b8d8-bfeb29e17f71
+      APP_BUNDLE_ID: Manzolli.MedidorOticaApp
+      BUILD_NUMBER: ${{ inputs.build_number }}
+      TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Preparar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Instalar dependencias
+        run: python -m pip install --quiet pyjwt cryptography requests
+
+      - name: Criar chave da App Store Connect
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          encoded = os.environ["APP_STORE_CONNECT_API_KEY_BASE64"]
+          key_path = Path(os.environ["RUNNER_TEMP"]) / "AuthKey_G5V2B335RL.p8"
+          key_path.write_bytes(base64.b64decode(encoded))
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"ASC_KEY_PATH={key_path}\n")
+          PY
+
+      - name: Resolver build da release
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          manual_build_number = "${{ inputs.build_number }}"
+          if manual_build_number:
+              resolved = manual_build_number
+          else:
+              repository = os.environ["GITHUB_REPOSITORY"]
+              branch = os.environ["GITHUB_REF_NAME"]
+              token = os.environ["GITHUB_TOKEN"]
+              query = urllib.parse.urlencode({
+                  "branch": branch,
+                  "status": "success",
+                  "event": "workflow_dispatch",
+                  "per_page": "20",
+              })
+              url = f"https://api.github.com/repos/{repository}/actions/workflows/ios-release.yml/runs?{query}"
+              request = urllib.request.Request(url, headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  payload = json.load(response)
+
+              runs = payload.get("workflow_runs", [])
+              if not runs:
+                  raise SystemExit("Nenhuma release bem-sucedida foi encontrada para esta branch.")
+
+              resolved = str(runs[0]["id"])
+
+          print(f"Build selecionada: {resolved}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"BUILD_NUMBER={resolved}\n")
+          PY
+
+      - name: Aguardar processamento da build
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from pathlib import Path
+
+          import jwt
+          import requests
+
+          key_id = os.environ["APP_STORE_CONNECT_KEY_ID"]
+          issuer_id = os.environ["APP_STORE_CONNECT_ISSUER_ID"]
+          bundle_id = os.environ["APP_BUNDLE_ID"]
+          build_number = os.environ["BUILD_NUMBER"]
+          timeout_minutes = int(os.environ.get("TIMEOUT_MINUTES") or "20")
+          private_key = Path(os.environ["ASC_KEY_PATH"]).read_text(encoding="utf-8")
+
+          def make_headers() -> dict[str, str]:
+              token = jwt.encode(
+                  {
+                      "iss": issuer_id,
+                      "exp": int(time.time()) + 1200,
+                      "aud": "appstoreconnect-v1",
+                  },
+                  private_key,
+                  algorithm="ES256",
+                  headers={"kid": key_id, "typ": "JWT"},
+              )
+              return {"Authorization": f"Bearer {token}"}
+
+          def get_json(url: str, params: dict[str, str]) -> dict:
+              response = requests.get(url, headers=make_headers(), params=params, timeout=30)
+              response.raise_for_status()
+              return response.json()
+
+          apps_payload = get_json(
+              "https://api.appstoreconnect.apple.com/v1/apps",
+              {"filter[bundleId]": bundle_id},
+          )
+          apps = apps_payload.get("data", [])
+          if not apps:
+              raise SystemExit(f"Aplicativo nao encontrado para o bundle {bundle_id}.")
+
+          app_id = apps[0]["id"]
+          deadline = time.time() + (timeout_minutes * 60)
+          terminal_states = {"VALID", "INVALID", "FAILED", "PROCESSING_EXCEPTION"}
+
+          while True:
+              payload = get_json(
+                  "https://api.appstoreconnect.apple.com/v1/builds",
+                  {
+                      "filter[app]": app_id,
+                      "filter[version]": build_number,
+                      "include": "buildBetaDetail",
+                      "limit": "5",
+                  },
+              )
+
+              builds = payload.get("data", [])
+              beta_detail = None
+              for item in payload.get("included", []):
+                  if item.get("type") == "buildBetaDetails":
+                      beta_detail = item
+                      break
+
+              if builds:
+                  build = builds[0]
+                  processing_state = build["attributes"].get("processingState")
+                  internal_state = None if beta_detail is None else beta_detail["attributes"].get("internalBuildState")
+                  external_state = None if beta_detail is None else beta_detail["attributes"].get("externalBuildState")
+
+                  summary = {
+                      "buildNumber": build["attributes"].get("version"),
+                      "processingState": processing_state,
+                      "uploadedDate": build["attributes"].get("uploadedDate"),
+                      "internalBuildState": internal_state,
+                      "externalBuildState": external_state,
+                  }
+                  print(json.dumps(summary, ensure_ascii=False))
+
+                  if processing_state == "VALID":
+                      break
+
+                  if processing_state in terminal_states:
+                      raise SystemExit(f"Build terminou em estado inesperado: {processing_state}")
+              else:
+                  print(json.dumps({"buildNumber": build_number, "processingState": "NOT_FOUND_YET"}, ensure_ascii=False))
+
+              if time.time() >= deadline:
+                  raise SystemExit(f"Tempo limite excedido aguardando a build {build_number}.")
+
+              time.sleep(30)
+          PY

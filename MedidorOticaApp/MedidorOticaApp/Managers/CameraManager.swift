@@ -9,6 +9,9 @@ import Foundation
 import AVFoundation
 import ARKit
 import Combine
+import CoreImage
+import ImageIO
+import UIKit
 
 // MARK: - Notificacoes
 extension Notification.Name {
@@ -27,6 +30,7 @@ enum CameraError: Error, LocalizedError {
     case deviceConfigurationFailed
     case captureFailed
     case missingTrueDepthData
+    case missingDepthData
     case sessionNotReady
     case staleFrame
 
@@ -48,6 +52,8 @@ enum CameraError: Error, LocalizedError {
             return "Falha ao capturar a foto."
         case .missingTrueDepthData:
             return "Sensor TrueDepth obrigatorio nao forneceu dados confiaveis."
+        case .missingDepthData:
+            return "Sensor LiDAR nao forneceu profundidade confiavel para a foto."
         case .sessionNotReady:
             return "A camera ainda nao esta pronta para medir."
         case .staleFrame:
@@ -60,6 +66,20 @@ enum CameraError: Error, LocalizedError {
 /// Classe responsavel por gerenciar a camera e delegar atualizacoes da sessao AR.
 final class CameraManager: NSObject, ObservableObject {
     static let shared = CameraManager()
+
+    // MARK: - Qualidade de imagem
+    /// Contexto dedicado para renderizar a foto final com o maximo de fidelidade pratica.
+    private static let photoColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    /// Cria um `CIContext` fixo para evitar variacoes de renderizacao entre frames.
+    private static func makePhotoProcessingContext() -> CIContext {
+        CIContext(options: [
+            .cacheIntermediates: false,
+            .workingColorSpace: photoColorSpace,
+            .outputColorSpace: photoColorSpace,
+            .priorityRequestLow: false
+        ])
+    }
 
     // MARK: - Published Properties
     @Published private(set) var error: CameraError?
@@ -74,6 +94,10 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var captureState: CameraCaptureState = .idle
     @Published private(set) var captureHint = CameraCaptureBlockReason.preparingSession.shortMessage
     @Published private(set) var captureProgress = 0.0
+    @Published private(set) var trueDepthState: TrueDepthBootstrapState = .startingSession
+    @Published private(set) var trueDepthFailureReason: TrueDepthBlockReason?
+    @Published private(set) var trueDepthRecoveryAttempt = 0
+    @Published private(set) var trueDepthLastValidSampleTimestamp: TimeInterval?
 
     /// Callback invocado a cada novo frame AR.
     var outputDelegate: ((ARFrame) -> Void)?
@@ -84,17 +108,26 @@ final class CameraManager: NSObject, ObservableObject {
     let videoOutput = AVCapturePhotoOutput()
     var videoDeviceInput: AVCaptureDeviceInput?
     var arSession: ARSession?
-    let photoProcessingContext = CIContext()
+    let photoProcessingContext = CameraManager.makePhotoProcessingContext()
     private(set) var hardwareHasTrueDepth = false
+    private(set) var hardwareHasLiDAR = false
     let calibrationEstimator = TrueDepthCalibrationEstimator()
+    let rearLiDARMeasurementEngine = RearLiDARMeasurementEngine()
 
     // MARK: - Capture State
     let captureReadinessEngine = CaptureReadinessEngine()
     var lastSuccessfulCalibration: PostCaptureCalibration?
     var lastCalibrationFailure: (code: Int, message: String)?
-    private var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
+    private(set) var lastVerificationEvaluation: VerificationFrameEvaluation = .empty
     var lastFrameTimestamp: TimeInterval = 0
     var lastSuccessfulCalibrationTimestamp: TimeInterval?
+    private let trueDepthRecoveryPolicy = TrueDepthRecoveryPolicy()
+    private var trueDepthBootstrapStartTimestamp: TimeInterval?
+    private var trueDepthLastProgressTimestamp: TimeInterval?
+    private var trueDepthLastRestartTimestamp: TimeInterval?
+    private var trueDepthInternalState: TrueDepthBootstrapState = .startingSession
+    private var trueDepthInternalFailureReason: TrueDepthBlockReason?
+    private var trueDepthInternalRecoveryAttempt = 0
 
     // MARK: - Monitoring
     private var lensMonitorCancellables: Set<AnyCancellable> = []
@@ -143,17 +176,21 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Informa se a calibracao TrueDepth esta pronta para captura e retorna um hint amigavel.
     func calibrationReadiness() -> (ready: Bool, hint: String?) {
+        guard cameraPosition == .front, isUsingARSession else {
+            return (true, nil)
+        }
+
+        guard isTrueDepthSensorAlive else {
+            return (false, trueDepthHint())
+        }
+
         if let calibration = lastSuccessfulCalibration,
            calibration.isReliable,
            hasRecentSuccessfulCalibration {
             return (true, nil)
         }
 
-        guard cameraPosition == .front, isUsingARSession else {
-            return (true, nil)
-        }
-
-        return calibrationEstimator.readiness(minRecentSamples: 4)
+        return calibrationEstimator.readiness(minRecentSamples: 2)
     }
 
     /// Publica uma mensagem de erro relacionada a sessao AR.
@@ -166,29 +203,40 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     // MARK: - Device Capabilities
-    /// Verifica sensores disponiveis. Nesta fase o fluxo ativo usa apenas TrueDepth.
+    /// Verifica sensores disponiveis para os fluxos frontal e traseiro.
     func checkAvailableSensors() {
         isFrontCameraEnabled = true
         hardwareHasTrueDepth = ARFaceTrackingConfiguration.isSupported
+        hardwareHasLiDAR = RearLiDARMeasurementEngine.isSupported
         hasTrueDepth = hardwareHasTrueDepth
-        hasLiDAR = false
+        hasLiDAR = hardwareHasLiDAR
         print("Sensores disponiveis - TrueDepth: \(hasTrueDepth), LiDAR: \(hasLiDAR)")
     }
 
     // MARK: - Capture Pipeline
     /// Informa se a sessao atual esta realmente pronta para medir.
     var isMeasurementSessionReady: Bool {
-        isUsingARSession &&
-        isSessionRunning &&
-        cameraPosition == .front &&
-        hasTrueDepth &&
-        isFrontCameraEnabled &&
-        arSession != nil
+        guard isUsingARSession,
+              isSessionRunning,
+              arSession != nil else {
+            return false
+        }
+
+        if cameraPosition == .front {
+            return hasTrueDepth && isFrontCameraEnabled
+        }
+
+        return cameraPosition == .back && hasLiDAR
+    }
+
+    /// Informa se o TrueDepth ja provou que esta produzindo dados uteis.
+    var isTrueDepthSensorAlive: Bool {
+        trueDepthInternalState.isSensorAlive
     }
 
     /// Informa se a captura esta liberada pelo pipeline.
     var isCaptureReady: Bool {
-        captureState == .stableReady || captureState == .countdown
+        captureState == .stableReady
     }
 
     /// Marca o pipeline como em preparacao.
@@ -199,17 +247,10 @@ final class CameraManager: NSObject, ObservableObject {
                         progress: 0)
     }
 
-    /// Atualiza o estado de contagem regressiva da captura automatica.
+    /// Mantido apenas por compatibilidade; a captura automatica agora e instantanea.
     func setCountdownActive(_ isActive: Bool) {
         guard captureState != .capturing, captureState != .captured else { return }
-
-        if isActive {
-            setCaptureState(.countdown,
-                            hint: "Mantenha a posicao.",
-                            progress: 1)
-        } else {
-            updateCaptureReadiness()
-        }
+        if isActive { updateCaptureReadiness() }
     }
 
     /// Marca o inicio da captura real da foto.
@@ -248,9 +289,12 @@ final class CameraManager: NSObject, ObservableObject {
         guard captureState != .capturing, captureState != .captured else { return }
 
         let readiness = calibrationReadiness()
+        let policy: CaptureReadinessPolicy? = cameraPosition == .back ? .rearLiDAR : nil
         let input = CaptureReadinessInput(evaluation: lastVerificationEvaluation,
                                           sessionReady: isMeasurementSessionReady,
-                                          calibrationReady: readiness.ready)
+                                          calibrationReady: readiness.ready,
+                                          requiresTrackedFaceAnchor: cameraPosition == .front,
+                                          policy: policy)
         let status = captureReadinessEngine.evaluate(input: input)
         applyReadiness(status, calibrationHint: readiness.hint)
     }
@@ -260,7 +304,7 @@ final class CameraManager: NSObject, ObservableObject {
         guard isCaptureReady else { return false }
         guard lastFrameTimestamp > 0 else { return false }
         guard captureReadinessEngine.isFrameFresh(lastFrameTimestamp) else { return false }
-        return calibrationReadiness().ready
+        return true
     }
 
     /// Limpa os dados acumulados do pipeline de captura.
@@ -280,6 +324,7 @@ final class CameraManager: NSObject, ObservableObject {
             lastSuccessfulCalibration = nil
             lastSuccessfulCalibrationTimestamp = nil
             lastCalibrationFailure = nil
+            trueDepthLastValidSampleTimestamp = nil
             calibrationEstimator.reset()
         }
     }
@@ -288,14 +333,31 @@ final class CameraManager: NSObject, ObservableObject {
     private var hasRecentSuccessfulCalibration: Bool {
         guard let timestamp = lastSuccessfulCalibrationTimestamp else { return false }
         guard lastFrameTimestamp > 0 else { return false }
-        return abs(lastFrameTimestamp - timestamp) <= CaptureReadinessEngine.defaultMaximumCaptureAge
+        let maximumAge = CaptureReadinessEngine.defaultMaximumFrameGap + 0.25
+        return abs(lastFrameTimestamp - timestamp) <= maximumAge
+    }
+
+    private func updatePreviewCalibration(for frame: ARFrame,
+                                          cgOrientation: CGImagePropertyOrientation,
+                                          uiOrientation: UIInterfaceOrientation) {
+        guard let calibration = calibrationEstimator.previewCalibration(for: frame,
+                                                                        orientation: cgOrientation,
+                                                                        uiOrientation: uiOrientation),
+              calibration.isReliable else {
+            return
+        }
+
+        lastSuccessfulCalibration = calibration
+        lastSuccessfulCalibrationTimestamp = frame.timestamp
+        lastCalibrationFailure = nil
     }
 
     private func applyReadiness(_ status: CaptureReadinessStatus,
                                 calibrationHint: String?) {
         if status.isStableReady {
-            let nextState: CameraCaptureState = captureState == .countdown ? .countdown : .stableReady
-            setCaptureState(nextState, hint: "Pronto para capturar.", progress: 1)
+            setCaptureState(.stableReady,
+                            hint: "Mantenha a posicao. Captura automatica imediata.",
+                            progress: 1)
             return
         }
 
@@ -341,6 +403,8 @@ final class CameraManager: NSObject, ObservableObject {
         switch error {
         case .missingTrueDepthData:
             return .calibrationUnavailable
+        case .missingDepthData:
+            return .calibrationUnavailable
         case .sessionNotReady:
             return .sessionUnavailable
         case .staleFrame:
@@ -349,6 +413,158 @@ final class CameraManager: NSObject, ObservableObject {
             return .sessionUnavailable
         default:
             return nil
+        }
+    }
+
+    // MARK: - Bootstrap do TrueDepth
+    /// Prepara o bootstrap do sensor antes do inicio das verificacoes.
+    func prepareTrueDepthBootstrap(resetRecoveryAttempt: Bool,
+                                   recoveryReason: TrueDepthBlockReason? = nil) {
+        VerificationManager.shared.setTrueDepthGate(isOpen: false)
+        trueDepthBootstrapStartTimestamp = nil
+        trueDepthLastProgressTimestamp = nil
+        trueDepthInternalFailureReason = recoveryReason
+
+        if resetRecoveryAttempt {
+            trueDepthInternalRecoveryAttempt = 0
+            trueDepthLastRestartTimestamp = nil
+            publishTrueDepthState(.startingSession,
+                                  failureReason: nil,
+                                  lastValidSampleTimestamp: nil)
+            return
+        }
+
+        publishTrueDepthState(.recovering(attempt: max(trueDepthInternalRecoveryAttempt, 1)),
+                              failureReason: recoveryReason,
+                              lastValidSampleTimestamp: nil)
+    }
+
+    /// Retorna um texto curto que explica o bloqueio atual do sensor.
+    func trueDepthHint() -> String {
+        switch trueDepthInternalState {
+        case .startingSession:
+            return "Aguarde a camera abrir e o TrueDepth iniciar."
+        case .waitingForFaceAnchor:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Encaixe testa, olhos e queixo dentro do oval."
+        case .waitingForEyeProjection:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Deixe os dois olhos totalmente visiveis no oval."
+        case .waitingForDepthConsistency:
+            return trueDepthInternalFailureReason?.shortMessage ?? "Segure o celular reto e parado ate a malha estabilizar."
+        case .sensorAlive:
+            return "TrueDepth ativo."
+        case .recovering(let attempt):
+            return "Reiniciando o TrueDepth (\(attempt))."
+        case .failed(let reason):
+            return reason.shortMessage
+        }
+    }
+
+    /// Atualiza o bootstrap do sensor e decide se o watchdog precisa reiniciar a sessao.
+    func handleTrueDepthBootstrap(status: TrueDepthBootstrapStatus,
+                                  referenceTimestamp: TimeInterval) {
+        let wasSensorAlive = isTrueDepthSensorAlive
+        noteTrueDepthProgress(status: status, referenceTimestamp: referenceTimestamp)
+        VerificationManager.shared.setTrueDepthGate(isOpen: status.sensorAlive)
+
+        if status.sensorAlive {
+            if !wasSensorAlive {
+                resetCaptureStateForReuse()
+            }
+
+            trueDepthInternalRecoveryAttempt = 0
+            trueDepthInternalFailureReason = nil
+            publishTrueDepthState(.sensorAlive,
+                                  failureReason: nil,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+            return
+        }
+
+        if wasSensorAlive {
+            VerificationManager.shared.reset()
+            resetCapturePipeline(resetCalibration: true)
+            setCaptureState(.checking(.calibrationUnavailable),
+                            hint: status.failureReason?.shortMessage ?? trueDepthHint(),
+                            progress: 0)
+        }
+
+        let decision = trueDepthRecoveryPolicy.decision(referenceTimestamp: referenceTimestamp,
+                                                        lastProgressTimestamp: trueDepthLastProgressTimestamp,
+                                                        lastRestartTimestamp: trueDepthLastRestartTimestamp,
+                                                        recoveryAttempt: trueDepthInternalRecoveryAttempt,
+                                                        failureReason: status.failureReason)
+
+        switch decision {
+        case .restart(let reason):
+            recoverTrueDepth(reason: reason, referenceTimestamp: referenceTimestamp)
+        case .showFailure(let reason):
+            publishTrueDepthState(.failed(reason: reason),
+                                  failureReason: reason,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+        case .none:
+            publishTrueDepthState(status.state,
+                                  failureReason: status.failureReason,
+                                  lastValidSampleTimestamp: status.lastValidSampleTimestamp)
+        }
+    }
+
+    private func noteTrueDepthProgress(status: TrueDepthBootstrapStatus,
+                                       referenceTimestamp: TimeInterval) {
+        if trueDepthBootstrapStartTimestamp == nil {
+            trueDepthBootstrapStartTimestamp = referenceTimestamp
+        }
+
+        if status.sensorAlive {
+            trueDepthLastProgressTimestamp = referenceTimestamp
+            return
+        }
+
+        if trueDepthInternalFailureReason != status.failureReason ||
+            trueDepthInternalState != status.state {
+            trueDepthLastProgressTimestamp = referenceTimestamp
+            return
+        }
+
+        if trueDepthLastProgressTimestamp == nil {
+            trueDepthLastProgressTimestamp = trueDepthBootstrapStartTimestamp ?? referenceTimestamp
+        }
+    }
+
+    private func recoverTrueDepth(reason: TrueDepthBlockReason,
+                                  referenceTimestamp: TimeInterval) {
+        trueDepthInternalRecoveryAttempt += 1
+        trueDepthLastRestartTimestamp = referenceTimestamp
+        trueDepthLastProgressTimestamp = referenceTimestamp
+        publishTrueDepthState(.recovering(attempt: trueDepthInternalRecoveryAttempt),
+                              failureReason: reason,
+                              lastValidSampleTimestamp: nil)
+        restartSession(recoveryReason: reason)
+    }
+
+    private func publishTrueDepthState(_ state: TrueDepthBootstrapState,
+                                       failureReason: TrueDepthBlockReason?,
+                                       lastValidSampleTimestamp: TimeInterval?) {
+        trueDepthInternalState = state
+        trueDepthInternalFailureReason = failureReason
+
+        let publish = { [weak self] in
+            guard let self else { return }
+            let publishedAttempt: Int
+            if case .recovering(let attempt) = state {
+                publishedAttempt = attempt
+            } else {
+                publishedAttempt = self.trueDepthInternalRecoveryAttempt
+            }
+
+            self.trueDepthState = state
+            self.trueDepthFailureReason = failureReason
+            self.trueDepthRecoveryAttempt = publishedAttempt
+            self.trueDepthLastValidSampleTimestamp = lastValidSampleTimestamp
+        }
+
+        if Thread.isMainThread {
+            publish()
+        } else {
+            DispatchQueue.main.async(execute: publish)
         }
     }
 
@@ -549,14 +765,48 @@ private final class FrontLensCleanlinessMonitor {
 extension CameraManager: ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastFrameTimestamp = frame.timestamp
-        outputDelegate?(frame)
+        guard cameraPosition == .front, hasTrueDepth else {
+            if cameraPosition == .back, hasLiDAR {
+                VerificationManager.shared.setTrueDepthGate(isOpen: false)
+            }
+            outputDelegate?(frame)
+            return
+        }
 
-        guard cameraPosition == .front, hasTrueDepth else { return }
-        calibrationEstimator.ingest(frame: frame)
+        let cgOrientation = VerificationManager.shared.currentCGOrientation()
+        let uiOrientation = VerificationManager.shared.currentUIOrientation()
+        let bootstrapStatus = calibrationEstimator.ingest(frame: frame,
+                                                          cgOrientation: cgOrientation,
+                                                          uiOrientation: uiOrientation)
+        updatePreviewCalibration(for: frame,
+                                 cgOrientation: cgOrientation,
+                                 uiOrientation: uiOrientation)
+        handleTrueDepthBootstrap(status: bootstrapStatus,
+                                 referenceTimestamp: frame.timestamp)
+        outputDelegate?(frame)
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        if cameraPosition == .back {
+            guard case .normal = camera.trackingState else {
+                VerificationManager.shared.reset()
+                resetCapturePipeline(resetCalibration: true)
+                setCaptureState(.checking(.trackingUnavailable),
+                                hint: CameraCaptureBlockReason.trackingUnavailable.shortMessage,
+                                progress: 0)
+                return
+            }
+
+            updateCaptureReadiness()
+            return
+        }
+
         guard case .normal = camera.trackingState else {
+            prepareTrueDepthBootstrap(resetRecoveryAttempt: true,
+                                      recoveryReason: .faceNotTracked)
+            publishTrueDepthState(.waitingForFaceAnchor,
+                                  failureReason: .faceNotTracked,
+                                  lastValidSampleTimestamp: nil)
             VerificationManager.shared.reset()
             resetCapturePipeline(resetCalibration: true)
             setCaptureState(.checking(.trackingUnavailable),
@@ -577,6 +827,12 @@ extension CameraManager: ARSessionDelegate {
     func sessionWasInterrupted(_ session: ARSession) {
         publishARError("Sessao AR interrompida")
         beginPreparingCapture()
+        if cameraPosition == .front {
+            prepareTrueDepthBootstrap(resetRecoveryAttempt: false,
+                                      recoveryReason: .noRecentSamples)
+        } else {
+            resetCapturePipeline(resetCalibration: true)
+        }
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
