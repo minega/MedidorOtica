@@ -14,7 +14,7 @@ struct DistanceOverlay: View {
     // MARK: - View
     var body: some View {
         if verificationManager.faceDetected {
-            Text(String(format: "%.1f cm", verificationManager.lastMeasuredDistance))
+            Text(displayText)
                 .font(.headline)
                 .foregroundColor(.white)
                 .padding(.horizontal, 12)
@@ -29,5 +29,13 @@ struct DistanceOverlay: View {
                                  fallbackMaterial: .thinMaterial)
                 .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
         }
+    }
+
+    private var displayText: String {
+        if verificationManager.activeSensor == .rearMonoBridge {
+            return "Enquadramento"
+        }
+
+        return String(format: "%.1f cm", verificationManager.lastMeasuredDistance)
     }
 }

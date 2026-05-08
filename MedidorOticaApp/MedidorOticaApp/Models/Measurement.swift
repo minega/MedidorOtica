@@ -28,6 +28,8 @@ struct Measurement: Identifiable, Codable {
     var postCaptureCaptureCentralPoint: NormalizedPoint?
     /// Snapshot ocular 3D persistido para recalcular DNP perto e longe.
     var postCaptureEyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
+    /// Origem da escala usada na medicao salva.
+    var postCaptureScaleSource: CaptureScaleSource
 
     // MARK: - Computados
     var formattedDate: String {
@@ -73,6 +75,7 @@ struct Measurement: Identifiable, Codable {
          postCaptureLocalCalibration: LocalFaceScaleCalibration? = nil,
          postCaptureCaptureCentralPoint: NormalizedPoint? = nil,
          postCaptureEyeGeometrySnapshot: CaptureEyeGeometrySnapshot? = nil,
+         postCaptureScaleSource: CaptureScaleSource = .sensorDepth,
          id: UUID = UUID(),
          date: Date = Date()) {
         self.id = id
@@ -86,6 +89,7 @@ struct Measurement: Identifiable, Codable {
         self.postCaptureLocalCalibration = postCaptureLocalCalibration
         self.postCaptureCaptureCentralPoint = postCaptureCaptureCentralPoint
         self.postCaptureEyeGeometrySnapshot = postCaptureEyeGeometrySnapshot
+        self.postCaptureScaleSource = postCaptureScaleSource
         self.imageData = capturedImage.jpegData(compressionQuality: ImageQuality.jpegCompressionQuality)
     }
 
@@ -103,6 +107,7 @@ struct Measurement: Identifiable, Codable {
         case postCaptureLocalCalibration
         case postCaptureCaptureCentralPoint
         case postCaptureEyeGeometrySnapshot
+        case postCaptureScaleSource
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +130,8 @@ struct Measurement: Identifiable, Codable {
                                                                        forKey: .postCaptureCaptureCentralPoint)
         postCaptureEyeGeometrySnapshot = try container.decodeIfPresent(CaptureEyeGeometrySnapshot.self,
                                                                        forKey: .postCaptureEyeGeometrySnapshot)
+        postCaptureScaleSource = try container.decodeIfPresent(CaptureScaleSource.self,
+                                                               forKey: .postCaptureScaleSource) ?? .sensorDepth
     }
 
     func encode(to encoder: Encoder) throws {
@@ -141,5 +148,6 @@ struct Measurement: Identifiable, Codable {
         try container.encodeIfPresent(postCaptureLocalCalibration, forKey: .postCaptureLocalCalibration)
         try container.encodeIfPresent(postCaptureCaptureCentralPoint, forKey: .postCaptureCaptureCentralPoint)
         try container.encodeIfPresent(postCaptureEyeGeometrySnapshot, forKey: .postCaptureEyeGeometrySnapshot)
+        try container.encode(postCaptureScaleSource, forKey: .postCaptureScaleSource)
     }
 }

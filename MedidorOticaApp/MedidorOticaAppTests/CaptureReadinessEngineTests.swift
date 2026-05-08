@@ -31,8 +31,10 @@ struct CaptureReadinessEngineTests {
     @Test func rearDepthModeMessagesExplainLiDARToggle() async throws {
         #expect(RearDepthMode.liDAR.sensorName == "LiDAR")
         #expect(RearDepthMode.estimatedDepth.sensorName == "Depth")
+        #expect(RearDepthMode.monoBridge.sensorName == "Mono")
         #expect(RearDepthMode.liDAR.toggleMessage.contains("LiDAR ativo"))
         #expect(RearDepthMode.estimatedDepth.toggleMessage.contains("LiDAR desligado"))
+        #expect(RearDepthMode.monoBridge.toggleMessage.contains("ponte"))
     }
 
     @Test func trueDepthNoRecentSamplesMessageIsActionable() async throws {
@@ -312,6 +314,16 @@ struct CaptureReadinessEngineTests {
         #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
     }
 
+    @Test func rearMonoPoseInstructionUsesDedicatedTolerance() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 2.8,
+                                        yawDegrees: 3.0,
+                                        pitchDegrees: 3.2,
+                                        timestamp: 8.7,
+                                        sensor: .rearMonoBridge)
+
+        #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
+    }
+
     @Test func rearLiDARAssistToleranceIsWiderThanFinalTolerance() async throws {
         #expect(RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance)
@@ -324,6 +336,13 @@ struct CaptureReadinessEngineTests {
             RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance)
         #expect(RearDepthCapturePrecisionPolicy.alignmentAssistVerticalTolerance >
             RearDepthCapturePrecisionPolicy.verticalCenteringTolerance)
+    }
+
+    @Test func rearMonoAssistToleranceIsWiderThanFinalTolerance() async throws {
+        #expect(RearMonoBridgeCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
+            RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance)
+        #expect(RearMonoBridgeCapturePrecisionPolicy.alignmentAssistVerticalTolerance >
+            RearMonoBridgeCapturePrecisionPolicy.verticalCenteringTolerance)
     }
 
     @Test func rearLiDARCenteringAssistPredictsTowardNeutralOffsetWhenPoseIsOff() async throws {
@@ -356,6 +375,24 @@ struct CaptureReadinessEngineTests {
         let assisted = RearDepthCenteringAssist.assistedOffset(strictOffset: strictOffset,
                                                                neutralOffset: neutralOffset,
                                                                headPose: snapshot)
+
+        #expect(assisted.x < strictOffset.x)
+        #expect(assisted.x > neutralOffset.x)
+        #expect(assisted.y == strictOffset.y)
+    }
+
+    @Test func rearMonoCenteringAssistPredictsTowardNeutralOffsetWhenPoseIsOff() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 0,
+                                        yawDegrees: 14,
+                                        pitchDegrees: 0,
+                                        timestamp: 9.7,
+                                        sensor: .rearMonoBridge)
+        let strictOffset = SIMD2<Float>(0.040, 0.006)
+        let neutralOffset = SIMD2<Float>(0.010, 0.006)
+
+        let assisted = RearMonoBridgeCenteringAssist.assistedOffset(strictOffset: strictOffset,
+                                                                    neutralOffset: neutralOffset,
+                                                                    headPose: snapshot)
 
         #expect(assisted.x < strictOffset.x)
         #expect(assisted.x > neutralOffset.x)
@@ -397,6 +434,20 @@ struct CaptureReadinessEngineTests {
         #expect(!third.isStableReady)
         #expect(fourth.isStableReady)
         #expect(fourth.requiredStableSampleCount == RearDepthCapturePrecisionPolicy.stableSampleCount)
+    }
+
+    @Test func rearMonoReadinessDoesNotRequireFaceAnchorAndUsesDedicatedPolicy() async throws {
+        let engine = CaptureReadinessEngine()
+        let first = engine.evaluate(input: rearMonoReadyInput(timestamp: 12.00))
+        let second = engine.evaluate(input: rearMonoReadyInput(timestamp: 12.05))
+        let third = engine.evaluate(input: rearMonoReadyInput(timestamp: 12.10))
+        let fourth = engine.evaluate(input: rearMonoReadyInput(timestamp: 12.15))
+
+        #expect(!first.isStableReady)
+        #expect(!second.isStableReady)
+        #expect(!third.isStableReady)
+        #expect(fourth.isStableReady)
+        #expect(fourth.requiredStableSampleCount == RearMonoBridgeCapturePrecisionPolicy.stableSampleCount)
     }
 
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
@@ -444,5 +495,20 @@ struct CaptureReadinessEngineTests {
                               calibrationReady: true,
                               requiresTrackedFaceAnchor: false,
                               policy: .rearDepth)
+    }
+
+    private func rearMonoReadyInput(timestamp: TimeInterval) -> CaptureReadinessInput {
+        CaptureReadinessInput(evaluation: VerificationFrameEvaluation(timestamp: timestamp,
+                                                                      trackingIsNormal: true,
+                                                                      hasTrackedFaceAnchor: false,
+                                                                      faceDetected: true,
+                                                                      distanceCorrect: true,
+                                                                      faceAligned: true,
+                                                                      headPoseAvailable: true,
+                                                                      headAligned: true),
+                              sessionReady: true,
+                              calibrationReady: true,
+                              requiresTrackedFaceAnchor: false,
+                              policy: .rearMonoBridge)
     }
 }

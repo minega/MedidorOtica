@@ -17,6 +17,7 @@ import simd
 enum RearDepthMode: Equatable {
     case liDAR
     case estimatedDepth
+    case monoBridge
 
     /// Nome curto exibido no topo da camera.
     var sensorName: String {
@@ -25,6 +26,8 @@ enum RearDepthMode: Equatable {
             return "LiDAR"
         case .estimatedDepth:
             return "Depth"
+        case .monoBridge:
+            return "Mono"
         }
     }
 
@@ -35,6 +38,8 @@ enum RearDepthMode: Equatable {
             return "LiDAR ativo. A traseira usa profundidade real do sensor LiDAR."
         case .estimatedDepth:
             return "LiDAR desligado. A traseira usa profundidade estimada da camera dupla."
+        case .monoBridge:
+            return "Modo Mono ativo. A traseira usa a camera principal e escala manual pela ponte."
         }
     }
 }

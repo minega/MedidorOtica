@@ -23,6 +23,8 @@ extension CameraManager {
                 startRearLiDARMeasurementSession(completion: completion)
             case .estimatedDepth:
                 startRearDepthFallbackMeasurementSession(completion: completion)
+            case .monoBridge:
+                startRearMonoBridgeMeasurementSession(completion: completion)
             }
         }
     }
@@ -49,6 +51,7 @@ extension CameraManager {
         cameraPosition = .front
         isUsingARSession = true
         setRearDepthFallbackSessionActive(false)
+        setRearMonoBridgeSessionActive(false)
         isSessionRunning = true
         clearError()
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
@@ -78,6 +81,7 @@ extension CameraManager {
         cameraPosition = .back
         isUsingARSession = true
         setRearDepthFallbackSessionActive(false)
+        setRearMonoBridgeSessionActive(false)
         isSessionRunning = true
         clearError()
 
@@ -87,6 +91,63 @@ extension CameraManager {
         VerificationManager.shared.updateActiveSensor(using: self)
         updateLensMonitoring(for: .back)
         completion(true)
+    }
+
+    /// Inicia a sessao traseira com camera principal, sem LiDAR e sem depth de camera dupla.
+    private func startRearMonoBridgeMeasurementSession(completion: @escaping (Bool) -> Void) {
+        guard canStartRearMonoBridgeMeasurement() else {
+            completion(false)
+            return
+        }
+
+        stop()
+        beginPreparingCapture()
+
+        sessionQueue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            self.cleanupSession()
+            self.session.beginConfiguration()
+            if self.session.canSetSessionPreset(.hd4K3840x2160) {
+                self.session.sessionPreset = .hd4K3840x2160
+            } else if self.session.canSetSessionPreset(.high) {
+                self.session.sessionPreset = .high
+            }
+
+            guard let device = RearMonoBridgeMeasurementEngine.mainWideCamera(),
+                  self.configureRearMonoBridgeInput(device: device),
+                  self.rearMonoBridgeCaptureCoordinator.configure(session: self.session,
+                                                                  device: device,
+                                                                  frameHandler: { [weak self] frame in
+                                                                      self?.handleRearMonoBridgeFrame(frame)
+                                                                  }) else {
+                self.session.commitConfiguration()
+                DispatchQueue.main.async {
+                    self.publishError(.cameraUnavailable)
+                    completion(false)
+                }
+                return
+            }
+
+            self.session.commitConfiguration()
+            self.session.startRunning()
+
+            DispatchQueue.main.async {
+                let started = self.session.isRunning
+                self.cameraPosition = .back
+                self.isUsingARSession = false
+                self.setRearDepthFallbackSessionActive(false)
+                self.setRearMonoBridgeSessionActive(started)
+                self.isSessionRunning = started
+                self.clearError()
+                VerificationManager.shared.updateActiveSensor(using: self)
+                self.updateLensMonitoring(for: .back)
+                completion(started)
+            }
+        }
     }
 
     /// Inicia a sessao traseira separada com AVDepthData, sem LiDAR.
@@ -134,6 +195,7 @@ extension CameraManager {
                 self.cameraPosition = .back
                 self.isUsingARSession = false
                 self.setRearDepthFallbackSessionActive(started)
+                self.setRearMonoBridgeSessionActive(false)
                 self.isSessionRunning = started
                 self.clearError()
                 VerificationManager.shared.updateActiveSensor(using: self)
@@ -183,6 +245,8 @@ extension CameraManager {
             stopARSession()
         } else if isUsingRearDepthFallbackSession {
             stopRearDepthFallbackSession()
+        } else if isUsingRearMonoBridgeSession {
+            stopRearMonoBridgeSession()
         } else if isSessionRunning {
             stopCaptureSession()
         }
@@ -190,6 +254,7 @@ extension CameraManager {
         isSessionRunning = false
         isUsingARSession = false
         setRearDepthFallbackSessionActive(false)
+        setRearMonoBridgeSessionActive(false)
         resetCapturePipeline(resetCalibration: true)
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
         setCaptureState(.idle, hint: "Camera parada.", progress: 0)
@@ -199,6 +264,16 @@ extension CameraManager {
 
     /// Reinicia a sessao atual apos interrupcoes ou falhas do ARKit.
     func restartSession(recoveryReason: TrueDepthBlockReason? = nil) {
+        if isUsingRearMonoBridgeSession {
+            guard hasRearMonoBridgeFallback else {
+                stop()
+                return
+            }
+
+            startMeasurementSession(cameraType: .back, rearDepthMode: .monoBridge) { _ in }
+            return
+        }
+
         if isUsingRearDepthFallbackSession {
             guard hasRearDepthFallback else {
                 stop()
@@ -283,6 +358,17 @@ extension CameraManager {
         return true
     }
 
+    private func canStartRearMonoBridgeMeasurement() -> Bool {
+        guard hasRearMonoBridgeFallback,
+              RearMonoBridgeMeasurementEngine.isSupported else {
+            notifyUnsupportedDevice(reason: "Este dispositivo nao possui camera traseira principal compativel.",
+                                    sensor: "Mono")
+            return false
+        }
+
+        return true
+    }
+
     private func notifyUnsupportedDevice(reason: String,
                                         sensor: String = "TrueDepth") {
         publishError(.cameraUnavailable)
@@ -305,6 +391,15 @@ extension CameraManager {
         }
         cleanupSession()
         latestRearDepthFrame = nil
+    }
+
+    private func stopRearMonoBridgeSession() {
+        rearMonoBridgeCaptureCoordinator.reset()
+        if session.isRunning {
+            session.stopRunning()
+        }
+        cleanupSession()
+        latestRearMonoBridgeFrame = nil
     }
 
     private func stopCaptureSession() {
@@ -340,9 +435,32 @@ extension CameraManager {
         }
     }
 
+    private func configureRearMonoBridgeInput(device: AVCaptureDevice) -> Bool {
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            guard session.canAddInput(input) else {
+                publishError(.cannotAddInput)
+                return false
+            }
+
+            session.addInput(input)
+            videoDeviceInput = input
+            return true
+        } catch {
+            publishError(.createCaptureInput(error))
+            return false
+        }
+    }
+
     private func handleRearDepthFallbackFrame(_ frame: RearDepthFrame) {
         latestRearDepthFrame = frame
         lastFrameTimestamp = frame.timestamp
         VerificationManager.shared.processRearDepthFrame(frame)
+    }
+
+    private func handleRearMonoBridgeFrame(_ frame: RearMonoBridgeFrame) {
+        latestRearMonoBridgeFrame = frame
+        lastFrameTimestamp = frame.timestamp
+        VerificationManager.shared.processRearMonoBridgeFrame(frame)
     }
 }

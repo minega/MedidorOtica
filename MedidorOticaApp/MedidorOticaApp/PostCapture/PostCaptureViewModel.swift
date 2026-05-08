@@ -51,20 +51,22 @@ final class PostCaptureViewModel: ObservableObject {
     @Published var dnpCandidates: [PostCaptureDNPCandidate] = []
     @Published var bridgeReferenceText = ""
     @Published var bridgeReferenceError: String?
+    /// Escala ativa usada para desenhar e calcular as marcacoes.
+    @Published private(set) var scale: PostCaptureScale
 
     let capturedImage: UIImage
     private let baseMeasurement: Measurement?
     private let existingConfiguration: PostCaptureConfiguration?
     /// Calibração aplicada à imagem atual.
-    let calibration: PostCaptureCalibration
+    private(set) var calibration: PostCaptureCalibration
     /// Mapa local da face usado para reduzir erro de perspectiva.
-    let localCalibration: LocalFaceScaleCalibration
+    private(set) var localCalibration: LocalFaceScaleCalibration
     /// Aviso opcional gerado no momento da captura para orientar a revisão manual.
     let captureWarning: String?
     let captureCentralPoint: NormalizedPoint?
     let eyeGeometrySnapshot: CaptureEyeGeometrySnapshot?
     /// Conversor de escalas utilizado em todos os cálculos normalizados.
-    let scale: PostCaptureScale
+    let scaleSource: CaptureScaleSource
 
     // MARK: - Estados Internos
     private var didMirrorLeftEye = false
@@ -81,11 +83,18 @@ final class PostCaptureViewModel: ObservableObject {
         self.captureWarning = photo.captureWarning
         self.captureCentralPoint = existingMeasurement?.postCaptureCaptureCentralPoint ?? photo.captureCentralPoint
         self.eyeGeometrySnapshot = existingMeasurement?.postCaptureEyeGeometrySnapshot ?? photo.eyeGeometrySnapshot
+        self.scaleSource = existingMeasurement?.postCaptureScaleSource ?? photo.scaleSource
+        let acceptsStoredManualScale = self.scaleSource == .manualBridge &&
+            existingMeasurement?.postCaptureMetrics != nil
         self.scale = PostCaptureScale(calibration: self.calibration,
-                                      localCalibration: self.localCalibration)
+                                      localCalibration: self.localCalibration,
+                                      acceptsManualBridgeCalibration: acceptsStoredManualScale)
         self.configuration = existingMeasurement?.postCaptureConfiguration ?? PostCaptureConfiguration()
         self.metrics = existingMeasurement?.postCaptureMetrics
         if let bridgeReference = existingMeasurement?.postCaptureMetrics?.bridgeReferenceComparison?.requestedBridgeMM {
+            self.bridgeReferenceText = Self.formattedBridgeReference(bridgeReference)
+        } else if self.scaleSource == .manualBridge,
+                  let bridgeReference = existingMeasurement?.postCaptureMetrics?.ponte {
             self.bridgeReferenceText = Self.formattedBridgeReference(bridgeReference)
         }
         self.isProcessing = true
@@ -148,6 +157,11 @@ final class PostCaptureViewModel: ObservableObject {
 
     var isOnSummary: Bool {
         currentStage == .summary
+    }
+
+    /// Indica que a foto veio da camera traseira unica e precisa da ponte real para calcular.
+    var requiresManualBridgeScale: Bool {
+        scaleSource == .manualBridge
     }
 
     // MARK: - Processamento Inicial
@@ -228,6 +242,10 @@ final class PostCaptureViewModel: ObservableObject {
                 mirrorLeftEyeIfNeeded()
                 currentEye = .left
                 currentStage = .pupil
+            } else if requiresManualBridgeScale {
+                metrics = nil
+                bridgeReferenceError = nil
+                currentStage = .summary
             } else {
                 do {
                     try finalizeMetrics()
@@ -380,6 +398,11 @@ final class PostCaptureViewModel: ObservableObject {
 
     // MARK: - Cálculo de Métricas
     func finalizeMetrics() throws {
+        if requiresManualBridgeScale {
+            try finalizeManualBridgeMetrics()
+            return
+        }
+
         if !scale.isReliable,
            let baseMeasurement,
            let baseMetrics = baseMeasurement.postCaptureMetrics,
@@ -425,6 +448,11 @@ final class PostCaptureViewModel: ObservableObject {
     // MARK: - Construção de Measurement
     /// Aplica a ponte real digitada e recalcula a comparacao proporcional.
     func applyBridgeReferenceFromInput() throws {
+        if requiresManualBridgeScale {
+            try finalizeManualBridgeMetrics()
+            return
+        }
+
         if metrics == nil {
             try finalizeMetrics()
             return
@@ -438,7 +466,11 @@ final class PostCaptureViewModel: ObservableObject {
     func clearBridgeReferenceComparison() {
         bridgeReferenceText = ""
         bridgeReferenceError = nil
-        metrics = metrics?.removingBridgeReferenceComparison()
+        if requiresManualBridgeScale {
+            metrics = nil
+        } else {
+            metrics = metrics?.removingBridgeReferenceComparison()
+        }
     }
 
     func buildMeasurement(clientName: String, orderNumber: String) -> Measurement? {
@@ -459,6 +491,7 @@ final class PostCaptureViewModel: ObservableObject {
                            postCaptureLocalCalibration: localCalibration,
                            postCaptureCaptureCentralPoint: captureCentralPoint,
                            postCaptureEyeGeometrySnapshot: eyeGeometrySnapshot,
+                           postCaptureScaleSource: scaleSource,
                            id: identifier,
                            date: date)
     }
@@ -684,7 +717,73 @@ final class PostCaptureViewModel: ObservableObject {
         ?? String(format: "%.1f", value)
     }
 
+    private func finalizeManualBridgeMetrics() throws {
+        let requestedBridge = try requiredManualBridgeInput()
+        let candidates = centralCandidates ?? makeFallbackCentralCandidates(from: configuration)
+        let nosePoint = candidates.faceMidline.clamped()
+        let bridgePoint = candidates.bridge.clamped()
+
+        let noseScale = try manualScale(for: nosePoint,
+                                        requestedBridgeMM: requestedBridge)
+        let bridgeScale = try manualScale(for: bridgePoint,
+                                          requestedBridgeMM: requestedBridge)
+        let noseMetrics = try makeMetrics(for: nosePoint,
+                                          using: noseScale)
+        let bridgeMetrics = try makeMetrics(for: bridgePoint,
+                                            using: bridgeScale)
+        let convergence = evaluateDNPConvergence(nose: noseMetrics.validatedDNP,
+                                                 bridge: bridgeMetrics.validatedDNP)
+        let validatedPoint = makeValidatedCentralPoint(nosePoint: nosePoint,
+                                                       bridgePoint: bridgePoint,
+                                                       converged: convergence.isConverged)
+        let validatedScale = try manualScale(for: validatedPoint,
+                                             requestedBridgeMM: requestedBridge)
+        let validatedMetrics = try makeMetrics(for: validatedPoint,
+                                               using: validatedScale)
+        let validatedReference = convergence.isConverged ?
+            averagedReference(nose: noseMetrics.validatedDNP,
+                              bridge: bridgeMetrics.validatedDNP) :
+            noseMetrics.validatedDNP
+        let validatedSummary = makeValidatedSummary(from: validatedMetrics,
+                                                    validatedReference: validatedReference,
+                                                    noseReference: noseMetrics.validatedDNP,
+                                                    bridgeReference: bridgeMetrics.validatedDNP,
+                                                    convergence: convergence)
+
+        calibration = validatedScale.calibration
+        localCalibration = .empty
+        scale = validatedScale
+        configuration = configurationForCentralPoint(validatedPoint)
+        metrics = validatedSummary
+        bridgeReferenceError = nil
+        dnpCandidates = makeDNPCandidates(noseReference: noseMetrics.validatedDNP,
+                                          bridgeReference: bridgeMetrics.validatedDNP,
+                                          farConfidence: validatedSummary.farDNPConfidence,
+                                          farConfidenceReason: validatedSummary.farDNPConfidenceReason)
+    }
+
+    private func requiredManualBridgeInput() throws -> Double {
+        guard let value = try parsedBridgeReferenceInput() else {
+            throw PostCaptureMeasurementError.implausibleMeasurement("Informe a ponte real em mm para calcular este modo.")
+        }
+        return value
+    }
+
+    private func manualScale(for centralPoint: NormalizedPoint,
+                             requestedBridgeMM: Double) throws -> PostCaptureScale {
+        try PostCaptureManualBridgeScale.makeScale(configuration: configuration,
+                                                  centralPoint: centralPoint,
+                                                  imageSize: capturedImage.normalizedOrientation().size,
+                                                  requestedBridgeMM: requestedBridgeMM)
+    }
+
     private func makeMetrics(for centralPoint: NormalizedPoint) throws -> PostCaptureMetrics {
+        try makeMetrics(for: centralPoint,
+                        using: scale)
+    }
+
+    private func makeMetrics(for centralPoint: NormalizedPoint,
+                             using scale: PostCaptureScale) throws -> PostCaptureMetrics {
         let resolvedConfiguration = configurationForCentralPoint(centralPoint)
         let calculator = PostCaptureMeasurementCalculator(configuration: resolvedConfiguration,
                                                          centralPoint: resolvedConfiguration.centralPoint,

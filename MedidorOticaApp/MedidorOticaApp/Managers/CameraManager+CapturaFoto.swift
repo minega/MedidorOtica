@@ -56,6 +56,11 @@ extension CameraManager {
             return
         }
 
+        if isUsingRearMonoBridgeSession {
+            captureRearMonoBridgePhoto(completion: completion)
+            return
+        }
+
         markCaptureStarted()
         captureARPhotoAttempt(attempt: 0, completion: completion)
     }
@@ -291,6 +296,64 @@ extension CameraManager {
                                   frameTimestamp: frame.timestamp,
                                   orientation: calibration.cgOrientation,
                                   captureWarning: calibration.warning)
+        return .success(photo)
+    }
+
+    /// Captura o ultimo frame validado da camera principal traseira sem profundidade.
+    private func captureRearMonoBridgePhoto(completion: @escaping @Sendable (CapturedPhoto?) -> Void) {
+        guard let frame = latestRearMonoBridgeFrame else {
+            failCapture(with: .captureFailed, completion: completion)
+            return
+        }
+
+        guard captureReadinessEngine.isFrameFresh(frame.timestamp) else {
+            failCapture(with: .staleFrame, completion: completion)
+            return
+        }
+
+        let evaluation = VerificationManager.shared.rearMonoBridgeEvaluationForCapture(frame)
+        handleVerificationEvaluation(evaluation)
+        guard evaluation.allChecksPassed(requiresTrackedFaceAnchor: false) else {
+            failCapture(with: .sessionNotReady, completion: completion)
+            return
+        }
+
+        markCaptureStarted()
+        switch renderRearMonoBridgeCapturedPhoto(from: frame) {
+        case .success(let photo):
+            DispatchQueue.main.async {
+                self.markCaptureCompleted()
+                completion(photo)
+            }
+        case .failure(let error):
+            failCapture(with: error, completion: completion)
+        }
+    }
+
+    /// Monta a foto final do modo Mono. A escala real sera obrigatoria pela ponte no pos-captura.
+    private func renderRearMonoBridgeCapturedPhoto(from frame: RearMonoBridgeFrame) -> Result<CapturedPhoto, CameraError> {
+        guard let analysis = rearMonoBridgeMeasurementEngine.analyze(frame: frame) else {
+            return .failure(.captureFailed)
+        }
+
+        let ciImage = CIImage(cvPixelBuffer: frame.pixelBuffer)
+        let orientedCIImage = ciImage.oriented(forExifOrientation: analysis.cgOrientation.exifOrientation)
+
+        guard let cgImage = photoProcessingContext.createCGImage(orientedCIImage,
+                                                                 from: orientedCIImage.extent) else {
+            return .failure(.captureFailed)
+        }
+
+        let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
+        let photo = CapturedPhoto(image: image,
+                                  calibration: .default,
+                                  localCalibration: .empty,
+                                  captureCentralPoint: analysis.centralPoint,
+                                  eyeGeometrySnapshot: nil,
+                                  frameTimestamp: frame.timestamp,
+                                  orientation: analysis.cgOrientation,
+                                  captureWarning: "Modo Mono traseiro: informe a ponte real no resumo para calcular a escala.",
+                                  scaleSource: .manualBridge)
         return .success(photo)
     }
 

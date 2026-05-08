@@ -62,6 +62,8 @@ extension VerificationManager {
                                                allowAlignmentAssist: allowAlignmentAssist)
             case .rearDepth:
                 continue
+            case .rearMonoBridge:
+                continue
             case .none:
                 continue
             }
@@ -165,16 +167,22 @@ extension VerificationManager {
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
             activeSensor == .rearDepth ?
             RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance :
+            activeSensor == .rearMonoBridge ?
+            RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance :
             CenteringConstants.horizontalTolerance
         let verticalTolerance = activeSensor == .liDAR ?
             RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance :
             activeSensor == .rearDepth ?
             RearDepthCapturePrecisionPolicy.verticalCenteringTolerance :
+            activeSensor == .rearMonoBridge ?
+            RearMonoBridgeCapturePrecisionPolicy.verticalCenteringTolerance :
             CenteringConstants.verticalTolerance
         let centralPointTolerance = activeSensor == .liDAR ?
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance :
             activeSensor == .rearDepth ?
             RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance :
+            activeSensor == .rearMonoBridge ?
+            RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance :
             CenteringConstants.centralPointTolerance
         let isHorizontallyAligned = abs(metrics.horizontal) < horizontalTolerance
         let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
@@ -211,6 +219,10 @@ extension VerificationManager {
             return abs(metrics.horizontal) < RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
                 abs(metrics.vertical) < RearDepthCapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
                 abs(metrics.noseAlignment) < RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        case .rearMonoBridge:
+            return abs(metrics.horizontal) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+                abs(metrics.vertical) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
+                abs(metrics.noseAlignment) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistHorizontalTolerance
         case .none:
             return false
         }

@@ -1,11 +1,12 @@
 # Medidor Ótica
 
-Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo iOS que utiliza ARKit para realizar medições de armações de óculos com o auxílio dos sensores TrueDepth e LiDAR.
+Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo iOS que utiliza ARKit, Vision e AVFoundation para realizar medições de armações de óculos com TrueDepth, LiDAR, Depth traseiro ou câmera traseira Mono com ponte real.
 
 ## Estrutura
 
 - `MedidorOticaApp/` – Projeto Xcode com o código do aplicativo. Dentro dele há um `README.md` mais detalhado. O gerenciamento da câmera foi organizado em extensões, deixando o arquivo `CameraManager.swift` mais simples.
 - `docs/pipeline-precisao.md` – Mapa técnico do pipeline de captura, `PC`, escala local do `TrueDepth` e `DNP perto/longe`.
+- `docs/pipeline-camera-traseira-mono.md` – Fluxo traseiro separado para câmera principal sem LiDAR/Depth, com escala obrigatória pela ponte real.
 - `docs/testflight-release.md` – Passo a passo real para subir uma build ao TestFlight e confirmar o estado na Apple.
 
 ## Novidades
@@ -20,13 +21,14 @@ Este repositório contém o código-fonte do **Medidor Ótica**, um aplicativo i
 - Todas as verificações utilizam as revisões mais recentes do Vision.
 - Correção da orientação e do recorte ao salvar a foto.
 - Instruções na câmera usam pares fixos de emojis (ator + direção) para guiar os ajustes.
+- Modo traseiro `Mono` no botão superior junto com `LiDAR` e `Depth`, exigindo ponte real no resumo para recalcular a escala.
 
 ## Requisitos
 
 - Swift 5.9 ou superior
 - Xcode 15 ou superior
 - iOS 13 ou superior (recomendado iOS 17+)
-- Dispositivo com sensor **TrueDepth** ou **LiDAR**
+- Dispositivo com sensor **TrueDepth**, **LiDAR**, Depth traseiro ou câmera traseira principal para o modo Mono com ponte real
 
 O aplicativo detecta automaticamente qual sensor está disponível e ajusta as verificações.
 
@@ -84,4 +86,10 @@ Para detalhes de uso e arquitetura acesse `MedidorOticaApp/README.md`.
 - A captura traseira usa `ARWorldTrackingConfiguration`, `sceneDepth`/`smoothedSceneDepth`, landmarks do `Vision` e escala local por amostras de profundidade no rosto.
 - A faixa alvo do modo traseiro e `60-100 cm`; a frontal TrueDepth permanece em `30-40 cm`.
 - O modo traseiro nao altera a regra obrigatoria da frontal: nenhuma medicao frontal pode ocorrer sem TrueDepth ativo.
-- A tela de camera permite alternar entre `TrueDepth` e `LiDAR` pelo botao de troca de camera.
+- A tela de camera permite alternar modos traseiros pelo botao superior.
+
+## Modo traseiro Mono
+
+- Novo fluxo separado para iPhones sem LiDAR e sem Depth traseiro, usando sempre a camera principal.
+- O botao superior da camera traseira alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
+- A pos-captura exige a ponte real; a escala final usa a distancia entre as barras nasais ja ajustadas.

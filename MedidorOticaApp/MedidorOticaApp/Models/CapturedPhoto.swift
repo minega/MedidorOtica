@@ -8,6 +8,13 @@
 import UIKit
 import ImageIO
 
+// MARK: - Origem da escala
+/// Define como a foto deve resolver a escala final no pos-captura.
+enum CaptureScaleSource: String, Codable, Equatable {
+    case sensorDepth
+    case manualBridge
+}
+
 /// Representa uma captura realizada pela camera, incluindo a imagem e os dados de calibracao.
 struct CapturedPhoto {
     /// Imagem final fornecida para o fluxo pos-captura.
@@ -26,6 +33,8 @@ struct CapturedPhoto {
     let orientation: CGImagePropertyOrientation
     /// Aviso opcional exibido no pos-captura quando a foto exige revisao extra.
     let captureWarning: String?
+    /// Origem da escala usada para calcular as medidas finais.
+    let scaleSource: CaptureScaleSource
 
     /// Inicializa a captura preservando metadados uteis para auditoria futura.
     init(image: UIImage,
@@ -35,7 +44,8 @@ struct CapturedPhoto {
          eyeGeometrySnapshot: CaptureEyeGeometrySnapshot? = nil,
          frameTimestamp: TimeInterval = 0,
          orientation: CGImagePropertyOrientation = .up,
-         captureWarning: String? = nil) {
+         captureWarning: String? = nil,
+         scaleSource: CaptureScaleSource = .sensorDepth) {
         self.image = image
         self.calibration = calibration
         self.localCalibration = localCalibration
@@ -44,5 +54,6 @@ struct CapturedPhoto {
         self.frameTimestamp = frameTimestamp
         self.orientation = orientation
         self.captureWarning = captureWarning
+        self.scaleSource = scaleSource
     }
 }

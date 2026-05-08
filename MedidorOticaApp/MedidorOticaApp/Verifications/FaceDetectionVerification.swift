@@ -31,6 +31,8 @@ extension VerificationManager {
                 if checkFaceDetectionWithLiDAR(frame: frame) { return true }
             case .rearDepth:
                 continue
+            case .rearMonoBridge:
+                continue
             case .none:
                 continue
             }

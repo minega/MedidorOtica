@@ -272,13 +272,23 @@ struct PostCaptureFlowView: View {
                     .foregroundColor(.white.opacity(0.7))
             }
 
+            if viewModel.requiresManualBridgeScale {
+                ManualBridgeScaleSection(bridgeReferenceText: $viewModel.bridgeReferenceText,
+                                         errorMessage: viewModel.bridgeReferenceError,
+                                         hasCalculatedMetrics: viewModel.metrics != nil,
+                                         onApply: applyBridgeReferenceComparison,
+                                         onClear: viewModel.clearBridgeReferenceComparison)
+            }
+
             if let metrics = viewModel.metrics {
                 SummaryMetricsSection(metrics: metrics)
-                BridgeReferenceCalibrationSection(metrics: metrics,
-                                                  bridgeReferenceText: $viewModel.bridgeReferenceText,
-                                                  errorMessage: viewModel.bridgeReferenceError,
-                                                  onApply: applyBridgeReferenceComparison,
-                                                  onClear: viewModel.clearBridgeReferenceComparison)
+                if !viewModel.requiresManualBridgeScale {
+                    BridgeReferenceCalibrationSection(metrics: metrics,
+                                                      bridgeReferenceText: $viewModel.bridgeReferenceText,
+                                                      errorMessage: viewModel.bridgeReferenceError,
+                                                      onApply: applyBridgeReferenceComparison,
+                                                      onClear: viewModel.clearBridgeReferenceComparison)
+                }
 
                 if let convergenceReason = metrics.dnpConvergenceReason,
                    !metrics.dnpConverged {
@@ -295,6 +305,11 @@ struct PostCaptureFlowView: View {
                         .foregroundColor(.orange)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if viewModel.requiresManualBridgeScale {
+                Text("Informe a ponte real para gerar o resumo.")
+                    .font(.footnote)
+                    .foregroundColor(.cyan.opacity(0.95))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if !viewModel.dnpCandidates.isEmpty {
@@ -745,6 +760,73 @@ private struct BridgeReferenceCalibrationSection: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.cyan.opacity(0.22), lineWidth: 1)
+                )
+        )
+    }
+}
+
+/// Solicita a ponte real quando a captura veio da camera traseira unica.
+private struct ManualBridgeScaleSection: View {
+    @Binding var bridgeReferenceText: String
+    let errorMessage: String?
+    let hasCalculatedMetrics: Bool
+    let onApply: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Escala pela ponte")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.65))
+
+                Text("Digite a ponte real da armacao para calcular as medidas.")
+                    .font(.footnote)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+
+            HStack(spacing: 10) {
+                SummaryInputField(placeholder: "Ponte real (mm)",
+                                  text: $bridgeReferenceText,
+                                  keyboardType: .decimalPad)
+
+                Button(action: onApply) {
+                    Text(hasCalculatedMetrics ? "Recalcular" : "Calcular")
+                        .font(.footnote)
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.cyan)
+                .disabled(bridgeReferenceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if hasCalculatedMetrics {
+                HStack(spacing: 8) {
+                    SummaryValueChip(text: "Ponte aplicada")
+
+                    Button(action: onClear) {
+                        Label("Limpar", systemImage: "xmark.circle")
+                            .font(.footnote)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.gray)
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.cyan.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.cyan.opacity(0.26), lineWidth: 1)
                 )
         )
     }

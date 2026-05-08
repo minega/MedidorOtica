@@ -9,7 +9,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - **Suporte a ARKit**: Utiliza realidade aumentada para medições precisas
 - **Gerenciamento Otimizado**: Código robusto para evitar travamentos e vazamentos de memória
 - **Interface Intuitiva**: Design focado na experiência do usuário
-- **Suporte a Múltiplos Sensores**: TrueDepth (câmera frontal) e LiDAR (câmera traseira)
+- **Suporte a Múltiplos Sensores**: TrueDepth, LiDAR, Depth traseiro e Mono traseiro com ponte real
 - **Processamento em Tempo Real**: Análise de imagens e dados de profundidade
 
 ## 🆕 Novidades
@@ -20,6 +20,7 @@ Aplicativo profissional para medições de ótica, utilizando recursos avançado
 - A calibração local agora usa a malha útil completa do `TrueDepth`, ponto a ponto, para compensar deformações e perspectiva.
 - O `PC` final da pós-captura combina a geometria da foto com a linha média facial e o suporte 3D do `TrueDepth`.
 - O resultado final exibe `DNP validada perto/longe`, `DNP nariz` e `DNP ponte` na mesma tela, calculadas a partir da mesma captura sem tabela fixa.
+- Modo traseiro `Mono` usa a câmera principal e exige a ponte real no resumo para calcular a escala.
 
 ## 📂 Estrutura do Projeto
 
@@ -68,6 +69,7 @@ Esses arquivos concentram o que hoje define:
 - `PC` na captura e no pós-captura;
 - escala local ponto a ponto do `TrueDepth`;
 - `DNP validada`, `DNP nariz` e `DNP ponte`.
+- fluxo traseiro Mono por ponte real em `../docs/pipeline-camera-traseira-mono.md`.
 
 ## 🔍 Fluxo de Verificações
 
@@ -275,7 +277,13 @@ MedidorOticaApp/
 ## Modo traseiro LiDAR
 
 - Novo fluxo opcional com camera traseira e LiDAR, sem calibracao manual do usuario.
-- O app alterna entre `TrueDepth` e `LiDAR` pela barra superior da camera.
+- O app alterna modos traseiros pela barra superior da camera.
 - A traseira trabalha em `60-100 cm` e usa `Vision` para landmarks, LiDAR para profundidade e `LocalFaceScaleCalibration` para escala ponto a ponto.
 - A frontal permanece bloqueada para dispositivos sem `TrueDepth`.
 - A `DNP longe` no modo traseiro precisa de revisao no pos-captura porque o LiDAR nao fornece geometria ocular equivalente ao `ARFaceAnchor`.
+
+## Modo traseiro Mono
+
+- Fluxo separado para camera traseira principal sem LiDAR e sem Depth de camera dupla.
+- O botao superior alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
+- A pos-captura exige a ponte real e usa as barras nasais normais para recalcular a escala.

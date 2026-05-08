@@ -311,6 +311,7 @@ struct CameraView: View {
 
             setCameraIdleTimer(active: true)
             cameraManager.checkAvailableSensors()
+            resolveCameraSelectionIfNeeded()
             resolveRearDepthModeIfNeeded()
             guard canUseSelectedSensor() else {
                 setCameraIdleTimer(active: false)
@@ -352,23 +353,45 @@ struct CameraView: View {
             return cameraManager.hasLiDAR
         case .estimatedDepth:
             return cameraManager.hasRearDepthFallback
+        case .monoBridge:
+            return cameraManager.hasRearMonoBridgeFallback
         }
     }
 
     private func resolveRearDepthModeIfNeeded() {
         guard selectedCameraType == .back else { return }
+        guard !isRearDepthModeAvailable(rearDepthMode) else { return }
 
-        if rearDepthMode == .liDAR,
-           !cameraManager.hasLiDAR,
-           cameraManager.hasRearDepthFallback {
+        if cameraManager.hasLiDAR {
+            rearDepthMode = .liDAR
+            return
+        }
+
+        if cameraManager.hasRearDepthFallback {
             rearDepthMode = .estimatedDepth
             return
         }
 
-        if rearDepthMode == .estimatedDepth,
-           !cameraManager.hasRearDepthFallback,
-           cameraManager.hasLiDAR {
+        if cameraManager.hasRearMonoBridgeFallback {
+            rearDepthMode = .monoBridge
+        }
+    }
+
+    private func resolveCameraSelectionIfNeeded() {
+        guard selectedCameraType == .front,
+              !cameraManager.hasTrueDepth else {
+            return
+        }
+
+        if cameraManager.hasLiDAR {
+            selectedCameraType = .back
             rearDepthMode = .liDAR
+        } else if cameraManager.hasRearDepthFallback {
+            selectedCameraType = .back
+            rearDepthMode = .estimatedDepth
+        } else if cameraManager.hasRearMonoBridgeFallback {
+            selectedCameraType = .back
+            rearDepthMode = .monoBridge
         }
     }
 
@@ -383,6 +406,8 @@ struct CameraView: View {
                 return "Este dispositivo nao possui LiDAR traseiro compativel para a medicao."
             case .estimatedDepth:
                 return "Este dispositivo nao fornece profundidade traseira por camera dupla."
+            case .monoBridge:
+                return "Este dispositivo nao possui camera traseira principal compativel."
             }
         }
     }
@@ -397,10 +422,8 @@ struct CameraView: View {
         guard selectedCameraType == .back else { return }
 
         cameraManager.checkAvailableSensors()
-        let nextMode: RearDepthMode = rearDepthMode == .liDAR ? .estimatedDepth : .liDAR
-        guard isRearDepthModeAvailable(nextMode) else {
-            alertMessage = unavailableSensorMessage(for: .back,
-                                                    rearDepthMode: nextMode)
+        guard let nextMode = nextAvailableRearMode(after: rearDepthMode) else {
+            alertMessage = "Nenhum modo traseiro compativel foi encontrado."
             showingAlert = true
             notificationGenerator.notificationOccurred(.warning)
             return
@@ -411,6 +434,22 @@ struct CameraView: View {
         showingAlert = true
         isProcessing = false
         setupCamera()
+    }
+
+    private func nextAvailableRearMode(after currentMode: RearDepthMode) -> RearDepthMode? {
+        let orderedModes: [RearDepthMode] = [.liDAR, .estimatedDepth, .monoBridge]
+        guard let currentIndex = orderedModes.firstIndex(of: currentMode) else {
+            return orderedModes.first(where: isRearDepthModeAvailable)
+        }
+
+        for step in 1...orderedModes.count {
+            let candidate = orderedModes[(currentIndex + step) % orderedModes.count]
+            if isRearDepthModeAvailable(candidate) {
+                return candidate
+            }
+        }
+
+        return nil
     }
 
     private func configureCameraProcessing() {

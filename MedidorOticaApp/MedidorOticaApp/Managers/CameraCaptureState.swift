@@ -276,6 +276,13 @@ struct CaptureReadinessPolicy: Equatable, Sendable {
         maximumFrameGap: RearDepthCapturePrecisionPolicy.maximumFrameGap,
         maximumCaptureAge: RearDepthCapturePrecisionPolicy.maximumCaptureAge
     )
+
+    /// Politica traseira de camera unica: exige estabilidade curta e validacao manual de escala no pos-captura.
+    static let rearMonoBridge = CaptureReadinessPolicy(
+        requiredStableSampleCount: RearMonoBridgeCapturePrecisionPolicy.stableSampleCount,
+        maximumFrameGap: RearMonoBridgeCapturePrecisionPolicy.maximumFrameGap,
+        maximumCaptureAge: RearMonoBridgeCapturePrecisionPolicy.maximumCaptureAge
+    )
 }
 
 /// Dados consumidos pelo motor de estabilidade da captura.

@@ -43,6 +43,7 @@ final class VerificationManager: ObservableObject {
         case trueDepth
         case liDAR
         case rearDepth
+        case rearMonoBridge
     }
 
     // MARK: - Configuracao
@@ -69,6 +70,8 @@ final class VerificationManager: ObservableObject {
             return RearLiDARDistanceLimits.minCm
         case .rearDepth:
             return RearDepthDistanceLimits.minCm
+        case .rearMonoBridge:
+            return RearMonoBridgeDistanceLimits.minCm
         default:
             return DistanceLimits.minCm
         }
@@ -80,6 +83,8 @@ final class VerificationManager: ObservableObject {
             return RearLiDARDistanceLimits.maxCm
         case .rearDepth:
             return RearDepthDistanceLimits.maxCm
+        case .rearMonoBridge:
+            return RearMonoBridgeDistanceLimits.maxCm
         default:
             return DistanceLimits.maxCm
         }
@@ -133,6 +138,21 @@ final class VerificationManager: ObservableObject {
         }
     }
 
+    /// Processa um frame traseiro de camera unica, sem LiDAR e sem depth de camera dupla.
+    func processRearMonoBridgeFrame(_ frame: RearMonoBridgeFrame) {
+        guard reserveProcessingSlot(at: Date()) else { return }
+
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            defer { self.releaseProcessingSlot() }
+
+            let evaluation = self.makeRearMonoBridgeEvaluation(from: frame)
+            DispatchQueue.main.async { [weak self] in
+                self?.apply(evaluation: evaluation)
+            }
+        }
+    }
+
     /// Permite resetar todas as verificacoes externamente.
     func reset() {
         let work = { [self] in
@@ -162,6 +182,11 @@ final class VerificationManager: ObservableObject {
     /// Reavalia um frame traseiro sem LiDAR para validar a captura final.
     func rearDepthEvaluationForCapture(_ frame: RearDepthFrame) -> VerificationFrameEvaluation {
         makeRearDepthEvaluation(from: frame)
+    }
+
+    /// Reavalia um frame traseiro Mono para validar a captura final.
+    func rearMonoBridgeEvaluationForCapture(_ frame: RearMonoBridgeFrame) -> VerificationFrameEvaluation {
+        makeRearMonoBridgeEvaluation(from: frame)
     }
 
     /// Abre ou fecha o gate do TrueDepth antes da publicacao das verificacoes.
@@ -204,6 +229,8 @@ final class VerificationManager: ObservableObject {
                 guard hasLiDAR else { return false }
             case .rearDepth:
                 guard CameraManager.shared.hasRearDepthFallback else { return false }
+            case .rearMonoBridge:
+                guard CameraManager.shared.hasRearMonoBridgeFallback else { return false }
             case .none:
                 return false
             }
@@ -220,12 +247,14 @@ final class VerificationManager: ObservableObject {
             if activeSensor != .trueDepth { _ = addIfAvailable(.trueDepth) }
             if activeSensor != .liDAR { _ = addIfAvailable(.liDAR) }
             if activeSensor != .rearDepth { _ = addIfAvailable(.rearDepth) }
+            if activeSensor != .rearMonoBridge { _ = addIfAvailable(.rearMonoBridge) }
         }
 
         if orderedSensors.isEmpty {
             _ = addIfAvailable(.trueDepth)
             _ = addIfAvailable(.liDAR)
             _ = addIfAvailable(.rearDepth)
+            _ = addIfAvailable(.rearMonoBridge)
         }
 
         return orderedSensors
@@ -417,6 +446,65 @@ final class VerificationManager: ObservableObject {
                                            headAligned: headAlignment.isAligned)
     }
 
+    /// Cria uma avaliacao consistente para o modo traseiro de camera unica.
+    private func makeRearMonoBridgeEvaluation(from frame: RearMonoBridgeFrame) -> VerificationFrameEvaluation {
+        let manager = CameraManager.shared
+        guard let analysis = manager.rearMonoBridgeMeasurementEngine.analyze(frame: frame) else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: false,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        let distanceCorrect = manager.rearMonoBridgeMeasurementEngine.projectedDistanceIsValid(analysis)
+        publishRearMonoBridgeDistance(analysis: analysis,
+                                      isValid: distanceCorrect)
+        guard distanceCorrect else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: true,
+                                               distanceCorrect: false,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        let headAlignment = rearMonoBridgeHeadAlignment(from: analysis)
+        let allowAlignmentAssist = headAlignment.headPoseAvailable && !headAlignment.isAligned
+        let centering = rearMonoBridgeCentering(from: analysis,
+                                               allowAlignmentAssist: allowAlignmentAssist)
+        publishRearMonoBridgeCentering(centering)
+        guard centering.isCentered else {
+            return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                               trackingIsNormal: true,
+                                               hasTrackedFaceAnchor: false,
+                                               faceDetected: true,
+                                               distanceCorrect: true,
+                                               faceAligned: false,
+                                               headPoseAvailable: false,
+                                               headAligned: false)
+        }
+
+        if let snapshot = analysis.headPose {
+            publishRearMonoBridgeHeadPose(snapshot,
+                                         isHeadAligned: headAlignment.isAligned)
+        }
+
+        return VerificationFrameEvaluation(timestamp: frame.timestamp,
+                                           trackingIsNormal: true,
+                                           hasTrackedFaceAnchor: false,
+                                           faceDetected: true,
+                                           distanceCorrect: true,
+                                           faceAligned: true,
+                                           headPoseAvailable: headAlignment.headPoseAvailable,
+                                           headAligned: headAlignment.isAligned)
+    }
+
     private func rearDepthDistanceIsValid(_ distanceMeters: Float) -> Bool {
         guard distanceMeters.isFinite, distanceMeters > 0 else { return false }
         let range = (RearDepthDistanceLimits.minCm / 100)...(RearDepthDistanceLimits.maxCm / 100)
@@ -446,6 +534,14 @@ final class VerificationManager: ObservableObject {
         let aligned = abs(snapshot.rollDegrees) <= RearDepthCapturePrecisionPolicy.rollToleranceDegrees &&
             abs(snapshot.yawDegrees) <= RearDepthCapturePrecisionPolicy.yawToleranceDegrees &&
             abs(snapshot.pitchDegrees) <= RearDepthCapturePrecisionPolicy.pitchToleranceDegrees
+        return (true, aligned)
+    }
+
+    private func rearMonoBridgeHeadAlignment(from analysis: RearMonoBridgeFrameAnalysis) -> (headPoseAvailable: Bool, isAligned: Bool) {
+        guard let snapshot = analysis.headPose else { return (false, false) }
+        let aligned = abs(snapshot.rollDegrees) <= RearMonoBridgeCapturePrecisionPolicy.rollToleranceDegrees &&
+            abs(snapshot.yawDegrees) <= RearMonoBridgeCapturePrecisionPolicy.yawToleranceDegrees &&
+            abs(snapshot.pitchDegrees) <= RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees
         return (true, aligned)
     }
 
@@ -489,6 +585,76 @@ final class VerificationManager: ObservableObject {
            - Estrito:    \(centering.isStrict ? "OK" : "ERRO")
            - Assistido:  \(centering.isAssisted ? "SIM" : "NAO")
         """)
+    }
+
+    private func publishRearMonoBridgeDistance(analysis: RearMonoBridgeFrameAnalysis,
+                                               isValid: Bool) {
+        let distanceInCm = analysis.estimatedDistanceCm
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lastMeasuredDistance = distanceInCm
+            self.projectedFaceWidthRatio = analysis.projectedFaceWidthRatio
+            self.projectedFaceHeightRatio = analysis.projectedFaceHeightRatio
+            self.projectedFaceTooSmall = analysis.projectedFaceHeightRatio < 0.33
+
+            if !isValid {
+                print("Aviso Mono traseiro: enquadramento fora da faixa visual: \(String(format: "%.2f", analysis.projectedFaceHeightRatio))")
+            }
+        }
+    }
+
+    private func rearMonoBridgeCentering(from analysis: RearMonoBridgeFrameAnalysis,
+                                         allowAlignmentAssist: Bool) -> (horizontal: Float, vertical: Float, isCentered: Bool, isStrict: Bool, isAssisted: Bool) {
+        let strictOffset = analysis.strictOffset
+        let strictCentered = abs(strictOffset.x) < RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance &&
+            abs(strictOffset.y) < RearMonoBridgeCapturePrecisionPolicy.verticalCenteringTolerance
+        let assistedOffset = analysis.assistedOffset
+        let assistedCentered = allowAlignmentAssist &&
+            abs(assistedOffset.x) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+            abs(assistedOffset.y) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistVerticalTolerance
+        let visibleOffset = allowAlignmentAssist ? assistedOffset : strictOffset
+        return (visibleOffset.x,
+                visibleOffset.y,
+                strictCentered || assistedCentered,
+                strictCentered,
+                assistedCentered)
+    }
+
+    private func publishRearMonoBridgeCentering(_ centering: (horizontal: Float, vertical: Float, isCentered: Bool, isStrict: Bool, isAssisted: Bool)) {
+        let horizontalPercent = centering.horizontal * 100
+        let verticalPercent = centering.vertical * 100
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.facePosition = [
+                "x": horizontalPercent,
+                "y": verticalPercent,
+                "z": horizontalPercent
+            ]
+            self.faceAligned = centering.isCentered
+        }
+
+        print("""
+        Centralizacao Mono traseiro (% imagem):
+           - Horizontal: \(String(format: "%+.2f", horizontalPercent))
+           - Vertical:   \(String(format: "%+.2f", verticalPercent))
+           - Estrito:    \(centering.isStrict ? "OK" : "ERRO")
+           - Assistido:  \(centering.isAssisted ? "SIM" : "NAO")
+        """)
+    }
+
+    private func publishRearMonoBridgeHeadPose(_ snapshot: HeadPoseSnapshot,
+                                               isHeadAligned: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.headPoseSnapshot = snapshot
+            self.alignmentData = [
+                "roll": snapshot.rollDegrees,
+                "yaw": snapshot.yawDegrees,
+                "pitch": snapshot.pitchDegrees
+            ]
+            self.headAligned = isHeadAligned
+        }
     }
 
     private func publishRearDepthHeadPose(_ snapshot: HeadPoseSnapshot,
@@ -629,9 +795,15 @@ final class VerificationManager: ObservableObject {
             return .rearDepth
         }
 
+        if manager.isUsingRearMonoBridgeSession,
+           manager.hasRearMonoBridgeFallback {
+            return .rearMonoBridge
+        }
+
         if hasTrueDepthSupport { return .trueDepth }
         if hasLiDARSupport { return .liDAR }
         if manager.hasRearDepthFallback { return .rearDepth }
+        if manager.hasRearMonoBridgeFallback { return .rearMonoBridge }
         return .none
     }
 

@@ -21,27 +21,30 @@ struct PostCaptureCalibration: Codable, Equatable {
 
 // MARK: - Confiabilidade da calibração
 extension PostCaptureCalibration {
-    /// Indica se os valores foram obtidos com sensores de profundidade e fornecem precisão submilimétrica.
-    var isReliable: Bool {
+    /// Indica se os valores estao dentro de um dominio fisico plausivel para uso em medidas.
+    var isPlausibleMeasurementScale: Bool {
         guard horizontalReferenceMM.isFinite,
               verticalReferenceMM.isFinite,
               horizontalReferenceMM > 0,
               verticalReferenceMM > 0 else { return false }
 
+        let plausibleHorizontalRange: ClosedRange<Double> = 50...1600
+        let plausibleVerticalRange: ClosedRange<Double> = 50...1600
+        guard plausibleHorizontalRange.contains(horizontalReferenceMM),
+              plausibleVerticalRange.contains(verticalReferenceMM) else { return false }
+
+        let referenceRatio = horizontalReferenceMM / verticalReferenceMM
+        return referenceRatio.isFinite && referenceRatio > 0.5 && referenceRatio < 2.2
+    }
+
+    /// Indica se os valores foram obtidos com sensores de profundidade e fornecem precisão submilimétrica.
+    var isReliable: Bool {
+        guard isPlausibleMeasurementScale else { return false }
+
         // Rejeita a calibração padrão pois ela não provém dos sensores TrueDepth/LiDAR.
         let matchesDefault = abs(horizontalReferenceMM - PostCaptureCalibration.default.horizontalReferenceMM) < 0.0001 &&
                              abs(verticalReferenceMM - PostCaptureCalibration.default.verticalReferenceMM) < 0.0001
-        if matchesDefault { return false }
-
-        // Aceita intervalo amplo para TrueDepth frontal e LiDAR traseiro a 35-55 cm.
-        let horizontalRange: ClosedRange<Double> = 50...1600
-        let verticalRange: ClosedRange<Double> = 50...1600
-        guard horizontalRange.contains(horizontalReferenceMM),
-              verticalRange.contains(verticalReferenceMM) else { return false }
-
-        // Evita proporções extremamente distorcidas.
-        let ratio = horizontalReferenceMM / verticalReferenceMM
-        return ratio.isFinite && ratio > 0.5 && ratio < 2.2
+        return !matchesDefault
     }
 }
 
@@ -213,6 +216,8 @@ struct PostCaptureScale {
     let calibration: PostCaptureCalibration
     /// Escala local derivada da malha 3D do TrueDepth para compensar perspectiva.
     let localCalibration: LocalFaceScaleCalibration
+    /// Permite usar escala plana calculada pela ponte real quando nao ha profundidade.
+    private let acceptsManualBridgeCalibration: Bool
     /// Referência horizontal em milímetros para o intervalo normalizado completo.
     let horizontalReferenceMM: CGFloat
     /// Referência vertical em milímetros para o intervalo normalizado completo.
@@ -235,16 +240,22 @@ struct PostCaptureScale {
 
     /// Inicializa a escala garantindo que os valores sejam positivos.
     init(calibration: PostCaptureCalibration = .default,
-         localCalibration: LocalFaceScaleCalibration = .empty) {
+         localCalibration: LocalFaceScaleCalibration = .empty,
+         acceptsManualBridgeCalibration: Bool = false) {
         self.calibration = calibration
         self.localCalibration = localCalibration
+        self.acceptsManualBridgeCalibration = acceptsManualBridgeCalibration
         self.horizontalReferenceMM = max(CGFloat(calibration.horizontalReferenceMM), 1)
         self.verticalReferenceMM = max(CGFloat(calibration.verticalReferenceMM), 1)
     }
 
     /// Informa se a calibração associada atende aos critérios de confiabilidade.
     var isReliable: Bool {
-        calibration.isReliable || localCalibration.isReliable
+        if localCalibration.isReliable { return true }
+        if acceptsManualBridgeCalibration {
+            return calibration.isPlausibleMeasurementScale
+        }
+        return calibration.isReliable
     }
 
     /// Converte um valor em milímetros para escala horizontal normalizada (0...1).

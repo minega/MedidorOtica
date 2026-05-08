@@ -49,6 +49,10 @@ enum HeadPoseInstructionBuilder {
             return (RearDepthCapturePrecisionPolicy.rollToleranceDegrees,
                     RearDepthCapturePrecisionPolicy.yawToleranceDegrees,
                     RearDepthCapturePrecisionPolicy.pitchToleranceDegrees)
+        case .rearMonoBridge:
+            return (RearMonoBridgeCapturePrecisionPolicy.rollToleranceDegrees,
+                    RearMonoBridgeCapturePrecisionPolicy.yawToleranceDegrees,
+                    RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees)
         default:
             return (rollToleranceDegrees,
                     yawToleranceDegrees,
@@ -93,7 +97,7 @@ enum HeadAxisAdjustment: Equatable, Sendable {
     /// Texto de correcao respeitando se o usuario deve mover a cabeca ou o celular.
     func instruction(for sensor: VerificationManager.SensorType) -> String {
         switch sensor {
-        case .liDAR, .rearDepth:
+        case .liDAR, .rearDepth, .rearMonoBridge:
             return rearCameraInstruction
         default:
             return instruction
@@ -269,6 +273,9 @@ struct CameraInstructions: View {
 
     private func calibrationGuidance() -> String {
         if cameraManager.cameraPosition == .back {
+            if verificationManager.activeSensor == .rearMonoBridge {
+                return "📱 👀 Mantenha o rosto grande e central no oval"
+            }
             let usesRearDepth = verificationManager.activeSensor == .rearDepth ||
                 cameraManager.isUsingRearDepthFallbackSession
             let minDistance = usesRearDepth ? RearDepthDistanceLimits.minCm : RearLiDARDistanceLimits.minCm
@@ -307,6 +314,18 @@ struct CameraInstructions: View {
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
 
+        if verificationManager.activeSensor == .rearMonoBridge {
+            if verificationManager.projectedFaceTooSmall || currentDistance > maxDistance {
+                return "📱 ↔️ Aproxime o celular ate o rosto preencher melhor o oval"
+            }
+
+            if currentDistance > 0 && currentDistance < minDistance {
+                return "📱 ↔️ Afaste o celular ate o rosto caber inteiro no oval"
+            }
+
+            return "📱 ↔️ Ajuste a distancia ate o rosto ficar grande no oval"
+        }
+
         if verificationManager.projectedFaceTooSmall {
             if isRearCameraActive {
                 return "📱 ↔️ Aproxime o celular ate os olhos ocuparem melhor o oval"
@@ -344,6 +363,10 @@ struct CameraInstructions: View {
 
         if verificationManager.activeSensor == .rearDepth {
             return rearDepthCenteringGuidance()
+        }
+
+        if verificationManager.activeSensor == .rearMonoBridge {
+            return rearMonoBridgeCenteringGuidance()
         }
 
         let rawX = verificationManager.facePosition["x"] ?? 0
@@ -451,6 +474,30 @@ struct CameraInstructions: View {
         return "📱 ↔️ Ajuste fino ate o PC ficar no centro"
     }
 
+    /// Instrucao traseira baseada no PC visual do modo Mono.
+    private func rearMonoBridgeCenteringGuidance() -> String {
+        let xPos = verificationManager.facePosition["x"] ?? 0
+        let yPos = verificationManager.facePosition["y"] ?? 0
+        let horizontalOffset = abs(xPos)
+        let verticalOffset = abs(yPos)
+        let horizontalTolerance = RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance * 100
+        let verticalTolerance = RearMonoBridgeCapturePrecisionPolicy.verticalCenteringTolerance * 100
+
+        if horizontalOffset <= horizontalTolerance && verticalOffset <= verticalTolerance {
+            return "📱 ⏳ Segure parado no centro do PC"
+        }
+
+        if horizontalOffset >= verticalOffset {
+            return xPos > 0 ?
+                "📱 ➡️ Leve o celular um pouco para a direita" :
+                "📱 ⬅️ Leve o celular um pouco para a esquerda"
+        }
+
+        return yPos > 0 ?
+            "📱 ⬇️ Baixe um pouco o celular" :
+            "📱 ⬆️ Levante um pouco o celular"
+    }
+
     // MARK: - Cabeca
     /// Toda instrucao da etapa 4 precisa apontar um eixo real.
     private func headAlignmentGuidance() -> String {
@@ -462,7 +509,7 @@ struct CameraInstructions: View {
         }
 
         guard let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) else {
-            if snapshot.sensor == .liDAR || snapshot.sensor == .rearDepth {
+            if snapshot.sensor == .liDAR || snapshot.sensor == .rearDepth || snapshot.sensor == .rearMonoBridge {
                 return "📱 ✅ Celular alinhado com o rosto"
             }
             return "🙂 ✅ Cabeca alinhada nos 3 eixos"
@@ -544,6 +591,8 @@ struct VerificationMenu: View {
                 return "\(Int(RearLiDARDistanceLimits.minCm))-\(Int(RearLiDARDistanceLimits.maxCm)) cm"
             case .rearDepth:
                 return "\(Int(RearDepthDistanceLimits.minCm))-\(Int(RearDepthDistanceLimits.maxCm)) cm"
+            case .rearMonoBridge:
+                return "Enquad."
             default:
                 break
             }

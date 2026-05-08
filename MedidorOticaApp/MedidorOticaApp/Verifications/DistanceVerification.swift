@@ -94,6 +94,8 @@ extension VerificationManager {
                                            projectedFaceHeightRatio: analysis.projectedFaceHeightRatio)
             case .rearDepth:
                 continue
+            case .rearMonoBridge:
+                continue
             case .none:
                 continue
             }
@@ -186,6 +188,8 @@ extension VerificationManager {
             return (RearLiDARDistanceLimits.minCm / 100)...(RearLiDARDistanceLimits.maxCm / 100)
         case .rearDepth:
             return (RearDepthDistanceLimits.minCm / 100)...(RearDepthDistanceLimits.maxCm / 100)
+        case .rearMonoBridge:
+            return (RearMonoBridgeDistanceLimits.minCm / 100)...(RearMonoBridgeDistanceLimits.maxCm / 100)
         default:
             return DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters
         }

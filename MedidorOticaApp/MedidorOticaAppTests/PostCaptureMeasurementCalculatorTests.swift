@@ -295,4 +295,80 @@ struct PostCaptureMeasurementCalculatorTests {
             #expect(false)
         }
     }
+
+    @Test func manualBridgeScaleUsesNasalBarsAsRealReference() async throws {
+        let configuration = Self.manualBridgeConfiguration(rightNasal: 0.45,
+                                                           leftNasal: 0.55)
+
+        let scale = try PostCaptureManualBridgeScale.makeScale(configuration: configuration,
+                                                               centralPoint: configuration.centralPoint,
+                                                               imageSize: CGSize(width: 1_000, height: 1_500),
+                                                               requestedBridgeMM: 20)
+        let calculator = PostCaptureMeasurementCalculator(configuration: configuration,
+                                                          centralPoint: configuration.centralPoint,
+                                                          scale: scale)
+        let metrics = try calculator.makeMetrics()
+
+        #expect(scale.isReliable)
+        #expect(abs(Double(scale.horizontalReferenceMM) - 200) < 0.001)
+        #expect(abs(Double(scale.verticalReferenceMM) - 300) < 0.001)
+        #expect(abs(metrics.ponte - 20) < 0.001)
+        #expect(abs(metrics.rightEye.horizontalMaior - 40) < 0.001)
+        #expect(abs(metrics.leftEye.horizontalMaior - 40) < 0.001)
+    }
+
+    @Test func manualBridgeScaleAcceptsValuesThatMatchDefaultPlaceholder() async throws {
+        let configuration = Self.manualBridgeConfiguration(rightNasal: 0.45,
+                                                           leftNasal: 0.55)
+
+        let scale = try PostCaptureManualBridgeScale.makeScale(configuration: configuration,
+                                                               centralPoint: configuration.centralPoint,
+                                                               imageSize: CGSize(width: 1_500, height: 1_000),
+                                                               requestedBridgeMM: 12)
+
+        #expect(scale.isReliable)
+        #expect(abs(Double(scale.horizontalReferenceMM) - 120) < 0.001)
+        #expect(abs(Double(scale.verticalReferenceMM) - 80) < 0.001)
+    }
+
+    @Test func manualBridgeScaleRejectsCollapsedNasalBars() async throws {
+        let configuration = Self.manualBridgeConfiguration(rightNasal: 0.499,
+                                                           leftNasal: 0.501)
+
+        do {
+            _ = try PostCaptureManualBridgeScale.makeScale(configuration: configuration,
+                                                           centralPoint: configuration.centralPoint,
+                                                           imageSize: CGSize(width: 1_000, height: 1_500),
+                                                           requestedBridgeMM: 18)
+            #expect(false)
+        } catch let error as PostCaptureMeasurementError {
+            switch error {
+            case .implausibleMeasurement(let message):
+                #expect(message.contains("barras nasais"))
+            default:
+                #expect(false)
+            }
+        } catch {
+            #expect(false)
+        }
+    }
+
+    private static func manualBridgeConfiguration(rightNasal: CGFloat,
+                                                  leftNasal: CGFloat) -> PostCaptureConfiguration {
+        let center = NormalizedPoint(x: 0.5, y: 0.5)
+        let rightEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.40, y: 0.52),
+                                          nasalBarX: rightNasal,
+                                          temporalBarX: 0.25,
+                                          inferiorBarY: 0.61,
+                                          superiorBarY: 0.55)
+        let leftEye = EyeMeasurementData(pupil: NormalizedPoint(x: 0.60, y: 0.52),
+                                         nasalBarX: leftNasal,
+                                         temporalBarX: 0.75,
+                                         inferiorBarY: 0.61,
+                                         superiorBarY: 0.55)
+        return PostCaptureConfiguration(centralPoint: center,
+                                        rightEye: rightEye,
+                                        leftEye: leftEye,
+                                        faceBounds: NormalizedRect())
+    }
 }

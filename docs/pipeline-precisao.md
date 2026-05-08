@@ -172,3 +172,27 @@ O app agora possui um segundo fluxo de captura, separado do TrueDepth frontal, p
   Monta a foto final traseira com calibracao local LiDAR.
 - `MedidorOticaApp/MedidorOticaApp/Views/CameraView.swift`
   Permite alternar entre `TrueDepth` e `LiDAR`.
+
+## Modo traseiro Mono por ponte
+
+O app possui um fluxo separado para camera traseira principal quando nao ha LiDAR nem profundidade por camera dupla. Esse modo nao altera TrueDepth, LiDAR ou Depth.
+
+### Regras do fluxo Mono
+
+- A camera usada e sempre a principal traseira (`builtInWideAngleCamera`).
+- O botao superior da camera traseira alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
+- A captura valida rosto, enquadramento visual, centralizacao do `PC`, alinhamento de `roll/yaw/pitch` e estabilidade.
+- Sem profundidade real, a escala absoluta nao nasce da camera; a pos-captura exige a ponte real antes de calcular o resumo.
+- A ponte real usa as barras nasais ja ajustadas no fluxo normal como referencia, sem criar pontos extras.
+- A escala vertical deriva da horizontal pela proporcao da imagem para reduzir erro de distorcao lateral.
+
+### Arquivos do fluxo Mono
+
+- `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeMeasurementEngine.swift`
+  Valida captura com Vision usando somente a camera principal traseira.
+- `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeCaptureCoordinator.swift`
+  Configura AVFoundation sem LiDAR e sem depth por camera dupla.
+- `MedidorOticaApp/MedidorOticaApp/PostCapture/PostCaptureManualBridgeScale.swift`
+  Gera a escala final a partir da ponte real e das barras nasais.
+- `docs/pipeline-camera-traseira-mono.md`
+  Documento isolado do modo traseiro Mono.
