@@ -102,7 +102,11 @@ extension VerificationManager {
             return false
         }
 
-        let previewOffset = analysis.previewCenterOffsetMeters
+        let previewOffset = allowAlignmentAssist ?
+            RearLiDARCenteringAssist.assistedOffset(strictOffset: analysis.previewCenterOffsetMeters,
+                                                    neutralOffset: analysis.alignmentAssistCenterOffsetMeters,
+                                                    headPose: analysis.headPose) :
+            analysis.previewCenterOffsetMeters
         let metrics = FaceCenteringMetrics(horizontal: previewOffset.x,
                                            vertical: previewOffset.y,
                                            noseAlignment: previewOffset.x)
@@ -168,11 +172,8 @@ extension VerificationManager {
         let isVerticallyAligned = abs(metrics.vertical) < verticalTolerance
         let isNoseAligned = abs(metrics.noseAlignment) < centralPointTolerance
         let isStrictlyCentered = isHorizontallyAligned && isVerticallyAligned && isNoseAligned
-        let isAssistedDuringHeadAlignment = activeSensor == .trueDepth &&
-            allowAlignmentAssist &&
-            abs(metrics.horizontal) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
-            abs(metrics.vertical) < CapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
-            abs(metrics.noseAlignment) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        let isAssistedDuringHeadAlignment = isWithinAlignmentAssist(metrics,
+                                                                    allowAlignmentAssist: allowAlignmentAssist)
         let isCentered = isStrictlyCentered || isAssistedDuringHeadAlignment
 
         updateCenteringUI(horizontalOffset: metrics.horizontal,
@@ -182,6 +183,25 @@ extension VerificationManager {
                           isStrictlyCentered: isStrictlyCentered,
                           isAssistedDuringHeadAlignment: isAssistedDuringHeadAlignment)
         return isCentered
+    }
+
+    /// Permite a etapa de alinhamento sem liberar captura fora do centro final.
+    private func isWithinAlignmentAssist(_ metrics: FaceCenteringMetrics,
+                                         allowAlignmentAssist: Bool) -> Bool {
+        guard allowAlignmentAssist else { return false }
+
+        switch activeSensor {
+        case .trueDepth:
+            return abs(metrics.horizontal) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+                abs(metrics.vertical) < CapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
+                abs(metrics.noseAlignment) < CapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        case .liDAR:
+            return abs(metrics.horizontal) < RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
+                abs(metrics.vertical) < RearLiDARCapturePrecisionPolicy.alignmentAssistVerticalTolerance &&
+                abs(metrics.noseAlignment) < RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance
+        case .none:
+            return false
+        }
     }
 
     // MARK: - UI

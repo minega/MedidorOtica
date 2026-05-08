@@ -285,10 +285,11 @@ final class VerificationManager: ObservableObject {
                                                headAligned: false)
         }
 
-        // No TrueDepth, a pose e medida antes da centralizacao para permitir
-        // uma faixa assistida enquanto a pessoa corrige os eixos. No LiDAR,
-        // evitamos analisar o mesmo frame duas vezes porque o caminho usa Vision.
-        let preliminaryHeadAlignment: (headPoseAvailable: Bool, isAligned: Bool)? = activeSensor == .trueDepth ?
+        // A pose e medida antes da centralizacao para permitir uma faixa
+        // assistida enquanto a pessoa corrige os eixos. No LiDAR, a analise
+        // do frame fica em cache e tambem alimenta a previsao de centralizacao.
+        let shouldPreflightHeadPose = activeSensor == .trueDepth || activeSensor == .liDAR
+        let preliminaryHeadAlignment: (headPoseAvailable: Bool, isAligned: Bool)? = shouldPreflightHeadPose ?
             evaluateHeadAlignment(using: frame, faceAnchor: faceAnchor) :
             nil
         let faceAligned = checkFaceCentering(using: frame,

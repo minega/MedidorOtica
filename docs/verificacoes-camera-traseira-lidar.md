@@ -14,10 +14,13 @@ Este documento e exclusivo do modo traseiro. A camera frontal TrueDepth continua
 - O gate traseiro usa o deslocamento do `PC` em relacao ao centro visual do preview.
 - Esse deslocamento e convertido para centimetros usando profundidade do `PC` e intrinsecos do `ARFrame`.
 - O objetivo e alinhar com o que o usuario enxerga na tela, evitando erro de orientacao/espelhamento da camera traseira.
+- Quando `roll`, `yaw` ou `pitch` ainda estao fora, a UI pode usar uma faixa assistida de centralizacao baseada em um ponto neutro entre `PC`, olhos e centro facial. Isso reduz o loop de centralizar, girar e perder a centralizacao.
+- Essa faixa assistida nunca libera a foto. Quando a cabeca entra nos tres eixos, a centralizacao volta ao limite final do `PC` antes da captura.
 
 ## Alinhamento
 
 - A pose traseira usa landmarks, profundidade LiDAR e, quando util, os angulos nativos do `Vision`.
+- A pose traseira e medida antes da centralizacao para decidir se a UI deve entrar na faixa assistida de alinhamento.
 - A captura traseira fica bloqueada quando `roll`, `yaw` ou `pitch` nao foram medidos no frame atual.
 - O `roll` usa a linha dos olhos; o `yaw` prefere a diferenca de profundidade entre os olhos; o `pitch` usa a normal 3D aproximada da face.
 - O TrueDepth frontal continua usando as tolerancias frontais.

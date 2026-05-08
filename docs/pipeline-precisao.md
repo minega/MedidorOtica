@@ -159,6 +159,7 @@ O app agora possui um segundo fluxo de captura, separado do TrueDepth frontal, p
 - O LiDAR fornece escala/profundidade; landmarks do `Vision` fornecem face, olhos, eixo nasal e pose.
 - A escala pos-captura da traseira e local: o motor monta amostras dentro do recorte facial e integra ponto a ponto usando `LocalFaceScaleCalibration`.
 - A captura traseira nao exige `ARFaceAnchor`, mas exige rosto detectado, distancia valida, PC centralizado, pose alinhada e frame estavel.
+- Durante o alinhamento traseiro, a UI pode usar centralizacao assistida/preditiva para evitar loop entre centralizar e girar; a captura final continua exigindo centralizacao estrita do `PC`.
 - O `DNP longe` da traseira deve ser revisado no pos-captura porque a camera traseira nao fornece geometria ocular equivalente ao `TrueDepth`.
 
 ### Arquivos do fluxo traseiro

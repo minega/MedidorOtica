@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import simd
 import Testing
 @testable import MedidorOticaApp
 
@@ -248,6 +249,54 @@ struct CaptureReadinessEngineTests {
                                         sensor: .liDAR)
 
         #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
+    }
+
+    @Test func rearLiDARAssistToleranceIsWiderThanFinalTolerance() async throws {
+        #expect(RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
+            RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance)
+        #expect(RearLiDARCapturePrecisionPolicy.alignmentAssistVerticalTolerance >
+            RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance)
+    }
+
+    @Test func rearLiDARCenteringAssistPredictsTowardNeutralOffsetWhenPoseIsOff() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 0,
+                                        yawDegrees: 12,
+                                        pitchDegrees: 0,
+                                        timestamp: 9,
+                                        sensor: .liDAR)
+        let strictOffset = SIMD2<Float>(0.015, 0.002)
+        let neutralOffset = SIMD2<Float>(0.004, 0.002)
+
+        let assisted = RearLiDARCenteringAssist.assistedOffset(strictOffset: strictOffset,
+                                                               neutralOffset: neutralOffset,
+                                                               headPose: snapshot)
+
+        #expect(assisted.x < strictOffset.x)
+        #expect(assisted.x > neutralOffset.x)
+        #expect(assisted.y == strictOffset.y)
+    }
+
+    @Test func rearLiDARAssistedCenteringStillBlocksCaptureUntilHeadAligned() async throws {
+        let engine = CaptureReadinessEngine(requiredStableSampleCount: 1,
+                                            maximumFrameGap: 0.20,
+                                            maximumCaptureAge: 0.15)
+        let evaluation = VerificationFrameEvaluation(timestamp: 10,
+                                                     trackingIsNormal: true,
+                                                     hasTrackedFaceAnchor: false,
+                                                     faceDetected: true,
+                                                     distanceCorrect: true,
+                                                     faceAligned: true,
+                                                     headPoseAvailable: true,
+                                                     headAligned: false)
+
+        let status = engine.evaluate(input: CaptureReadinessInput(evaluation: evaluation,
+                                                                  sessionReady: true,
+                                                                  calibrationReady: true,
+                                                                  requiresTrackedFaceAnchor: false,
+                                                                  policy: .rearLiDAR))
+
+        #expect(status.blockReason == .headNotAligned)
+        #expect(!status.isStableReady)
     }
 
     private func readyInput(timestamp: TimeInterval) -> CaptureReadinessInput {

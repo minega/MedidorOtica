@@ -26,6 +26,10 @@ enum RearLiDARCapturePrecisionPolicy {
     static let horizontalCenteringTolerance: Float = 0.0070
     /// Tolerancia vertical do PC no preview traseiro.
     static let verticalCenteringTolerance: Float = 0.0080
+    /// Faixa horizontal usada apenas enquanto a cabeca ainda esta sendo alinhada.
+    static let alignmentAssistHorizontalTolerance: Float = 0.0140
+    /// Faixa vertical usada apenas para impedir alternancia entre centralizacao e pose.
+    static let alignmentAssistVerticalTolerance: Float = 0.0160
     /// Tolerancia de roll para pose medida pelo Vision.
     static let rollToleranceDegrees: Float = 2.0
     /// Tolerancia de yaw para pose medida pelo Vision.
@@ -50,6 +54,7 @@ struct RearLiDARFrameAnalysis {
     let centralCameraPoint: SIMD3<Float>
     let centralDepthMeters: Float
     let previewCenterOffsetMeters: SIMD2<Float>
+    let alignmentAssistCenterOffsetMeters: SIMD2<Float>
     let averageEyeDepthMeters: Float
     let projectedFaceWidthRatio: Float
     let projectedFaceHeightRatio: Float
@@ -76,6 +81,40 @@ private struct RearLiDARHeadPoseAngles {
     let roll: Float?
     let yaw: Float?
     let pitch: Float?
+}
+
+// MARK: - Centralizacao assistida
+/// Suaviza a centralizacao traseira durante a correcao da pose, sem liberar a foto final.
+enum RearLiDARCenteringAssist {
+    /// Combina o PC estrito com uma referencia visual menos sensivel a giro da cabeca.
+    static func assistedOffset(strictOffset: SIMD2<Float>,
+                               neutralOffset: SIMD2<Float>,
+                               headPose: HeadPoseSnapshot?) -> SIMD2<Float> {
+        guard let headPose,
+              headPose.sensor == .liDAR,
+              headPose.isValid else {
+            return strictOffset
+        }
+
+        let blend = assistanceBlend(for: headPose)
+        return strictOffset + ((neutralOffset - strictOffset) * blend)
+    }
+
+    /// Aumenta a previsao conforme a cabeca esta mais longe dos eixos finais.
+    static func assistanceBlend(for headPose: HeadPoseSnapshot) -> Float {
+        guard headPose.sensor == .liDAR,
+              headPose.isValid else {
+            return 0
+        }
+
+        let rollError = max(abs(headPose.rollDegrees) - RearLiDARCapturePrecisionPolicy.rollToleranceDegrees, 0)
+        let yawError = max(abs(headPose.yawDegrees) - RearLiDARCapturePrecisionPolicy.yawToleranceDegrees, 0)
+        let pitchError = max(abs(headPose.pitchDegrees) - RearLiDARCapturePrecisionPolicy.pitchToleranceDegrees, 0)
+        let normalizedError = max(rollError / 8,
+                                  max(yawError / 10,
+                                      pitchError / 10))
+        return min(max(normalizedError, 0), 1) * 0.70
+    }
 }
 
 // MARK: - Motor LiDAR
@@ -186,6 +225,15 @@ final class RearLiDARMeasurementEngine {
             return nil
         }
 
+        let assistPoint = alignmentAssistCentralPoint(from: face,
+                                                      faceBounds: bounds,
+                                                      centralPoint: centralPoint,
+                                                      imageSize: imageSize)
+        let assistOffset = previewCenterOffsetMeters(for: assistPoint,
+                                                     depth: centralDepth,
+                                                     imageSize: imageSize,
+                                                     frame: frame,
+                                                     orientation: cgOrientation) ?? previewOffset
         let headPose = makeHeadPose(from: face,
                                     centralPoint: centralPoint,
                                     centralCameraPoint: centralCameraPoint,
@@ -201,6 +249,7 @@ final class RearLiDARMeasurementEngine {
                                               centralCameraPoint: centralCameraPoint,
                                               centralDepthMeters: centralDepth,
                                               previewCenterOffsetMeters: previewOffset,
+                                              alignmentAssistCenterOffsetMeters: assistOffset,
                                               averageEyeDepthMeters: eyeDepth,
                                               projectedFaceWidthRatio: Float(bounds.width),
                                               projectedFaceHeightRatio: Float(bounds.height),
@@ -323,6 +372,37 @@ final class RearLiDARMeasurementEngine {
             interpolatedAxisX(points: noseCrest, targetY: targetY) ??
             (faceBounds.x + (faceBounds.width * 0.5))
         return NormalizedPoint(x: axisX, y: targetY).clamped()
+    }
+
+    /// Estima onde a centralizacao deve ficar apos a cabeca voltar aos eixos.
+    private func alignmentAssistCentralPoint(from face: VNFaceObservation,
+                                             faceBounds: NormalizedRect,
+                                             centralPoint: NormalizedPoint,
+                                             imageSize: CGSize) -> NormalizedPoint {
+        let eyePoints = resolvedEyeLandmarkPoints(face: face,
+                                                  imageSize: imageSize)
+        let faceCenterX = faceBounds.x + (faceBounds.width * 0.5)
+        let faceEyeLineY = faceBounds.y + (faceBounds.height * 0.42)
+        var weightedX = centralPoint.x * 0.50
+        var totalXWeight: CGFloat = 0.50
+        var weightedY = centralPoint.y * 0.75
+        var totalYWeight: CGFloat = 0.75
+
+        if eyePoints.count >= 2 {
+            let eyeMidX = eyePoints
+                .map(\.x)
+                .reduce(0, +) / CGFloat(eyePoints.count)
+            weightedX += eyeMidX * 0.35
+            totalXWeight += 0.35
+        }
+
+        weightedX += faceCenterX * 0.15
+        totalXWeight += 0.15
+        weightedY += faceEyeLineY * 0.25
+        totalYWeight += 0.25
+
+        return NormalizedPoint(x: weightedX / totalXWeight,
+                               y: weightedY / totalYWeight).clamped()
     }
 
     private func normalizedPoint(from region: VNFaceLandmarkRegion2D?,
