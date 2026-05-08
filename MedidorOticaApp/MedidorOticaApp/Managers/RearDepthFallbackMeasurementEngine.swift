@@ -54,9 +54,9 @@ enum RearDepthCapturePrecisionPolicy {
     /// Tolerancia vertical final do PC para profundidade estimada.
     static let verticalCenteringTolerance: Float = 0.0100
     /// Faixa horizontal assistida durante alinhamento.
-    static let alignmentAssistHorizontalTolerance: Float = 0.0170
+    static let alignmentAssistHorizontalTolerance: Float = 0.0220
     /// Faixa vertical assistida durante alinhamento.
-    static let alignmentAssistVerticalTolerance: Float = 0.0190
+    static let alignmentAssistVerticalTolerance: Float = 0.0240
     /// Tolerancia de roll da cabeca.
     static let rollToleranceDegrees: Float = 2.4
     /// Tolerancia de yaw da cabeca.
@@ -154,7 +154,7 @@ enum RearDepthCenteringAssist {
         let normalizedError = max(rollError / 8,
                                   max(yawError / 10,
                                       pitchError / 10))
-        return min(max(normalizedError, 0), 1) * 0.65
+        return min(max(normalizedError, 0), 1) * 0.90
     }
 }
 
@@ -462,21 +462,21 @@ final class RearDepthFallbackMeasurementEngine {
                                                   imageSize: imageSize)
         let faceCenterX = faceBounds.x + (faceBounds.width * 0.5)
         let faceEyeLineY = faceBounds.y + (faceBounds.height * 0.42)
-        var weightedX = centralPoint.x * 0.50
-        var totalXWeight: CGFloat = 0.50
-        var weightedY = centralPoint.y * 0.75
-        var totalYWeight: CGFloat = 0.75
+        var weightedX = centralPoint.x * 0.25
+        var totalXWeight: CGFloat = 0.25
+        var weightedY = centralPoint.y * 0.55
+        var totalYWeight: CGFloat = 0.55
 
         if eyePoints.count >= 2 {
             let eyeMidX = eyePoints.map(\.x).reduce(0, +) / CGFloat(eyePoints.count)
-            weightedX += eyeMidX * 0.35
-            totalXWeight += 0.35
+            weightedX += eyeMidX * 0.50
+            totalXWeight += 0.50
         }
 
-        weightedX += faceCenterX * 0.15
-        totalXWeight += 0.15
-        weightedY += faceEyeLineY * 0.25
-        totalYWeight += 0.25
+        weightedX += faceCenterX * 0.25
+        totalXWeight += 0.25
+        weightedY += faceEyeLineY * 0.45
+        totalYWeight += 0.45
 
         return NormalizedPoint(x: weightedX / totalXWeight,
                                y: weightedY / totalYWeight).clamped()

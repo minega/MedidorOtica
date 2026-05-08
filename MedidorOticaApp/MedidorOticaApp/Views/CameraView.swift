@@ -30,6 +30,8 @@ struct CameraView: View {
     @State private var showVerifications = true
     @State private var cameraInitialized = false
     @State private var notificationObservers: [NSObjectProtocol] = []
+    @State private var didOverrideIdleTimer = false
+    @State private var previousIdleTimerDisabled = false
 
     private let showDistanceOverlay = true
 
@@ -254,6 +256,7 @@ struct CameraView: View {
     }
 
     private func handleDisappear() {
+        setCameraIdleTimer(active: false)
         cameraManager.stop()
         cameraInitialized = false
         notificationObservers.forEach { observer in
@@ -281,6 +284,7 @@ struct CameraView: View {
 
     private func handleResultPresentationChange(_ isShowing: Bool) {
         if isShowing {
+            setCameraIdleTimer(active: false)
             cameraManager.stop()
             cameraInitialized = false
             return
@@ -300,11 +304,16 @@ struct CameraView: View {
         }
 
         checkCameraPermissions { permissionGranted in
-            guard permissionGranted else { return }
+            guard permissionGranted else {
+                setCameraIdleTimer(active: false)
+                return
+            }
 
+            setCameraIdleTimer(active: true)
             cameraManager.checkAvailableSensors()
             resolveRearDepthModeIfNeeded()
             guard canUseSelectedSensor() else {
+                setCameraIdleTimer(active: false)
                 alertMessage = unavailableSensorMessage(for: selectedCameraType,
                                                         rearDepthMode: rearDepthMode)
                 showingAlert = true
@@ -315,9 +324,11 @@ struct CameraView: View {
                                                   rearDepthMode: rearDepthMode) { success in
                 DispatchQueue.main.async {
                     if success {
+                        setCameraIdleTimer(active: true)
                         cameraInitialized = true
                         configureCameraProcessing()
                     } else {
+                        setCameraIdleTimer(active: false)
                         alertMessage = "Nao foi possivel acessar a camera."
                         showingAlert = true
                     }
@@ -509,8 +520,24 @@ struct CameraView: View {
     }
 
     private func showPermissionDeniedAlert() {
+        setCameraIdleTimer(active: false)
         alertMessage = "O acesso a camera e necessario para fazer medicoes. Ative a permissao nas configuracoes do dispositivo."
         showingAlert = true
+    }
+
+    private func setCameraIdleTimer(active: Bool) {
+        if active {
+            if !didOverrideIdleTimer {
+                previousIdleTimerDisabled = UIApplication.shared.isIdleTimerDisabled
+                didOverrideIdleTimer = true
+            }
+            UIApplication.shared.isIdleTimerDisabled = true
+            return
+        }
+
+        guard didOverrideIdleTimer else { return }
+        UIApplication.shared.isIdleTimerDisabled = previousIdleTimerDisabled
+        didOverrideIdleTimer = false
     }
 
     private func handleCameraError(_ error: CameraError) {
@@ -569,10 +596,18 @@ struct CameraView: View {
         }
 
         if !verificationManager.faceDetected {
+            if cameraManager.cameraPosition == .back {
+                return "Enquadre testa, olhos e queixo dentro do oval."
+            }
             return "Encaixe testa, olhos e queixo dentro do oval."
         }
 
         if !verificationManager.distanceCorrect {
+            if cameraManager.cameraPosition == .back {
+                return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
+                    "Afaste um pouco o celular para entrar na faixa ideal." :
+                    "Aproxime um pouco o celular para entrar na faixa ideal."
+            }
             return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
                 "Afaste um pouco o rosto para entrar na faixa ideal." :
                 "Aproxime um pouco o rosto para entrar na faixa ideal."
@@ -588,10 +623,13 @@ struct CameraView: View {
         if !verificationManager.headAligned {
             if let snapshot = verificationManager.headPoseSnapshot,
                let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) {
-                return adjustment.instruction
+                return adjustment.instruction(for: snapshot.sensor)
             }
 
             if cameraManager.captureState == .checking(.headPoseUnavailable) {
+                if cameraManager.cameraPosition == .back {
+                    return "Enquadre testa, olhos e queixo para medir os eixos do rosto."
+                }
                 return "Mostre testa, olhos e queixo para medir os eixos da cabeca."
             }
             return "Corrija primeiro o eixo indicado na instrucao da tela antes da captura."

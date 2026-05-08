@@ -90,6 +90,34 @@ enum HeadAxisAdjustment: Equatable, Sendable {
         }
     }
 
+    /// Texto de correcao respeitando se o usuario deve mover a cabeca ou o celular.
+    func instruction(for sensor: VerificationManager.SensorType) -> String {
+        switch sensor {
+        case .liDAR, .rearDepth:
+            return rearCameraInstruction
+        default:
+            return instruction
+        }
+    }
+
+    /// Texto curto para a camera traseira, onde quem corrige o eixo e o celular.
+    private var rearCameraInstruction: String {
+        switch self {
+        case .rollLeft(let degrees):
+            return "📱 ↩️ Incline o celular \(Self.degreesText(degrees))° para a esquerda"
+        case .rollRight(let degrees):
+            return "📱 ↪️ Incline o celular \(Self.degreesText(degrees))° para a direita"
+        case .yawLeft(let degrees):
+            return "📱 ⬅️ Gire o celular \(Self.degreesText(degrees))° para a esquerda"
+        case .yawRight(let degrees):
+            return "📱 ➡️ Gire o celular \(Self.degreesText(degrees))° para a direita"
+        case .pitchUp(let degrees):
+            return "📱 ⬆️ Incline o celular \(Self.degreesText(degrees))° para cima"
+        case .pitchDown(let degrees):
+            return "📱 ⬇️ Incline o celular \(Self.degreesText(degrees))° para baixo"
+        }
+    }
+
     private static func degreesText(_ value: Float) -> String {
         String(format: "%.0f", value)
     }
@@ -104,6 +132,10 @@ struct CameraInstructions: View {
 
     var body: some View {
         instructionView(text: currentInstruction())
+    }
+
+    private var isRearCameraActive: Bool {
+        cameraManager.cameraPosition == .back
     }
 
     // MARK: - Texto principal
@@ -127,10 +159,7 @@ struct CameraInstructions: View {
             return guidance(for: reason)
         case .stableReady:
             if cameraManager.cameraPosition == .back {
-                if verificationManager.activeSensor == .rearDepth {
-                    return "🙂 👀 Depth pronto. Olhe longe"
-                }
-                return "🙂 👀 Olhe para um ponto distante. Captura imediata"
+                return "📱 👀 Celular alinhado. Olhe longe"
             }
             return "🙂 ✅ Mantenha a posicao. Captura automatica imediata"
         case .idle:
@@ -165,6 +194,9 @@ struct CameraInstructions: View {
 
     private func fallbackGuidance() -> String {
         if !verificationManager.faceDetected {
+            if isRearCameraActive {
+                return "📱 👀 Enquadre o rosto inteiro no oval"
+            }
             return "🙂 👀 Encaixe o rosto inteiro no oval olhando para a tela"
         }
 
@@ -181,7 +213,7 @@ struct CameraInstructions: View {
         }
 
         if cameraManager.cameraPosition == .back {
-            return "🙂 👀 Olhe para um ponto distante. Segure parado"
+            return "📱 ⏳ Segure o celular parado"
         }
 
         return "🙂 ✅ Mantenha a posicao para a captura automatica"
@@ -194,8 +226,14 @@ struct CameraInstructions: View {
         case .sessionUnavailable:
             return "📱 🔄 A camera reiniciou. Segure o celular parado"
         case .trackingUnavailable:
+            if isRearCameraActive {
+                return "📱 👀 Reenquadre o rosto inteiro no oval"
+            }
             return "🙂 👀 Reenquadre o rosto inteiro dentro do oval"
         case .faceNotDetected:
+            if isRearCameraActive {
+                return "📱 👀 Enquadre o rosto inteiro no oval"
+            }
             return "🙂 👀 Encaixe o rosto inteiro no oval olhando para a tela"
         case .distanceOutOfRange:
             return distanceGuidance()
@@ -235,7 +273,7 @@ struct CameraInstructions: View {
                 cameraManager.isUsingRearDepthFallbackSession
             let minDistance = usesRearDepth ? RearDepthDistanceLimits.minCm : RearLiDARDistanceLimits.minCm
             let maxDistance = usesRearDepth ? RearDepthDistanceLimits.maxCm : RearLiDARDistanceLimits.maxCm
-            return "📱 ↔️ Mantenha o rosto entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
+            return "📱 ↔️ Mantenha o celular entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
         }
 
         if let failure = cameraManager.trueDepthFailureReason {
@@ -270,19 +308,31 @@ struct CameraInstructions: View {
         let currentDistance = verificationManager.lastMeasuredDistance
 
         if verificationManager.projectedFaceTooSmall {
+            if isRearCameraActive {
+                return "📱 ↔️ Aproxime o celular ate os olhos ocuparem melhor o oval"
+            }
             return "🙂 ↔️ Aproxime o rosto ate os olhos ocuparem melhor o oval"
         }
 
         if currentDistance <= 0 {
+            if isRearCameraActive {
+                return "📱 ↔️ Posicione o celular entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
+            }
             return "🙂 ↔️ Posicione o rosto entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
         }
 
         if currentDistance < minDistance {
             let diff = max(1, Int(round(minDistance - currentDistance)))
+            if isRearCameraActive {
+                return "📱 ↔️ Afaste o celular cerca de \(diff) cm"
+            }
             return "🙂 ↔️ Afaste cerca de \(diff) cm para entrar na faixa ideal"
         }
 
         let diff = max(1, Int(round(currentDistance - maxDistance)))
+        if isRearCameraActive {
+            return "📱 ↔️ Aproxime o celular cerca de \(diff) cm"
+        }
         return "🙂 ↔️ Aproxime cerca de \(diff) cm para entrar na faixa ideal"
     }
 
@@ -405,14 +455,20 @@ struct CameraInstructions: View {
     /// Toda instrucao da etapa 4 precisa apontar um eixo real.
     private func headAlignmentGuidance() -> String {
         guard let snapshot = verificationManager.headPoseSnapshot else {
+            if isRearCameraActive {
+                return "📱 👀 Enquadre testa, olhos e queixo para medir os eixos"
+            }
             return "🙂 👀 Mostre testa, olhos e queixo para medir os eixos"
         }
 
         guard let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot) else {
+            if snapshot.sensor == .liDAR || snapshot.sensor == .rearDepth {
+                return "📱 ✅ Celular alinhado com o rosto"
+            }
             return "🙂 ✅ Cabeca alinhada nos 3 eixos"
         }
 
-        return adjustment.instruction
+        return adjustment.instruction(for: snapshot.sensor)
     }
 
     private func format(_ value: Float, digits: Int = 1) -> String {

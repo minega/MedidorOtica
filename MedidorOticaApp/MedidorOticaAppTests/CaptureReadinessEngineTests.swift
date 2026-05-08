@@ -263,6 +263,45 @@ struct CaptureReadinessEngineTests {
         #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
     }
 
+    @Test func rearCameraPoseInstructionTellsUserToMovePhone() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 0,
+                                        yawDegrees: 8,
+                                        pitchDegrees: 0,
+                                        timestamp: 8.2,
+                                        sensor: .rearDepth)
+        let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot)
+        let instruction = adjustment?.instruction(for: .rearDepth) ?? ""
+
+        #expect(instruction.contains("celular"))
+        #expect(!instruction.contains("cabeca"))
+    }
+
+    @Test func rearLiDARPoseInstructionAlsoTellsUserToMovePhone() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: -8,
+                                        yawDegrees: 0,
+                                        pitchDegrees: 0,
+                                        timestamp: 8.25,
+                                        sensor: .liDAR)
+        let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot)
+        let instruction = adjustment?.instruction(for: .liDAR) ?? ""
+
+        #expect(instruction.contains("celular"))
+        #expect(!instruction.contains("cabeca"))
+    }
+
+    @Test func frontCameraPoseInstructionStillTargetsHead() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 0,
+                                        yawDegrees: 8,
+                                        pitchDegrees: 0,
+                                        timestamp: 8.3,
+                                        sensor: .trueDepth)
+        let adjustment = HeadPoseInstructionBuilder.adjustment(from: snapshot)
+        let instruction = adjustment?.instruction(for: .trueDepth) ?? ""
+
+        #expect(instruction.contains("cabeca"))
+        #expect(!instruction.contains("celular"))
+    }
+
     @Test func rearDepthPoseInstructionUsesDedicatedTolerance() async throws {
         let snapshot = HeadPoseSnapshot(rollDegrees: 2.2,
                                         yawDegrees: 2.2,
@@ -280,6 +319,13 @@ struct CaptureReadinessEngineTests {
             RearLiDARCapturePrecisionPolicy.verticalCenteringTolerance)
     }
 
+    @Test func rearDepthAssistToleranceIsWiderThanFinalTolerance() async throws {
+        #expect(RearDepthCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
+            RearDepthCapturePrecisionPolicy.horizontalCenteringTolerance)
+        #expect(RearDepthCapturePrecisionPolicy.alignmentAssistVerticalTolerance >
+            RearDepthCapturePrecisionPolicy.verticalCenteringTolerance)
+    }
+
     @Test func rearLiDARCenteringAssistPredictsTowardNeutralOffsetWhenPoseIsOff() async throws {
         let snapshot = HeadPoseSnapshot(rollDegrees: 0,
                                         yawDegrees: 12,
@@ -290,6 +336,24 @@ struct CaptureReadinessEngineTests {
         let neutralOffset = SIMD2<Float>(0.004, 0.002)
 
         let assisted = RearLiDARCenteringAssist.assistedOffset(strictOffset: strictOffset,
+                                                               neutralOffset: neutralOffset,
+                                                               headPose: snapshot)
+
+        #expect(assisted.x < strictOffset.x)
+        #expect(assisted.x > neutralOffset.x)
+        #expect(assisted.y == strictOffset.y)
+    }
+
+    @Test func rearDepthCenteringAssistPredictsTowardNeutralOffsetWhenPoseIsOff() async throws {
+        let snapshot = HeadPoseSnapshot(rollDegrees: 0,
+                                        yawDegrees: 14,
+                                        pitchDegrees: 0,
+                                        timestamp: 9.5,
+                                        sensor: .rearDepth)
+        let strictOffset = SIMD2<Float>(0.018, 0.003)
+        let neutralOffset = SIMD2<Float>(0.005, 0.003)
+
+        let assisted = RearDepthCenteringAssist.assistedOffset(strictOffset: strictOffset,
                                                                neutralOffset: neutralOffset,
                                                                headPose: snapshot)
 
