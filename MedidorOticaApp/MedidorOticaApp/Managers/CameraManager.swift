@@ -173,6 +173,11 @@ final class CameraManager: NSObject, ObservableObject {
         }
     }
 
+    /// Atualiza o estado interno do fluxo Depth traseiro mantendo o setter fora das views.
+    func setRearDepthFallbackSessionActive(_ isActive: Bool) {
+        isUsingRearDepthFallbackSession = isActive
+    }
+
     /// Retorna a ultima mensagem detalhada de falha na calibracao, quando disponivel.
     func latestCalibrationFailureHint() -> String? {
         guard let failure = lastCalibrationFailure else { return nil }

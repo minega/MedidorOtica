@@ -1070,6 +1070,9 @@ final class RearDepthFallbackMeasurementEngine {
 /// O motor nao mantem estado mutavel entre frames fora do cache protegido.
 extension RearDepthFallbackMeasurementEngine: @unchecked Sendable {}
 
+/// O frame e entregue por filas seriais controladas pelo pipeline de captura.
+extension RearDepthFrame: @unchecked Sendable {}
+
 private extension CGImagePropertyOrientation {
     var rotatesDimensions: Bool {
         switch self {

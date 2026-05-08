@@ -48,7 +48,7 @@ extension CameraManager {
         arSession = newSession
         cameraPosition = .front
         isUsingARSession = true
-        isUsingRearDepthFallbackSession = false
+        setRearDepthFallbackSessionActive(false)
         isSessionRunning = true
         clearError()
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
@@ -77,7 +77,7 @@ extension CameraManager {
         arSession = newSession
         cameraPosition = .back
         isUsingARSession = true
-        isUsingRearDepthFallbackSession = false
+        setRearDepthFallbackSessionActive(false)
         isSessionRunning = true
         clearError()
 
@@ -133,7 +133,7 @@ extension CameraManager {
                 let started = self.session.isRunning
                 self.cameraPosition = .back
                 self.isUsingARSession = false
-                self.isUsingRearDepthFallbackSession = started
+                self.setRearDepthFallbackSessionActive(started)
                 self.isSessionRunning = started
                 self.clearError()
                 VerificationManager.shared.updateActiveSensor(using: self)
@@ -189,7 +189,7 @@ extension CameraManager {
 
         isSessionRunning = false
         isUsingARSession = false
-        isUsingRearDepthFallbackSession = false
+        setRearDepthFallbackSessionActive(false)
         resetCapturePipeline(resetCalibration: true)
         prepareTrueDepthBootstrap(resetRecoveryAttempt: true)
         setCaptureState(.idle, hint: "Camera parada.", progress: 0)
