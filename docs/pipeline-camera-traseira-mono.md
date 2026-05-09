@@ -15,6 +15,7 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 - A captura usa `RearMonoBridgeMeasurementEngine` e `RearMonoBridgeCaptureCoordinator`.
 - O botao superior alterna `LiDAR -> Depth -> Mono`, pulando modos indisponiveis.
 - A tela exibe distancia em cm como nos modos `LiDAR` e `Depth`, mas no Mono esse valor e estimado pelo tamanho projetado do rosto; ele nao e profundidade real.
+- O alinhamento `roll/yaw/pitch` nao usa fallback zerado: cada eixo precisa ter geometria facial confiavel e, quando o Vision tambem mede o eixo, a leitura mais conservadora impede liberar a captura por erro otimista.
 - A foto salva `scaleSource = .manualBridge`, obrigando a ponte real antes do resumo final.
 - A escala plana nasce de `ponte real / distancia normalizada entre as barras nasais`.
 - A referencia vertical e derivada da horizontal pela proporcao real da imagem para reduzir erro de distorcao lateral.
@@ -23,12 +24,15 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 
 - Sem LiDAR, Depth ou TrueDepth nao existe escala absoluta no frame da camera.
 - A ponte real informada pelo usuario e a unica ancora absoluta do modo Mono.
+- Sem profundidade real, `yaw` e `pitch` sao validacoes geometricas 2D de alta exigencia; quando os landmarks nao sustentam os tres eixos, a captura deve ficar bloqueada.
 - A precisao depende de captura centralizada, pose alinhada, distancia estimada dentro de `35-55 cm`, camera principal e barras nasais bem posicionadas.
 
 ## Arquivos principais
 
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeMeasurementEngine.swift`
   Detecta rosto, PC visual, enquadramento e pose usando Vision.
+- `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgePoseEstimator.swift`
+  Valida `roll`, `yaw` e `pitch` do modo Mono com landmarks faciais e bloqueio conservador.
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeCaptureCoordinator.swift`
   Entrega frames da camera principal traseira sem ativar LiDAR ou depth.
 - `MedidorOticaApp/MedidorOticaApp/PostCapture/PostCaptureManualBridgeScale.swift`

@@ -329,6 +329,62 @@ struct CaptureReadinessEngineTests {
         #expect(HeadPoseInstructionBuilder.adjustment(from: snapshot) == nil)
     }
 
+    @Test func rearMonoPoseDoesNotInventMissingAxes() async throws {
+        let landmarks = rearMonoPoseLandmarks(lowerNosePoint: nil,
+                                              lowerFacePoint: nil)
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: nil,
+                                                                visionYaw: nil,
+                                                                visionPitch: nil,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.8)
+
+        #expect(snapshot == nil)
+    }
+
+    @Test func rearMonoPoseUsesGeometricAxesWhenVisionAnglesAreMissing() async throws {
+        let landmarks = rearMonoPoseLandmarks()
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: nil,
+                                                                visionYaw: nil,
+                                                                visionPitch: nil,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.9)
+
+        #expect(snapshot != nil)
+        #expect(abs(snapshot?.rollDegrees ?? 99) < 0.2)
+        #expect(abs(snapshot?.yawDegrees ?? 99) < 0.2)
+        #expect(abs(snapshot?.pitchDegrees ?? 99) < 0.2)
+    }
+
+    @Test func rearMonoPoseUsesLargestErrorWhenVisionConflictsWithGeometry() async throws {
+        let landmarks = rearMonoPoseLandmarks()
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: 0,
+                                                                visionYaw: 16,
+                                                                visionPitch: 0,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.95)
+
+        #expect(snapshot != nil)
+        #expect(abs(snapshot?.yawDegrees ?? 0) >= 15)
+        let adjustment = snapshot.flatMap { HeadPoseInstructionBuilder.adjustment(from: $0) }
+        #expect(adjustment == .yawRight(13))
+    }
+
+    @Test func rearMonoPoseRejectsWeakEyeGeometry() async throws {
+        let landmarks = rearMonoPoseLandmarks(leftEye: NormalizedPoint(x: 0.49, y: 0.46),
+                                              rightEye: NormalizedPoint(x: 0.51, y: 0.46))
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: 0,
+                                                                visionYaw: 0,
+                                                                visionPitch: 0,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.97)
+
+        #expect(snapshot == nil)
+    }
+
     @Test func rearLiDARAssistToleranceIsWiderThanFinalTolerance() async throws {
         #expect(RearLiDARCapturePrecisionPolicy.alignmentAssistHorizontalTolerance >
             RearLiDARCapturePrecisionPolicy.horizontalCenteringTolerance)
@@ -515,5 +571,19 @@ struct CaptureReadinessEngineTests {
                               calibrationReady: true,
                               requiresTrackedFaceAnchor: false,
                               policy: .rearMonoBridge)
+    }
+
+    private func rearMonoPoseLandmarks(leftEye: NormalizedPoint = NormalizedPoint(x: 0.40, y: 0.46),
+                                       rightEye: NormalizedPoint = NormalizedPoint(x: 0.60, y: 0.46),
+                                       lowerNosePoint: NormalizedPoint? = NormalizedPoint(x: 0.50, y: 0.57),
+                                       lowerFacePoint: NormalizedPoint? = NormalizedPoint(x: 0.50, y: 0.74)) -> RearMonoBridgePoseLandmarks {
+        RearMonoBridgePoseLandmarks(imageLeftEyeCenter: leftEye,
+                                    imageRightEyeCenter: rightEye,
+                                    lowerNosePoint: lowerNosePoint,
+                                    lowerFacePoint: lowerFacePoint,
+                                    faceBounds: NormalizedRect(x: 0.25,
+                                                               y: 0.25,
+                                                               width: 0.50,
+                                                               height: 0.50))
     }
 }
