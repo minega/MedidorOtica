@@ -28,6 +28,11 @@ struct CaptureReadinessEngineTests {
         #expect(RearDepthDistanceLimits.maxCm == 55.0)
     }
 
+    @Test func rearMonoDistanceUsesSamePracticalCaptureRange() async throws {
+        #expect(RearMonoBridgeDistanceLimits.minCm == RearDepthDistanceLimits.minCm)
+        #expect(RearMonoBridgeDistanceLimits.maxCm == RearDepthDistanceLimits.maxCm)
+    }
+
     @Test func rearDepthModeMessagesExplainLiDARToggle() async throws {
         #expect(RearDepthMode.liDAR.sensorName == "LiDAR")
         #expect(RearDepthMode.estimatedDepth.sensorName == "Depth")

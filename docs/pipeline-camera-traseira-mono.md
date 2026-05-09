@@ -14,7 +14,7 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 - O modo fica em `RearDepthMode.monoBridge` e aparece no botao superior junto com `LiDAR` e `Depth`.
 - A captura usa `RearMonoBridgeMeasurementEngine` e `RearMonoBridgeCaptureCoordinator`.
 - O botao superior alterna `LiDAR -> Depth -> Mono`, pulando modos indisponiveis.
-- A distancia exibida no modo Mono e apenas enquadramento visual por tamanho projetado do rosto; ela nao e profundidade real.
+- A tela exibe distancia em cm como nos modos `LiDAR` e `Depth`, mas no Mono esse valor e estimado pelo tamanho projetado do rosto; ele nao e profundidade real.
 - A foto salva `scaleSource = .manualBridge`, obrigando a ponte real antes do resumo final.
 - A escala plana nasce de `ponte real / distancia normalizada entre as barras nasais`.
 - A referencia vertical e derivada da horizontal pela proporcao real da imagem para reduzir erro de distorcao lateral.
@@ -23,7 +23,7 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 
 - Sem LiDAR, Depth ou TrueDepth nao existe escala absoluta no frame da camera.
 - A ponte real informada pelo usuario e a unica ancora absoluta do modo Mono.
-- A precisao depende de captura centralizada, pose alinhada, camera principal e barras nasais bem posicionadas.
+- A precisao depende de captura centralizada, pose alinhada, distancia estimada dentro de `35-55 cm`, camera principal e barras nasais bem posicionadas.
 
 ## Arquivos principais
 

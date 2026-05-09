@@ -273,10 +273,8 @@ struct CameraInstructions: View {
 
     private func calibrationGuidance() -> String {
         if cameraManager.cameraPosition == .back {
-            if verificationManager.activeSensor == .rearMonoBridge {
-                return "📱 👀 Mantenha o rosto grande e central no oval"
-            }
             let usesRearDepth = verificationManager.activeSensor == .rearDepth ||
+                verificationManager.activeSensor == .rearMonoBridge ||
                 cameraManager.isUsingRearDepthFallbackSession
             let minDistance = usesRearDepth ? RearDepthDistanceLimits.minCm : RearLiDARDistanceLimits.minCm
             let maxDistance = usesRearDepth ? RearDepthDistanceLimits.maxCm : RearLiDARDistanceLimits.maxCm
@@ -313,18 +311,6 @@ struct CameraInstructions: View {
         let minDistance = verificationManager.minDistance
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
-
-        if verificationManager.activeSensor == .rearMonoBridge {
-            if verificationManager.projectedFaceTooSmall || currentDistance > maxDistance {
-                return "📱 ↔️ Aproxime o celular ate o rosto preencher melhor o oval"
-            }
-
-            if currentDistance > 0 && currentDistance < minDistance {
-                return "📱 ↔️ Afaste o celular ate o rosto caber inteiro no oval"
-            }
-
-            return "📱 ↔️ Ajuste a distancia ate o rosto ficar grande no oval"
-        }
 
         if verificationManager.projectedFaceTooSmall {
             if isRearCameraActive {
@@ -488,14 +474,24 @@ struct CameraInstructions: View {
         }
 
         if horizontalOffset >= verticalOffset {
-            return xPos > 0 ?
-                "📱 ➡️ Leve o celular um pouco para a direita" :
-                "📱 ⬅️ Leve o celular um pouco para a esquerda"
+            if xPos > 0 {
+                return "📱 ➡️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a direita"
+            }
+
+            if xPos < 0 {
+                return "📱 ⬅️ Leve o celular \(format(max(horizontalOffset, 0.1))) cm para a esquerda"
+            }
+        } else {
+            if yPos > 0 {
+                return "📱 ⬇️ Baixe o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
+
+            if yPos < 0 {
+                return "📱 ⬆️ Levante o celular \(format(max(verticalOffset, 0.1))) cm"
+            }
         }
 
-        return yPos > 0 ?
-            "📱 ⬇️ Baixe um pouco o celular" :
-            "📱 ⬆️ Levante um pouco o celular"
+        return "📱 ↔️ Ajuste fino ate o PC ficar no centro"
     }
 
     // MARK: - Cabeca
@@ -592,7 +588,7 @@ struct VerificationMenu: View {
             case .rearDepth:
                 return "\(Int(RearDepthDistanceLimits.minCm))-\(Int(RearDepthDistanceLimits.maxCm)) cm"
             case .rearMonoBridge:
-                return "Enquad."
+                return "\(Int(RearMonoBridgeDistanceLimits.minCm))-\(Int(RearMonoBridgeDistanceLimits.maxCm)) cm"
             default:
                 break
             }

@@ -32,10 +32,6 @@ struct DistanceOverlay: View {
     }
 
     private var displayText: String {
-        if verificationManager.activeSensor == .rearMonoBridge {
-            return "Enquadramento"
-        }
-
         return String(format: "%.1f cm", verificationManager.lastMeasuredDistance)
     }
 }

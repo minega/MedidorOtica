@@ -107,8 +107,6 @@ final class RearMonoBridgeMeasurementEngine {
     // MARK: - Constantes
     private enum Constants {
         static let targetFaceHeightRatio: Float = 0.46
-        static let minimumFaceHeightRatio: Float = 0.33
-        static let maximumFaceHeightRatio: Float = 0.64
     }
 
     // MARK: - Cache
@@ -175,6 +173,8 @@ final class RearMonoBridgeMeasurementEngine {
                                                       imageSize: imageSize)
         let strictOffset = normalizedOffset(from: centralPoint)
         let headPose = makeHeadPose(from: face,
+                                    faceBounds: bounds,
+                                    imageSize: imageSize,
                                     timestamp: frame.timestamp)
         let assistedOffset = RearMonoBridgeCenteringAssist.assistedOffset(strictOffset: strictOffset,
                                                                           neutralOffset: normalizedOffset(from: assistPoint),
@@ -194,8 +194,10 @@ final class RearMonoBridgeMeasurementEngine {
     // MARK: - Validacoes visuais
     /// Usa tamanho projetado apenas como guia de enquadramento, sem dizer que e profundidade real.
     func projectedDistanceIsValid(_ analysis: RearMonoBridgeFrameAnalysis) -> Bool {
-        analysis.projectedFaceHeightRatio >= Constants.minimumFaceHeightRatio &&
-            analysis.projectedFaceHeightRatio <= Constants.maximumFaceHeightRatio
+        let distance = analysis.estimatedDistanceCm
+        return distance.isFinite &&
+            distance >= RearMonoBridgeDistanceLimits.minCm &&
+            distance <= RearMonoBridgeDistanceLimits.maxCm
     }
 
     // MARK: - Vision
@@ -376,11 +378,22 @@ final class RearMonoBridgeMeasurementEngine {
 
     // MARK: - Pose
     private func makeHeadPose(from face: VNFaceObservation,
+                              faceBounds: NormalizedRect,
+                              imageSize: CGSize,
                               timestamp: TimeInterval) -> HeadPoseSnapshot? {
-        let roll = face.roll.map { radiansToDegrees(Float($0.doubleValue)) }
-        let yaw = face.yaw.map { radiansToDegrees(Float($0.doubleValue)) }
-        let pitch = face.pitch.map { radiansToDegrees(Float($0.doubleValue)) }
-        guard let roll, let yaw, let pitch else { return nil }
+        let eyePoints = resolvedEyeLandmarkPoints(face: face,
+                                                  imageSize: imageSize)
+            .sorted { $0.x < $1.x }
+        let roll = face.roll.map { radiansToDegrees(Float($0.doubleValue)) } ??
+            fallbackRollDegrees(from: eyePoints)
+        let yaw = face.yaw.map { radiansToDegrees(Float($0.doubleValue)) } ??
+            fallbackYawDegrees(from: face,
+                               faceBounds: faceBounds,
+                               imageSize: imageSize,
+                               eyePoints: eyePoints)
+        let pitch = face.pitch.map { radiansToDegrees(Float($0.doubleValue)) } ??
+            fallbackPitchDegrees(faceBounds: faceBounds,
+                                 eyePoints: eyePoints)
 
         let snapshot = HeadPoseSnapshot(rollDegrees: clampedPoseDegrees(roll),
                                         yawDegrees: clampedPoseDegrees(yaw),
@@ -388,6 +401,55 @@ final class RearMonoBridgeMeasurementEngine {
                                         timestamp: timestamp,
                                         sensor: .rearMonoBridge)
         return snapshot.isValid ? snapshot : nil
+    }
+
+    private func fallbackRollDegrees(from eyePoints: [NormalizedPoint]) -> Float {
+        guard eyePoints.count >= 2 else { return 0 }
+        let left = eyePoints[0]
+        let right = eyePoints[1]
+        return clampedPoseDegrees(radiansToDegrees(Float(atan2(Double(right.y - left.y),
+                                                               Double(right.x - left.x)))))
+    }
+
+    private func fallbackYawDegrees(from face: VNFaceObservation,
+                                    faceBounds: NormalizedRect,
+                                    imageSize: CGSize,
+                                    eyePoints: [NormalizedPoint]) -> Float {
+        guard faceBounds.width > 0 else { return 0 }
+        let faceCenterX = faceBounds.x + (faceBounds.width * 0.5)
+        let eyeMidX = eyePoints.isEmpty ?
+            faceCenterX :
+            eyePoints.map(\.x).reduce(0, +) / CGFloat(eyePoints.count)
+        let noseX = lowerNoseX(from: face,
+                               imageSize: imageSize) ?? eyeMidX
+        let normalizedShift = Float((noseX - eyeMidX) / max(faceBounds.width, 0.001))
+        return clampedPoseDegrees(normalizedShift * 42)
+    }
+
+    private func fallbackPitchDegrees(faceBounds: NormalizedRect,
+                                      eyePoints: [NormalizedPoint]) -> Float {
+        guard faceBounds.height > 0,
+              !eyePoints.isEmpty else {
+            return 0
+        }
+
+        let eyeY = eyePoints.map(\.y).reduce(0, +) / CGFloat(eyePoints.count)
+        let relativeEyeY = Float((eyeY - faceBounds.y) / faceBounds.height)
+        let expectedEyeY: Float = 0.42
+        return clampedPoseDegrees((relativeEyeY - expectedEyeY) * 34)
+    }
+
+    private func lowerNoseX(from face: VNFaceObservation,
+                            imageSize: CGSize) -> CGFloat? {
+        let imageWidth = Int(imageSize.width)
+        let imageHeight = Int(imageSize.height)
+        guard imageWidth > 0, imageHeight > 0 else { return nil }
+
+        let nosePoints = normalizedPoints(from: face.landmarks?.noseCrest,
+                                          face: face,
+                                          imageWidth: imageWidth,
+                                          imageHeight: imageHeight)
+        return nosePoints.max(by: { $0.y < $1.y })?.x
     }
 
     private func clampedPoseDegrees(_ value: Float) -> Float {

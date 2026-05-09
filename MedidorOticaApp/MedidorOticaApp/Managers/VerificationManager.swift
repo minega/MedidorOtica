@@ -592,16 +592,15 @@ final class VerificationManager: ObservableObject {
         let distanceInCm = analysis.estimatedDistanceCm
         let projectedWidthRatio = analysis.projectedFaceWidthRatio
         let projectedHeightRatio = analysis.projectedFaceHeightRatio
-        let isFaceTooSmall = projectedHeightRatio < 0.33
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastMeasuredDistance = distanceInCm
             self.projectedFaceWidthRatio = projectedWidthRatio
             self.projectedFaceHeightRatio = projectedHeightRatio
-            self.projectedFaceTooSmall = isFaceTooSmall
+            self.projectedFaceTooSmall = false
 
             if !isValid {
-                print("Aviso Mono traseiro: enquadramento fora da faixa visual: \(String(format: "%.2f", projectedHeightRatio))")
+                print("Aviso Mono traseiro: distancia estimada fora da faixa: \(String(format: "%.1f", distanceInCm)) cm")
             }
         }
     }
