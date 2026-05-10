@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import CoreGraphics
+import ImageIO
 import simd
 import Testing
 @testable import MedidorOticaApp
@@ -28,9 +30,31 @@ struct CaptureReadinessEngineTests {
         #expect(RearDepthDistanceLimits.maxCm == 55.0)
     }
 
-    @Test func rearMonoDistanceUsesSamePracticalCaptureRange() async throws {
-        #expect(RearMonoBridgeDistanceLimits.minCm == RearDepthDistanceLimits.minCm)
-        #expect(RearMonoBridgeDistanceLimits.maxCm == RearDepthDistanceLimits.maxCm)
+    @Test func rearMonoDistanceUsesCloseMainCameraRange() async throws {
+        #expect(RearMonoBridgeDistanceLimits.minCm == 22.0)
+        #expect(RearMonoBridgeDistanceLimits.maxCm == 38.0)
+        #expect(RearMonoBridgeDistanceLimits.minCm < RearDepthDistanceLimits.minCm)
+    }
+
+    @Test func rearMonoDistanceEstimatorMatchesMeasuredCloseTest() async throws {
+        let distance = RearMonoBridgeDistanceEstimator.estimate(faceHeightRatio: 0.346,
+                                                               eyeDistanceRatio: nil,
+                                                               imageSize: CGSize(width: 2160, height: 3840),
+                                                               orientation: .right,
+                                                               cameraIntrinsics: nil)
+
+        #expect(abs(distance - 25.0) < 0.5)
+    }
+
+    @Test func rearMonoDistanceEstimatorUsesEyesToStabilizeFaceBounds() async throws {
+        let distance = RearMonoBridgeDistanceEstimator.estimate(faceHeightRatio: 0.346,
+                                                               eyeDistanceRatio: 0.23,
+                                                               imageSize: CGSize(width: 2160, height: 3840),
+                                                               orientation: .right,
+                                                               cameraIntrinsics: nil)
+
+        #expect(distance > 24.0)
+        #expect(distance < 25.8)
     }
 
     @Test func rearDepthModeMessagesExplainLiDARToggle() async throws {

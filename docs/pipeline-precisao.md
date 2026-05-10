@@ -181,7 +181,8 @@ O app possui um fluxo separado para camera traseira principal quando nao ha LiDA
 
 - A camera usada e sempre a principal traseira (`builtInWideAngleCamera`).
 - O botao superior da camera traseira alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
-- A captura valida rosto, distancia estimada em `35-55 cm`, centralizacao do `PC`, alinhamento de `roll/yaw/pitch` e estabilidade.
+- A captura valida rosto, distancia estimada em `22-38 cm`, centralizacao do `PC`, alinhamento de `roll/yaw/pitch` e estabilidade.
+- A distancia Mono usa tamanho facial calibrado, distancia entre olhos e intrinsics quando o `AVCaptureVideoDataOutput` fornece a matriz da camera; continua sendo estimativa visual, nao profundidade real.
 - O alinhamento Mono nao pode liberar captura com eixo ausente ou fallback zerado; `roll/yaw/pitch` precisam ser sustentados por landmarks faciais confiaveis e conflitos com Vision usam o erro mais conservador.
 - Sem profundidade real, a escala absoluta nao nasce da camera; a pos-captura exige a ponte real antes de calcular o resumo.
 - A ponte real usa as barras nasais ja ajustadas no fluxo normal como referencia, sem criar pontos extras.

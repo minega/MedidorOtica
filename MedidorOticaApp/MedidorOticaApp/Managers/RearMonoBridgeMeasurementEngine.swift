@@ -15,8 +15,8 @@ import simd
 // MARK: - Limites traseiros Mono
 /// Limites visuais para manter o rosto em uma faixa pratica sem profundidade real.
 struct RearMonoBridgeDistanceLimits {
-    static let minCm: Float = 35.0
-    static let maxCm: Float = 55.0
+    static let minCm: Float = 22.0
+    static let maxCm: Float = 38.0
 }
 
 // MARK: - Precisao traseira Mono
@@ -50,6 +50,7 @@ struct RearMonoBridgeFrame {
     let pixelBuffer: CVPixelBuffer
     let timestamp: TimeInterval
     let cgOrientation: CGImagePropertyOrientation
+    let cameraIntrinsics: simd_float3x3?
 }
 
 // MARK: - Analise Mono
@@ -104,11 +105,6 @@ enum RearMonoBridgeCenteringAssist {
 // MARK: - Motor Mono
 /// Resolve rosto, PC visual e pose usando apenas a camera traseira principal.
 final class RearMonoBridgeMeasurementEngine {
-    // MARK: - Constantes
-    private enum Constants {
-        static let targetFaceHeightRatio: Float = 0.46
-    }
-
     // MARK: - Cache
     private let cacheQueue = DispatchQueue(label: "com.oticaManzolli.rearMono.cache")
     private var cachedTimestamp: TimeInterval?
@@ -172,6 +168,8 @@ final class RearMonoBridgeMeasurementEngine {
                                                       centralPoint: centralPoint,
                                                       imageSize: imageSize)
         let strictOffset = normalizedOffset(from: centralPoint)
+        let eyePoints = resolvedEyeLandmarkPoints(face: face,
+                                                  imageSize: imageSize)
         let headPose = makeHeadPose(from: face,
                                     faceBounds: bounds,
                                     imageSize: imageSize,
@@ -187,7 +185,11 @@ final class RearMonoBridgeMeasurementEngine {
                                            assistedOffset: assistedOffset,
                                            projectedFaceWidthRatio: Float(bounds.width),
                                            projectedFaceHeightRatio: Float(bounds.height),
-                                           estimatedDistanceCm: estimatedDistanceCm(faceHeightRatio: Float(bounds.height)),
+                                           estimatedDistanceCm: estimatedDistanceCm(faceHeightRatio: Float(bounds.height),
+                                                                                   eyePoints: eyePoints,
+                                                                                   imageSize: imageSize,
+                                                                                   orientation: cgOrientation,
+                                                                                   cameraIntrinsics: frame.cameraIntrinsics),
                                            headPose: headPose)
     }
 
@@ -458,10 +460,29 @@ final class RearMonoBridgeMeasurementEngine {
                             Float(clamped.y - 0.5))
     }
 
-    private func estimatedDistanceCm(faceHeightRatio: Float) -> Float {
-        guard faceHeightRatio.isFinite, faceHeightRatio > 0 else { return 0 }
-        let targetDistance = (RearMonoBridgeDistanceLimits.minCm + RearMonoBridgeDistanceLimits.maxCm) * 0.5
-        return targetDistance * Constants.targetFaceHeightRatio / faceHeightRatio
+    private func estimatedDistanceCm(faceHeightRatio: Float,
+                                     eyePoints: [NormalizedPoint],
+                                     imageSize: CGSize,
+                                     orientation: CGImagePropertyOrientation,
+                                     cameraIntrinsics: simd_float3x3?) -> Float {
+        RearMonoBridgeDistanceEstimator.estimate(
+            faceHeightRatio: faceHeightRatio,
+            eyeDistanceRatio: normalizedEyeDistance(from: eyePoints),
+            imageSize: imageSize,
+            orientation: orientation,
+            cameraIntrinsics: cameraIntrinsics
+        )
+    }
+
+    private func normalizedEyeDistance(from eyePoints: [NormalizedPoint]) -> Float? {
+        let sorted = eyePoints.sorted { $0.x < $1.x }
+        guard sorted.count >= 2 else { return nil }
+
+        let left = sorted[0]
+        let right = sorted[1]
+        let deltaX = right.x - left.x
+        guard deltaX > 0 else { return nil }
+        return Float(deltaX)
     }
 
     private func orientedSize(for pixelBuffer: CVPixelBuffer,

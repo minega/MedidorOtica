@@ -286,4 +286,6 @@ MedidorOticaApp/
 
 - Fluxo separado para camera traseira principal sem LiDAR e sem Depth de camera dupla.
 - O botao superior alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
+- O Mono usa faixa estimada de `22-38 cm` e prioriza rosto maior no quadro.
+- A distancia Mono e estimada por proporcao facial, olhos e intrinsics quando disponiveis.
 - A pos-captura exige a ponte real e usa as barras nasais normais para recalcular a escala.

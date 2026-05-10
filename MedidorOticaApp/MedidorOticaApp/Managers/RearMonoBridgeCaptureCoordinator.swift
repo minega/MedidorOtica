@@ -8,6 +8,7 @@
 import AVFoundation
 import CoreMedia
 import ImageIO
+import simd
 
 // MARK: - Coordenador Mono
 /// Entrega frames RGB da camera principal traseira sem ativar LiDAR ou depth por camera dupla.
@@ -33,6 +34,7 @@ final class RearMonoBridgeCaptureCoordinator: NSObject {
         ]
         session.addOutput(videoDataOutput)
         videoDataOutput.setSampleBufferDelegate(self, queue: callbackQueue)
+        configureIntrinsicMatrixDelivery()
 
         configureMainCamera(device)
         return true
@@ -70,6 +72,49 @@ final class RearMonoBridgeCaptureCoordinator: NSObject {
             print("ERRO: nao foi possivel configurar camera Mono traseira: \(error)")
         }
     }
+
+    private func configureIntrinsicMatrixDelivery() {
+        guard let connection = videoDataOutput.connection(with: .video),
+              connection.isCameraIntrinsicMatrixDeliverySupported else {
+            return
+        }
+
+        connection.isCameraIntrinsicMatrixDeliveryEnabled = true
+    }
+
+    private func cameraIntrinsics(from sampleBuffer: CMSampleBuffer) -> simd_float3x3? {
+        guard let attachment = CMGetAttachment(sampleBuffer,
+                                               key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
+                                               attachmentModeOut: nil) else {
+            return nil
+        }
+
+        if let data = attachment as? Data {
+            return cameraIntrinsics(from: data)
+        }
+
+        if let data = attachment as? NSData {
+            return cameraIntrinsics(from: data as Data)
+        }
+
+        return nil
+    }
+
+    private func cameraIntrinsics(from data: Data) -> simd_float3x3? {
+        guard data.count >= MemoryLayout<simd_float3x3>.size else {
+            return nil
+        }
+
+        var matrix = simd_float3x3()
+        withUnsafeMutableBytes(of: &matrix) { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                return
+            }
+            data.copyBytes(to: baseAddress,
+                           count: MemoryLayout<simd_float3x3>.size)
+        }
+        return matrix
+    }
 }
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
@@ -82,7 +127,8 @@ extension RearMonoBridgeCaptureCoordinator: AVCaptureVideoDataOutputSampleBuffer
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         let frame = RearMonoBridgeFrame(pixelBuffer: pixelBuffer,
                                         timestamp: timestamp,
-                                        cgOrientation: VerificationManager.shared.currentCGOrientation())
+                                        cgOrientation: VerificationManager.shared.currentCGOrientation(),
+                                        cameraIntrinsics: cameraIntrinsics(from: sampleBuffer))
         frameHandler?(frame)
     }
 }

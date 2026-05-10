@@ -34,9 +34,10 @@ enum RearMonoBridgePoseEstimator {
         static let rollVisionAgreementDegrees: Float = 4.0
         static let yawVisionAgreementDegrees: Float = 7.0
         static let pitchVisionAgreementDegrees: Float = 7.0
-        static let expectedEyeRelativeY: Float = 0.42
+        static let neutralEyeRelativeY: ClosedRange<Float> = 0.36...0.50
         static let pitchDegreesPerRelativeUnit: Float = 34
         static let yawDegreesPerEyeShift: Float = 32
+        static let neutralYawShift: Float = 0.055
     }
 
     /// Monta um snapshot somente quando roll, yaw e pitch possuem leitura geometrica confiavel.
@@ -107,7 +108,15 @@ enum RearMonoBridgePoseEstimator {
         guard noseDrop >= 0.08, noseDrop <= 0.48 else { return nil }
 
         let normalizedShift = Float((lowerNose.x - eyeMidX) / max(eyeDistance, 0.0001))
-        let degrees = clampedPoseDegrees(normalizedShift * Constants.yawDegreesPerEyeShift)
+        let effectiveShift: Float
+        if abs(normalizedShift) <= Constants.neutralYawShift {
+            effectiveShift = 0
+        } else {
+            effectiveShift = normalizedShift > 0 ?
+                normalizedShift - Constants.neutralYawShift :
+                normalizedShift + Constants.neutralYawShift
+        }
+        let degrees = clampedPoseDegrees(effectiveShift * Constants.yawDegreesPerEyeShift)
         let distanceScore = min(max(Float(eyeDistance / max(minimumDistance, 0.0001)), 0), 1)
         let noseScore = 1 - min(abs(Float(noseDrop - 0.22)) / 0.22, 1)
         let confidence = 0.72 + (distanceScore * 0.12) + (noseScore * 0.10)
@@ -140,8 +149,15 @@ enum RearMonoBridgePoseEstimator {
             confidence += 0.08
         }
 
-        let degrees = clampedPoseDegrees((relativeEyeY - Constants.expectedEyeRelativeY) *
-                                         Constants.pitchDegreesPerRelativeUnit)
+        let effectiveRelativeY: Float
+        if Constants.neutralEyeRelativeY.contains(relativeEyeY) {
+            effectiveRelativeY = 0
+        } else if relativeEyeY < Constants.neutralEyeRelativeY.lowerBound {
+            effectiveRelativeY = relativeEyeY - Constants.neutralEyeRelativeY.lowerBound
+        } else {
+            effectiveRelativeY = relativeEyeY - Constants.neutralEyeRelativeY.upperBound
+        }
+        let degrees = clampedPoseDegrees(effectiveRelativeY * Constants.pitchDegreesPerRelativeUnit)
         return RearMonoBridgePoseAxisEstimate(degrees: degrees,
                                               confidence: min(confidence, 0.94))
     }
