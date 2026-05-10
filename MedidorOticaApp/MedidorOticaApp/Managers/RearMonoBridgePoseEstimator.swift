@@ -34,7 +34,10 @@ enum RearMonoBridgePoseEstimator {
         static let rollVisionAgreementDegrees: Float = 3.5
         static let yawVisionAgreementDegrees: Float = 5.0
         static let pitchVisionAgreementDegrees: Float = 5.0
-        static let neutralEyeRelativeY: ClosedRange<Float> = 0.39...0.45
+        static let neutralEyeRelativeY: ClosedRange<Float> = 0.30...0.50
+        static let neutralNoseDrop: ClosedRange<Float> = 0.14...0.32
+        static let neutralLowerFaceDrop: ClosedRange<Float> = 0.42...0.70
+        static let maximumPitchBoxBiasDegrees: Float = 5.5
         static let pitchDegreesPerRelativeUnit: Float = 34
         static let yawDegreesPerEyeShift: Float = 32
         static let neutralYawShift: Float = 0.025
@@ -56,9 +59,8 @@ enum RearMonoBridgePoseEstimator {
               let yaw = resolvedAxis(vision: visionYaw,
                                      geometry: yawGeometry,
                                      agreementTolerance: Constants.yawVisionAgreementDegrees),
-              let pitch = resolvedAxis(vision: visionPitch,
-                                       geometry: pitchGeometry,
-                                       agreementTolerance: Constants.pitchVisionAgreementDegrees) else {
+              let pitch = resolvedPitchAxis(vision: visionPitch,
+                                            geometry: pitchGeometry) else {
             return nil
         }
 
@@ -137,16 +139,29 @@ enum RearMonoBridgePoseEstimator {
         guard relativeEyeY >= 0.26, relativeEyeY <= 0.58 else { return nil }
 
         var confidence: Float = 0.70
+        var noseDrop: Float?
+        var lowerFaceDrop: Float?
         if let lowerNose = landmarks.lowerNosePoint {
-            let noseDrop = Float((lowerNose.y - eyeY) / landmarks.faceBounds.height)
-            guard noseDrop >= 0.08, noseDrop <= 0.48 else { return nil }
+            noseDrop = Float((lowerNose.y - eyeY) / landmarks.faceBounds.height)
+            guard let noseDrop,
+                  noseDrop >= 0.08,
+                  noseDrop <= 0.48 else { return nil }
             confidence += 0.10
         }
 
         if let lowerFace = landmarks.lowerFacePoint {
-            let lowerFaceDrop = Float((lowerFace.y - eyeY) / landmarks.faceBounds.height)
-            guard lowerFaceDrop >= 0.25, lowerFaceDrop <= 0.74 else { return nil }
+            lowerFaceDrop = Float((lowerFace.y - eyeY) / landmarks.faceBounds.height)
+            guard let lowerFaceDrop,
+                  lowerFaceDrop >= 0.25,
+                  lowerFaceDrop <= 0.74 else { return nil }
             confidence += 0.08
+        }
+
+        if pitchLooksNeutral(relativeEyeY: relativeEyeY,
+                             noseDrop: noseDrop,
+                             lowerFaceDrop: lowerFaceDrop) {
+            return RearMonoBridgePoseAxisEstimate(degrees: 0,
+                                                  confidence: min(confidence, 0.94))
         }
 
         let effectiveRelativeY: Float
@@ -160,6 +175,17 @@ enum RearMonoBridgePoseEstimator {
         let degrees = clampedPoseDegrees(effectiveRelativeY * Constants.pitchDegreesPerRelativeUnit)
         return RearMonoBridgePoseAxisEstimate(degrees: degrees,
                                               confidence: min(confidence, 0.94))
+    }
+
+    /// Trata o viés normal do retângulo facial como neutro quando nariz e queixo estão proporcionais.
+    private static func pitchLooksNeutral(relativeEyeY: Float,
+                                          noseDrop: Float?,
+                                          lowerFaceDrop: Float?) -> Bool {
+        guard Constants.neutralEyeRelativeY.contains(relativeEyeY) else { return false }
+
+        let noseIsNeutral = noseDrop.map { Constants.neutralNoseDrop.contains($0) } ?? true
+        let lowerFaceIsNeutral = lowerFaceDrop.map { Constants.neutralLowerFaceDrop.contains($0) } ?? true
+        return noseIsNeutral && lowerFaceIsNeutral
     }
 
     /// Exige geometria confiavel; Vision apenas refina ou bloqueia de forma conservadora.
@@ -185,6 +211,35 @@ enum RearMonoBridgePoseEstimator {
         }
 
         // Em conflito, usa o maior erro absoluto para nao liberar captura por um eixo otimista.
+        return abs(visionDegrees) >= abs(geometricDegrees) ? visionDegrees : geometricDegrees
+    }
+
+    /// O pitch 2D sofre viés do bounding box; Vision alinhado não deve ser vencido por erro pequeno e fixo.
+    static func resolvedPitchAxis(vision: Float?,
+                                  geometry: RearMonoBridgePoseAxisEstimate?) -> Float? {
+        guard let geometry,
+              geometry.confidence >= Constants.minimumAxisConfidence,
+              geometry.degrees.isFinite else {
+            return nil
+        }
+
+        let geometricDegrees = clampedPoseDegrees(geometry.degrees)
+        guard let vision,
+              vision.isFinite else {
+            return geometricDegrees
+        }
+
+        let visionDegrees = clampedPoseDegrees(vision)
+        let disagreement = abs(visionDegrees - geometricDegrees)
+        if disagreement <= Constants.pitchVisionAgreementDegrees {
+            return clampedPoseDegrees((visionDegrees * 0.65) + (geometricDegrees * 0.35))
+        }
+
+        if abs(visionDegrees) <= RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees,
+           abs(geometricDegrees) <= Constants.maximumPitchBoxBiasDegrees {
+            return visionDegrees
+        }
+
         return abs(visionDegrees) >= abs(geometricDegrees) ? visionDegrees : geometricDegrees
     }
 

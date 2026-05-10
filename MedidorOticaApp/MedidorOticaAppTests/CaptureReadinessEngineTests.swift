@@ -398,6 +398,34 @@ struct CaptureReadinessEngineTests {
         #expect(abs(snapshot?.pitchDegrees ?? 99) < 0.2)
     }
 
+    @Test func rearMonoPitchDoesNotLockOnNeutralFaceBoxBias() async throws {
+        let eyeY: CGFloat = 0.385
+        let landmarks = rearMonoPoseLandmarks(leftEye: NormalizedPoint(x: 0.40, y: eyeY),
+                                              rightEye: NormalizedPoint(x: 0.60, y: eyeY),
+                                              lowerNosePoint: NormalizedPoint(x: 0.50, y: eyeY + 0.11),
+                                              lowerFacePoint: NormalizedPoint(x: 0.50, y: eyeY + 0.28))
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: nil,
+                                                                visionYaw: nil,
+                                                                visionPitch: nil,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.92)
+
+        #expect(snapshot != nil)
+        #expect(abs(snapshot?.pitchDegrees ?? 99) < RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees)
+        let adjustment = snapshot.flatMap { HeadPoseInstructionBuilder.adjustment(from: $0) }
+        #expect(adjustment == nil)
+    }
+
+    @Test func rearMonoPitchTrustsAlignedVisionOverSmallBoxBias() async throws {
+        let resolved = RearMonoBridgePoseEstimator.resolvedPitchAxis(
+            vision: 0,
+            geometry: RearMonoBridgePoseAxisEstimate(degrees: -4.0, confidence: 0.90)
+        )
+
+        #expect(abs(resolved ?? 99) < 0.1)
+    }
+
     @Test func rearMonoPoseUsesLargestErrorWhenVisionConflictsWithGeometry() async throws {
         let landmarks = rearMonoPoseLandmarks()
 
