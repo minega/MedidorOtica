@@ -30,10 +30,11 @@ struct CaptureReadinessEngineTests {
         #expect(RearDepthDistanceLimits.maxCm == 55.0)
     }
 
-    @Test func rearMonoDistanceUsesCloseMainCameraRange() async throws {
-        #expect(RearMonoBridgeDistanceLimits.minCm == 22.0)
-        #expect(RearMonoBridgeDistanceLimits.maxCm == 38.0)
-        #expect(RearMonoBridgeDistanceLimits.minCm < RearDepthDistanceLimits.minCm)
+    @Test func rearMonoUsesFaceSizeInsteadOfDistanceForOvalFit() async throws {
+        #expect(RearMonoBridgeFaceSizeLimits.status(widthRatio: 0.26, heightRatio: 0.36) == .valid)
+        #expect(RearMonoBridgeFaceSizeLimits.status(widthRatio: 0.18, heightRatio: 0.36) == .tooSmall)
+        #expect(RearMonoBridgeFaceSizeLimits.status(widthRatio: 0.26, heightRatio: 0.28) == .tooSmall)
+        #expect(RearMonoBridgeFaceSizeLimits.status(widthRatio: 0.26, heightRatio: 0.56) == .tooLarge)
     }
 
     @Test func rearMonoDistanceEstimatorMatchesMeasuredCloseTest() async throws {
@@ -433,16 +434,43 @@ struct CaptureReadinessEngineTests {
         #expect(snapshot != nil)
         #expect(abs(snapshot?.pitchDegrees ?? 0) > RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees)
         let adjustment = snapshot.flatMap { HeadPoseInstructionBuilder.adjustment(from: $0) }
-        #expect(adjustment == .pitchDown(4))
+        #expect(adjustment == .pitchDown(5))
     }
 
-    @Test func rearMonoPitchDoesNotIgnoreGeometryWhenVisionIsAligned() async throws {
+    @Test func rearMonoPitchUsesAlignedVisionAgainstSmallBoxBias() async throws {
         let resolved = RearMonoBridgePoseEstimator.resolvedPitchAxis(
             vision: 0,
             geometry: RearMonoBridgePoseAxisEstimate(degrees: -4.0, confidence: 0.90)
         )
 
-        #expect(abs((resolved ?? 0) + 4.0) < 0.1)
+        #expect(abs(resolved ?? 99) < 0.1)
+    }
+
+    @Test func rearMonoYawUsesAlignedVisionAgainstSmallFaceAsymmetry() async throws {
+        let resolved = RearMonoBridgePoseEstimator.resolvedYawAxis(
+            vision: 0,
+            geometry: RearMonoBridgePoseAxisEstimate(degrees: 4.0, confidence: 0.90)
+        )
+
+        #expect(abs(resolved ?? 99) < 0.1)
+    }
+
+    @Test func rearMonoPitchStillBlocksLargeGeometryWhenVisionIsAligned() async throws {
+        let resolved = RearMonoBridgePoseEstimator.resolvedPitchAxis(
+            vision: 0,
+            geometry: RearMonoBridgePoseAxisEstimate(degrees: -8.0, confidence: 0.90)
+        )
+
+        #expect(abs((resolved ?? 0) + 8.0) < 0.1)
+    }
+
+    @Test func rearMonoYawStillBlocksLargeGeometryWhenVisionIsAligned() async throws {
+        let resolved = RearMonoBridgePoseEstimator.resolvedYawAxis(
+            vision: 0,
+            geometry: RearMonoBridgePoseAxisEstimate(degrees: 8.0, confidence: 0.90)
+        )
+
+        #expect(abs((resolved ?? 0) - 8.0) < 0.1)
     }
 
     @Test func rearMonoPoseUsesLargestErrorWhenVisionConflictsWithGeometry() async throws {

@@ -150,6 +150,11 @@ struct CameraInstructions: View {
         cameraManager.cameraPosition == .back
     }
 
+    private var isRearMonoBridgeActive: Bool {
+        verificationManager.activeSensor == .rearMonoBridge ||
+        cameraManager.isUsingRearMonoBridgeSession
+    }
+
     // MARK: - Texto principal
     private func currentInstruction() -> String {
         if shouldShowTrueDepthBootstrap {
@@ -281,6 +286,10 @@ struct CameraInstructions: View {
 
     private func calibrationGuidance() -> String {
         if cameraManager.cameraPosition == .back {
+            if isRearMonoBridgeActive {
+                return rearMonoBridgeFaceSizeGuidance()
+            }
+
             let range = rearCameraDistanceRange()
             let minDistance = range.min
             let maxDistance = range.max
@@ -296,17 +305,11 @@ struct CameraInstructions: View {
 
     private func rearCameraDistanceRange() -> (min: Float, max: Float) {
         switch verificationManager.activeSensor {
-        case .rearMonoBridge:
-            return (RearMonoBridgeDistanceLimits.minCm, RearMonoBridgeDistanceLimits.maxCm)
         case .rearDepth:
             return (RearDepthDistanceLimits.minCm, RearDepthDistanceLimits.maxCm)
         case .liDAR:
             return (RearLiDARDistanceLimits.minCm, RearLiDARDistanceLimits.maxCm)
         default:
-            if cameraManager.isUsingRearMonoBridgeSession {
-                return (RearMonoBridgeDistanceLimits.minCm, RearMonoBridgeDistanceLimits.maxCm)
-            }
-
             if cameraManager.isUsingRearDepthFallbackSession {
                 return (RearDepthDistanceLimits.minCm, RearDepthDistanceLimits.maxCm)
             }
@@ -335,6 +338,10 @@ struct CameraInstructions: View {
 
     // MARK: - Distancia
     private func distanceGuidance() -> String {
+        if isRearMonoBridgeActive {
+            return rearMonoBridgeFaceSizeGuidance()
+        }
+
         let minDistance = verificationManager.minDistance
         let maxDistance = verificationManager.maxDistance
         let currentDistance = verificationManager.lastMeasuredDistance
@@ -366,6 +373,25 @@ struct CameraInstructions: View {
             return "📱 ↔️ Aproxime o celular cerca de \(diff) cm"
         }
         return "🙂 ↔️ Aproxime cerca de \(diff) cm para entrar na faixa ideal"
+    }
+
+    /// Orienta o modo Mono por tamanho de rosto no oval, sem distancia em centimetros.
+    private func rearMonoBridgeFaceSizeGuidance() -> String {
+        let status = RearMonoBridgeFaceSizeLimits.status(
+            widthRatio: verificationManager.projectedFaceWidthRatio,
+            heightRatio: verificationManager.projectedFaceHeightRatio
+        )
+
+        switch status {
+        case .invalid:
+            return "📱 👀 Enquadre o rosto inteiro no oval"
+        case .tooSmall:
+            return "📱 ↔️ Aproxime o celular ate preencher o oval"
+        case .tooLarge:
+            return "📱 ↔️ Afaste um pouco para caber no oval"
+        case .valid:
+            return "📱 ⏳ Segure parado com o rosto no oval"
+        }
     }
 
     // MARK: - Centralizacao
@@ -615,7 +641,7 @@ struct VerificationMenu: View {
             case .rearDepth:
                 return "\(Int(RearDepthDistanceLimits.minCm))-\(Int(RearDepthDistanceLimits.maxCm)) cm"
             case .rearMonoBridge:
-                return "\(Int(RearMonoBridgeDistanceLimits.minCm))-\(Int(RearMonoBridgeDistanceLimits.maxCm)) cm"
+                return "Oval"
             default:
                 break
             }

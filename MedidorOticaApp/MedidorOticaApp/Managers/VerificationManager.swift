@@ -71,7 +71,7 @@ final class VerificationManager: ObservableObject {
         case .rearDepth:
             return RearDepthDistanceLimits.minCm
         case .rearMonoBridge:
-            return RearMonoBridgeDistanceLimits.minCm
+            return 0
         default:
             return DistanceLimits.minCm
         }
@@ -84,7 +84,7 @@ final class VerificationManager: ObservableObject {
         case .rearDepth:
             return RearDepthDistanceLimits.maxCm
         case .rearMonoBridge:
-            return RearMonoBridgeDistanceLimits.maxCm
+            return 0
         default:
             return DistanceLimits.maxCm
         }
@@ -460,10 +460,10 @@ final class VerificationManager: ObservableObject {
                                                headAligned: false)
         }
 
-        let distanceCorrect = manager.rearMonoBridgeMeasurementEngine.projectedDistanceIsValid(analysis)
-        publishRearMonoBridgeDistance(analysis: analysis,
-                                      isValid: distanceCorrect)
-        guard distanceCorrect else {
+        let faceSizeCorrect = manager.rearMonoBridgeMeasurementEngine.projectedFaceSizeIsValid(analysis)
+        publishRearMonoBridgeFaceSize(analysis: analysis,
+                                      isValid: faceSizeCorrect)
+        guard faceSizeCorrect else {
             return VerificationFrameEvaluation(timestamp: frame.timestamp,
                                                trackingIsNormal: true,
                                                hasTrackedFaceAnchor: false,
@@ -587,20 +587,21 @@ final class VerificationManager: ObservableObject {
         """)
     }
 
-    private func publishRearMonoBridgeDistance(analysis: RearMonoBridgeFrameAnalysis,
-                                               isValid: Bool) {
-        let distanceInCm = analysis.estimatedDistanceCm
+    private func publishRearMonoBridgeFaceSize(analysis: RearMonoBridgeFrameAnalysis,
+                                              isValid: Bool) {
         let projectedWidthRatio = analysis.projectedFaceWidthRatio
         let projectedHeightRatio = analysis.projectedFaceHeightRatio
+        let status = RearMonoBridgeFaceSizeLimits.status(widthRatio: projectedWidthRatio,
+                                                         heightRatio: projectedHeightRatio)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.lastMeasuredDistance = distanceInCm
+            self.lastMeasuredDistance = 0
             self.projectedFaceWidthRatio = projectedWidthRatio
             self.projectedFaceHeightRatio = projectedHeightRatio
-            self.projectedFaceTooSmall = false
+            self.projectedFaceTooSmall = status == .tooSmall
 
             if !isValid {
-                print("Aviso Mono traseiro: distancia estimada fora da faixa: \(String(format: "%.1f", distanceInCm)) cm")
+                print("Aviso Mono traseiro: rosto fora do oval: largura \(String(format: "%.2f", projectedWidthRatio)), altura \(String(format: "%.2f", projectedHeightRatio))")
             }
         }
     }

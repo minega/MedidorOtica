@@ -32,15 +32,16 @@ enum RearMonoBridgePoseEstimator {
         static let minimumAxisConfidence: Float = 0.70
         static let maximumPoseDegrees: Float = 45
         static let rollVisionAgreementDegrees: Float = 3.5
-        static let yawVisionAgreementDegrees: Float = 5.0
-        static let pitchVisionAgreementDegrees: Float = 5.0
-        static let neutralEyeRelativeY: ClosedRange<Float> = 0.39...0.45
+        static let yawVisionAgreementDegrees: Float = 4.5
+        static let pitchVisionAgreementDegrees: Float = 4.5
+        static let neutralEyeRelativeY: ClosedRange<Float> = 0.40...0.44
         static let neutralNoseDrop: ClosedRange<Float> = 0.14...0.32
         static let neutralLowerFaceDrop: ClosedRange<Float> = 0.42...0.70
         static let maximumPitchBoxBiasDegrees: Float = 5.5
-        static let pitchDegreesPerRelativeUnit: Float = 34
-        static let yawDegreesPerEyeShift: Float = 32
-        static let neutralYawShift: Float = 0.025
+        static let maximumYawBiasWithAlignedVisionDegrees: Float = 5.5
+        static let pitchDegreesPerRelativeUnit: Float = 38
+        static let yawDegreesPerEyeShift: Float = 38
+        static let neutralYawShift: Float = 0.018
     }
 
     /// Monta um snapshot somente quando roll, yaw e pitch possuem leitura geometrica confiavel.
@@ -56,9 +57,8 @@ enum RearMonoBridgePoseEstimator {
         guard let roll = resolvedAxis(vision: visionRoll,
                                       geometry: rollGeometry,
                                       agreementTolerance: Constants.rollVisionAgreementDegrees),
-              let yaw = resolvedAxis(vision: visionYaw,
-                                     geometry: yawGeometry,
-                                     agreementTolerance: Constants.yawVisionAgreementDegrees),
+              let yaw = resolvedYawAxis(vision: visionYaw,
+                                        geometry: yawGeometry),
               let pitch = resolvedPitchAxis(vision: visionPitch,
                                             geometry: pitchGeometry) else {
             return nil
@@ -213,9 +213,36 @@ enum RearMonoBridgePoseEstimator {
         return abs(visionDegrees) >= abs(geometricDegrees) ? visionDegrees : geometricDegrees
     }
 
-    /// O pitch 2D pode sofrer viés, mas nunca pode ser ignorado quando indica erro real.
+    /// O yaw 2D pode sofrer assimetria facial; Vision vira o sinal principal quando disponivel.
+    static func resolvedYawAxis(vision: Float?,
+                                geometry: RearMonoBridgePoseAxisEstimate?) -> Float? {
+        resolvedVisionPrimaryAxis(
+            vision: vision,
+            geometry: geometry,
+            agreementTolerance: Constants.yawVisionAgreementDegrees,
+            axisTolerance: RearMonoBridgeCapturePrecisionPolicy.yawToleranceDegrees,
+            maximumGeometryBiasWithAlignedVision: Constants.maximumYawBiasWithAlignedVisionDegrees
+        )
+    }
+
+    /// O pitch 2D pode sofrer vies; Vision vira o sinal principal quando disponivel.
     static func resolvedPitchAxis(vision: Float?,
                                   geometry: RearMonoBridgePoseAxisEstimate?) -> Float? {
+        resolvedVisionPrimaryAxis(
+            vision: vision,
+            geometry: geometry,
+            agreementTolerance: Constants.pitchVisionAgreementDegrees,
+            axisTolerance: RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees,
+            maximumGeometryBiasWithAlignedVision: Constants.maximumPitchBoxBiasDegrees
+        )
+    }
+
+    /// Combina Vision e geometria sem liberar eixo ausente nem mascarar erro grande.
+    private static func resolvedVisionPrimaryAxis(vision: Float?,
+                                                  geometry: RearMonoBridgePoseAxisEstimate?,
+                                                  agreementTolerance: Float,
+                                                  axisTolerance: Float,
+                                                  maximumGeometryBiasWithAlignedVision: Float) -> Float? {
         guard let geometry,
               geometry.confidence >= Constants.minimumAxisConfidence,
               geometry.degrees.isFinite else {
@@ -230,18 +257,21 @@ enum RearMonoBridgePoseEstimator {
 
         let visionDegrees = clampedPoseDegrees(vision)
         let disagreement = abs(visionDegrees - geometricDegrees)
-        let pitchTolerance = RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees
-        if abs(visionDegrees) <= pitchTolerance,
-           abs(geometricDegrees) > pitchTolerance {
-            return geometricDegrees
-        }
-
-        if abs(geometricDegrees) <= pitchTolerance,
-           abs(visionDegrees) > pitchTolerance {
+        if abs(visionDegrees) > axisTolerance,
+           abs(geometricDegrees) <= axisTolerance {
             return visionDegrees
         }
 
-        if disagreement <= Constants.pitchVisionAgreementDegrees {
+        if abs(visionDegrees) <= axisTolerance,
+           abs(geometricDegrees) > axisTolerance {
+            if abs(geometricDegrees) <= maximumGeometryBiasWithAlignedVision {
+                return visionDegrees
+            }
+
+            return geometricDegrees
+        }
+
+        if disagreement <= agreementTolerance {
             return clampedPoseDegrees((visionDegrees * 0.65) + (geometricDegrees * 0.35))
         }
 

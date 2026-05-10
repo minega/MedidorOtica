@@ -179,7 +179,7 @@ struct CameraHighlight: View {
 struct ProgressOval: View {
     /// Observa o `VerificationManager` para desenhar a barra de progresso dinâmicamente
     @ObservedObject var verificationManager: VerificationManager
-    /// Define se a distância deve ser exibida abaixo do oval.
+    /// Define se o indicador inferior deve ser exibido abaixo do oval.
     var showDistance: Bool = false
 
     var body: some View {
@@ -203,7 +203,7 @@ struct ProgressOval: View {
                     .frame(width: 300, height: 400)
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
 
-                // Distância exibida abaixo do oval, caso habilitada
+                // Indicador exibido abaixo do oval, caso habilitado.
                 if showDistance {
                     DistanceOverlay(verificationManager: verificationManager)
                         .position(x: geometry.size.width / 2,

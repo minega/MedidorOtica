@@ -189,7 +189,7 @@ extension VerificationManager {
         case .rearDepth:
             return (RearDepthDistanceLimits.minCm / 100)...(RearDepthDistanceLimits.maxCm / 100)
         case .rearMonoBridge:
-            return (RearMonoBridgeDistanceLimits.minCm / 100)...(RearMonoBridgeDistanceLimits.maxCm / 100)
+            return 0...DistanceConstants.maxValidDepth
         default:
             return DistanceConstants.minDistanceMeters...DistanceConstants.maxDistanceMeters
         }

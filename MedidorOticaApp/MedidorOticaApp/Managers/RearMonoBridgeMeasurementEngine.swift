@@ -12,11 +12,49 @@ import ImageIO
 import Vision
 import simd
 
-// MARK: - Limites traseiros Mono
-/// Limites visuais para manter o rosto em uma faixa pratica sem profundidade real.
-struct RearMonoBridgeDistanceLimits {
-    static let minCm: Float = 22.0
-    static let maxCm: Float = 38.0
+// MARK: - Encaixe traseiro Mono
+/// Resultado do encaixe visual do rosto no oval para o modo Mono.
+enum RearMonoBridgeFaceSizeStatus: Equatable, Sendable {
+    case invalid
+    case tooSmall
+    case tooLarge
+    case valid
+}
+
+/// Limites visuais para manter o rosto grande no oval sem usar distancia estimada como gate.
+struct RearMonoBridgeFaceSizeLimits {
+    static let minimumWidthRatio: Float = 0.20
+    static let maximumWidthRatio: Float = 0.50
+    static let minimumHeightRatio: Float = 0.30
+    static let maximumHeightRatio: Float = 0.54
+
+    /// Classifica o tamanho projetado do rosto no frame atual.
+    static func status(widthRatio: Float,
+                       heightRatio: Float) -> RearMonoBridgeFaceSizeStatus {
+        guard widthRatio.isFinite,
+              heightRatio.isFinite,
+              widthRatio > 0,
+              heightRatio > 0 else {
+            return .invalid
+        }
+
+        if widthRatio < minimumWidthRatio || heightRatio < minimumHeightRatio {
+            return .tooSmall
+        }
+
+        if widthRatio > maximumWidthRatio || heightRatio > maximumHeightRatio {
+            return .tooLarge
+        }
+
+        return .valid
+    }
+
+    /// Informa se o rosto esta grande o bastante e ainda cabe no oval.
+    static func isValid(widthRatio: Float,
+                        heightRatio: Float) -> Bool {
+        status(widthRatio: widthRatio,
+               heightRatio: heightRatio) == .valid
+    }
 }
 
 // MARK: - Precisao traseira Mono
@@ -35,11 +73,11 @@ enum RearMonoBridgeCapturePrecisionPolicy {
     /// Tolerancia vertical exibida em centimetros estimados na UI.
     static let verticalCenteringDisplayToleranceCm: Float = 0.7
     /// Tolerancia de roll com Vision em camera unica.
-    static let rollToleranceDegrees: Float = 2.2
+    static let rollToleranceDegrees: Float = 2.0
     /// Tolerancia de yaw com Vision em camera unica.
-    static let yawToleranceDegrees: Float = 2.4
+    static let yawToleranceDegrees: Float = 2.2
     /// Tolerancia de pitch com Vision em camera unica.
-    static let pitchToleranceDegrees: Float = 2.5
+    static let pitchToleranceDegrees: Float = 2.3
     /// Frames bons exigidos no modo Mono.
     static let stableSampleCount = 4
     /// Maior intervalo entre frames bons.
@@ -213,12 +251,12 @@ final class RearMonoBridgeMeasurementEngine {
     }
 
     // MARK: - Validacoes visuais
-    /// Usa tamanho projetado apenas como guia de enquadramento, sem dizer que e profundidade real.
-    func projectedDistanceIsValid(_ analysis: RearMonoBridgeFrameAnalysis) -> Bool {
-        let distance = analysis.estimatedDistanceCm
-        return distance.isFinite &&
-            distance >= RearMonoBridgeDistanceLimits.minCm &&
-            distance <= RearMonoBridgeDistanceLimits.maxCm
+    /// Usa o tamanho do rosto no oval como gate do Mono, sem depender de distancia em cm.
+    func projectedFaceSizeIsValid(_ analysis: RearMonoBridgeFrameAnalysis) -> Bool {
+        RearMonoBridgeFaceSizeLimits.isValid(
+            widthRatio: analysis.projectedFaceWidthRatio,
+            heightRatio: analysis.projectedFaceHeightRatio
+        )
     }
 
     // MARK: - Vision

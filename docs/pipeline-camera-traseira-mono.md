@@ -14,13 +14,13 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 - O modo fica em `RearDepthMode.monoBridge` e aparece no botao superior junto com `LiDAR` e `Depth`.
 - A captura usa `RearMonoBridgeMeasurementEngine` e `RearMonoBridgeCaptureCoordinator`.
 - O botao superior alterna `LiDAR -> Depth -> Mono`, pulando modos indisponiveis.
-- A tela exibe distancia em cm como nos modos `LiDAR` e `Depth`, mas no Mono esse valor e estimado por tamanho facial calibrado, distancia entre olhos e intrinsics quando disponiveis; ele nao e profundidade real.
-- A faixa pratica do Mono e `22-38 cm`, porque a camera principal em foto unica precisa do rosto maior no quadro e a escala final vem da ponte real.
-- A centralizacao do Mono continua bloqueando por tolerancia normalizada do PC, mas a orientacao exibida ao usuario converte esse erro para centimetros estimados usando distancia, tamanho da imagem e intrinsics/focal de fallback.
-- O alinhamento `roll/yaw/pitch` nao usa fallback zerado: cada eixo precisa ter geometria facial confiavel e, quando o Vision tambem mede o eixo, a leitura mais conservadora impede liberar a captura por erro otimista.
-- A tolerancia de pose do Mono e mais rigida que a versao inicial: `roll +/-2,2°`, `yaw +/-2,4°` e `pitch +/-2,5°`.
+- A tela do Mono nao exibe distancia em cm: a etapa 2 valida se o rosto esta grande e ainda cabendo no oval.
+- O encaixe pratico do Mono exige rosto com altura projetada entre `30%` e `54%` do frame e largura entre `20%` e `50%`.
+- A centralizacao do Mono continua bloqueando por tolerancia normalizada do PC, mas a orientacao exibida ao usuario converte esse erro para centimetros estimados apenas como guia de movimento.
+- O alinhamento `roll/yaw/pitch` nao usa fallback zerado: cada eixo precisa de Vision ou geometria facial confiavel, e conflitos grandes usam a leitura mais conservadora.
+- A tolerancia de pose do Mono e mais rigida que a versao inicial: `roll +/-2,0°`, `yaw +/-2,2°` e `pitch +/-2,3°`.
 - O `pitch` Mono nao deve travar por vies pequeno do retangulo facial; somente quando nariz/queixo estao proporcionais esse vies 2D e tratado como neutro.
-- Nenhum ajuste pode neutralizar ou pular `roll/yaw/pitch`: se a geometria indicar inclinacao real, a captura continua bloqueada mesmo que outro sinal pareca alinhado.
+- Nenhum ajuste pode neutralizar ou pular `roll/yaw/pitch`: se o Vision ou a geometria indicarem erro real, a captura continua bloqueada.
 - A foto salva `scaleSource = .manualBridge`, obrigando a ponte real antes do resumo final.
 - A escala plana nasce de `ponte real / distancia normalizada entre as barras nasais`.
 - A referencia vertical e derivada da horizontal pela proporcao real da imagem para reduzir erro de distorcao lateral.
@@ -29,15 +29,15 @@ Este documento descreve o fluxo separado para iPhones sem LiDAR e sem profundida
 
 - Sem LiDAR, Depth ou TrueDepth nao existe escala absoluta no frame da camera.
 - A ponte real informada pelo usuario e a unica ancora absoluta do modo Mono.
-- Sem profundidade real, `yaw` e `pitch` sao validacoes geometricas 2D; pequenas assimetrias naturais entram em zona neutra para evitar instrucao impossivel.
-- A precisao depende de captura centralizada, pose alinhada, distancia estimada dentro de `22-38 cm`, camera principal e barras nasais bem posicionadas.
+- Sem profundidade real, `yaw` e `pitch` usam Vision como sinal principal e geometria 2D como confirmacao/bloqueio conservador.
+- A precisao depende de captura centralizada, pose alinhada, rosto grande no oval, camera principal e barras nasais bem posicionadas.
 
 ## Arquivos principais
 
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeMeasurementEngine.swift`
   Detecta rosto, PC visual, enquadramento e pose usando Vision.
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeDistanceEstimator.swift`
-  Corrige a distancia estimada do Mono por proporcao facial, olhos e intrinsics da camera.
+  Mantem a distancia visual apenas para estimar deslocamentos de centralizacao, sem bloquear a etapa 2.
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgePoseEstimator.swift`
   Valida `roll`, `yaw` e `pitch` do modo Mono com landmarks faciais e bloqueio conservador.
 - `MedidorOticaApp/MedidorOticaApp/Managers/RearMonoBridgeCaptureCoordinator.swift`

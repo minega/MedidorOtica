@@ -642,6 +642,11 @@ struct CameraView: View {
         }
 
         if !verificationManager.distanceCorrect {
+            if verificationManager.activeSensor == .rearMonoBridge ||
+                cameraManager.isUsingRearMonoBridgeSession {
+                return rearMonoBridgeManualCaptureBlockMessage()
+            }
+
             if cameraManager.cameraPosition == .back {
                 return verificationManager.lastMeasuredDistance < verificationManager.minDistance ?
                     "Afaste um pouco o celular para entrar na faixa ideal." :
@@ -675,6 +680,24 @@ struct CameraView: View {
         }
 
         return cameraManager.captureHint
+    }
+
+    private func rearMonoBridgeManualCaptureBlockMessage() -> String {
+        let status = RearMonoBridgeFaceSizeLimits.status(
+            widthRatio: verificationManager.projectedFaceWidthRatio,
+            heightRatio: verificationManager.projectedFaceHeightRatio
+        )
+
+        switch status {
+        case .invalid:
+            return "Enquadre o rosto inteiro no oval."
+        case .tooSmall:
+            return "Aproxime o celular ate o rosto preencher o oval."
+        case .tooLarge:
+            return "Afaste um pouco para o rosto caber no oval."
+        case .valid:
+            return "Segure o celular parado com o rosto no oval."
+        }
     }
 
     // MARK: - Captura automatica

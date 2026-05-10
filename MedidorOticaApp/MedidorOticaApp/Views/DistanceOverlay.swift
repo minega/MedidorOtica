@@ -2,12 +2,12 @@
 //  DistanceOverlay.swift
 //  MedidorOticaApp
 //
-//  Exibe a distancia atual entre o sensor e o plano do PC.
+//  Exibe distancia medida ou encaixe visual conforme o sensor ativo.
 //
 
 import SwiftUI
 
-/// View opcional que mostra a distancia medida.
+/// View opcional que mostra a distancia medida ou o tamanho do rosto no Mono.
 struct DistanceOverlay: View {
     @ObservedObject var verificationManager: VerificationManager
 
@@ -32,6 +32,11 @@ struct DistanceOverlay: View {
     }
 
     private var displayText: String {
+        if verificationManager.activeSensor == .rearMonoBridge {
+            let heightPercentage = max(0, Int(round(verificationManager.projectedFaceHeightRatio * 100)))
+            return heightPercentage > 0 ? "Rosto \(heightPercentage)%" : "Rosto no oval"
+        }
+
         return String(format: "%.1f cm", verificationManager.lastMeasuredDistance)
     }
 }
