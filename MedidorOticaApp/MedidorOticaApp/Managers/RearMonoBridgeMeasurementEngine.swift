@@ -30,12 +30,16 @@ enum RearMonoBridgeCapturePrecisionPolicy {
     static let alignmentAssistHorizontalTolerance: Float = 0.040
     /// Faixa vertical assistida durante alinhamento.
     static let alignmentAssistVerticalTolerance: Float = 0.046
+    /// Tolerancia horizontal exibida em centimetros estimados na UI.
+    static let horizontalCenteringDisplayToleranceCm: Float = 0.5
+    /// Tolerancia vertical exibida em centimetros estimados na UI.
+    static let verticalCenteringDisplayToleranceCm: Float = 0.7
     /// Tolerancia de roll com Vision em camera unica.
-    static let rollToleranceDegrees: Float = 3.0
+    static let rollToleranceDegrees: Float = 2.2
     /// Tolerancia de yaw com Vision em camera unica.
-    static let yawToleranceDegrees: Float = 3.2
+    static let yawToleranceDegrees: Float = 2.4
     /// Tolerancia de pitch com Vision em camera unica.
-    static let pitchToleranceDegrees: Float = 3.4
+    static let pitchToleranceDegrees: Float = 2.5
     /// Frames bons exigidos no modo Mono.
     static let stableSampleCount = 4
     /// Maior intervalo entre frames bons.
@@ -62,6 +66,8 @@ struct RearMonoBridgeFrameAnalysis {
     let centralPoint: NormalizedPoint
     let strictOffset: SIMD2<Float>
     let assistedOffset: SIMD2<Float>
+    let strictOffsetCentimeters: SIMD2<Float>
+    let assistedOffsetCentimeters: SIMD2<Float>
     let projectedFaceWidthRatio: Float
     let projectedFaceHeightRatio: Float
     let estimatedDistanceCm: Float
@@ -177,19 +183,32 @@ final class RearMonoBridgeMeasurementEngine {
         let assistedOffset = RearMonoBridgeCenteringAssist.assistedOffset(strictOffset: strictOffset,
                                                                           neutralOffset: normalizedOffset(from: assistPoint),
                                                                           headPose: headPose)
+        let estimatedDistance = estimatedDistanceCm(faceHeightRatio: Float(bounds.height),
+                                                    eyePoints: eyePoints,
+                                                    imageSize: imageSize,
+                                                    orientation: cgOrientation,
+                                                    cameraIntrinsics: frame.cameraIntrinsics)
+        let strictOffsetCentimeters = estimatedCenterOffsetCentimeters(strictOffset,
+                                                                       imageSize: imageSize,
+                                                                       orientation: cgOrientation,
+                                                                       cameraIntrinsics: frame.cameraIntrinsics,
+                                                                       distanceCm: estimatedDistance)
+        let assistedOffsetCentimeters = estimatedCenterOffsetCentimeters(assistedOffset,
+                                                                         imageSize: imageSize,
+                                                                         orientation: cgOrientation,
+                                                                         cameraIntrinsics: frame.cameraIntrinsics,
+                                                                         distanceCm: estimatedDistance)
         return RearMonoBridgeFrameAnalysis(faceObservation: face,
                                            cgOrientation: cgOrientation,
                                            faceBounds: bounds,
                                            centralPoint: centralPoint,
                                            strictOffset: strictOffset,
                                            assistedOffset: assistedOffset,
+                                           strictOffsetCentimeters: strictOffsetCentimeters,
+                                           assistedOffsetCentimeters: assistedOffsetCentimeters,
                                            projectedFaceWidthRatio: Float(bounds.width),
                                            projectedFaceHeightRatio: Float(bounds.height),
-                                           estimatedDistanceCm: estimatedDistanceCm(faceHeightRatio: Float(bounds.height),
-                                                                                   eyePoints: eyePoints,
-                                                                                   imageSize: imageSize,
-                                                                                   orientation: cgOrientation,
-                                                                                   cameraIntrinsics: frame.cameraIntrinsics),
+                                           estimatedDistanceCm: estimatedDistance,
                                            headPose: headPose)
     }
 
@@ -471,6 +490,20 @@ final class RearMonoBridgeMeasurementEngine {
             imageSize: imageSize,
             orientation: orientation,
             cameraIntrinsics: cameraIntrinsics
+        )
+    }
+
+    private func estimatedCenterOffsetCentimeters(_ normalizedOffset: SIMD2<Float>,
+                                                  imageSize: CGSize,
+                                                  orientation: CGImagePropertyOrientation,
+                                                  cameraIntrinsics: simd_float3x3?,
+                                                  distanceCm: Float) -> SIMD2<Float> {
+        RearMonoBridgeProjectionEstimator.offsetCentimeters(
+            normalizedOffset: normalizedOffset,
+            imageSize: imageSize,
+            orientation: orientation,
+            cameraIntrinsics: cameraIntrinsics,
+            distanceCm: distanceCm
         )
     }
 

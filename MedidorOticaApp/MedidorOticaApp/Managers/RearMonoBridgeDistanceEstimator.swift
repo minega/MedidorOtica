@@ -67,9 +67,11 @@ enum RearMonoBridgeDistanceEstimator {
             return nil
         }
 
-        if let cameraIntrinsics,
-           let focalPixels = orientedHorizontalFocalPixels(from: cameraIntrinsics,
-                                                           orientation: orientation),
+        if cameraIntrinsics != nil,
+           let focalPixels = RearMonoBridgeProjectionEstimator
+            .orientedFocalPixels(from: cameraIntrinsics,
+                                 imageSize: imageSize,
+                                 orientation: orientation)?.fx,
            imageSize.width > 0 {
             let eyePixels = eyeDistanceRatio * Float(imageSize.width)
             guard eyePixels > 0 else { return nil }
@@ -79,14 +81,6 @@ enum RearMonoBridgeDistanceEstimator {
         return clampedDistance(Constants.eyeDistanceProductCm / eyeDistanceRatio)
     }
 
-    private static func orientedHorizontalFocalPixels(from intrinsics: simd_float3x3,
-                                                     orientation: CGImagePropertyOrientation) -> Float? {
-        let focal = orientation.isPortrait ?
-            intrinsics.columns.1.y :
-            intrinsics.columns.0.x
-        return focal.isFinite && focal > 0 ? focal : nil
-    }
-
     private static func clampedDistance(_ distance: Float) -> Float? {
         guard distance.isFinite,
               distance >= Constants.minimumUsableDistanceCm,
@@ -94,5 +88,61 @@ enum RearMonoBridgeDistanceEstimator {
             return nil
         }
         return distance
+    }
+}
+
+// MARK: - Projecao Mono
+/// Converte deslocamentos normalizados do preview em centimetros estimados.
+enum RearMonoBridgeProjectionEstimator {
+    private enum Constants {
+        /// Aproximacao conservadora para a camera wide quando o frame ainda nao entregou intrinsics.
+        static let fallbackFocalLengthRatio: Float = 0.82
+    }
+
+    /// Converte o erro visual do PC em deslocamento fisico estimado no plano do rosto.
+    static func offsetCentimeters(normalizedOffset: SIMD2<Float>,
+                                  imageSize: CGSize,
+                                  orientation: CGImagePropertyOrientation,
+                                  cameraIntrinsics: simd_float3x3?,
+                                  distanceCm: Float) -> SIMD2<Float> {
+        guard distanceCm.isFinite,
+              distanceCm > 0,
+              imageSize.width > 0,
+              imageSize.height > 0,
+              let focal = orientedFocalPixels(from: cameraIntrinsics,
+                                              imageSize: imageSize,
+                                              orientation: orientation) else {
+            return .zero
+        }
+
+        let xPixels = normalizedOffset.x * Float(imageSize.width)
+        let yPixels = normalizedOffset.y * Float(imageSize.height)
+        let xCentimeters = (xPixels / focal.fx) * distanceCm
+        let yCentimeters = (yPixels / focal.fy) * distanceCm
+        return SIMD2<Float>(xCentimeters, yCentimeters)
+    }
+
+    /// Retorna as distancias focais ja orientadas para o preview atual.
+    static func orientedFocalPixels(from intrinsics: simd_float3x3?,
+                                    imageSize: CGSize,
+                                    orientation: CGImagePropertyOrientation) -> (fx: Float, fy: Float)? {
+        if let intrinsics {
+            let rawFX = intrinsics.columns.0.x
+            let rawFY = intrinsics.columns.1.y
+            let fx = orientation.isPortrait ? rawFY : rawFX
+            let fy = orientation.isPortrait ? rawFX : rawFY
+
+            if fx.isFinite, fy.isFinite, fx > 0, fy > 0 {
+                return (fx, fy)
+            }
+        }
+
+        guard imageSize.width > 0,
+              imageSize.height > 0 else {
+            return nil
+        }
+
+        let fallback = Float(max(imageSize.width, imageSize.height)) * Constants.fallbackFocalLengthRatio
+        return fallback.isFinite && fallback > 0 ? (fallback, fallback) : nil
     }
 }

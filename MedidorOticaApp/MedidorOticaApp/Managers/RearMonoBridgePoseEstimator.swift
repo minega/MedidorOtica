@@ -31,13 +31,13 @@ enum RearMonoBridgePoseEstimator {
     private enum Constants {
         static let minimumAxisConfidence: Float = 0.70
         static let maximumPoseDegrees: Float = 45
-        static let rollVisionAgreementDegrees: Float = 4.0
-        static let yawVisionAgreementDegrees: Float = 7.0
-        static let pitchVisionAgreementDegrees: Float = 7.0
-        static let neutralEyeRelativeY: ClosedRange<Float> = 0.36...0.50
+        static let rollVisionAgreementDegrees: Float = 3.5
+        static let yawVisionAgreementDegrees: Float = 5.0
+        static let pitchVisionAgreementDegrees: Float = 5.0
+        static let neutralEyeRelativeY: ClosedRange<Float> = 0.39...0.45
         static let pitchDegreesPerRelativeUnit: Float = 34
         static let yawDegreesPerEyeShift: Float = 32
-        static let neutralYawShift: Float = 0.055
+        static let neutralYawShift: Float = 0.025
     }
 
     /// Monta um snapshot somente quando roll, yaw e pitch possuem leitura geometrica confiavel.

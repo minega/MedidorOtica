@@ -93,4 +93,5 @@ Para detalhes de uso e arquitetura acesse `MedidorOticaApp/README.md`.
 - Novo fluxo separado para iPhones sem LiDAR e sem Depth traseiro, usando sempre a camera principal.
 - O botao superior da camera traseira alterna `LiDAR`, `Depth` e `Mono`, pulando modos indisponiveis.
 - A faixa estimada do Mono e `22-38 cm`, com distancia visual corrigida por face, olhos e intrinsics quando disponiveis.
+- A centralizacao Mono mostra deslocamento em cm estimados, nao porcentagem do preview, e o alinhamento bloqueia `roll/yaw/pitch` fora da tolerancia dedicada.
 - A pos-captura exige a ponte real; a escala final usa a distancia entre as barras nasais ja ajustadas.

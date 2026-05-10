@@ -57,6 +57,23 @@ struct CaptureReadinessEngineTests {
         #expect(distance < 25.8)
     }
 
+    @Test func rearMonoProjectionConvertsCenterOffsetToEstimatedCentimeters() async throws {
+        var intrinsics = matrix_identity_float3x3
+        intrinsics.columns.0.x = 3200
+        intrinsics.columns.1.y = 3200
+
+        let offset = RearMonoBridgeProjectionEstimator.offsetCentimeters(
+            normalizedOffset: SIMD2<Float>(0.04, -0.02),
+            imageSize: CGSize(width: 2160, height: 3840),
+            orientation: .right,
+            cameraIntrinsics: intrinsics,
+            distanceCm: 25
+        )
+
+        #expect(abs(offset.x - 0.675) < 0.05)
+        #expect(abs(offset.y + 0.600) < 0.05)
+    }
+
     @Test func rearDepthModeMessagesExplainLiDARToggle() async throws {
         #expect(RearDepthMode.liDAR.sensorName == "LiDAR")
         #expect(RearDepthMode.estimatedDepth.sensorName == "Depth")
@@ -344,9 +361,9 @@ struct CaptureReadinessEngineTests {
     }
 
     @Test func rearMonoPoseInstructionUsesDedicatedTolerance() async throws {
-        let snapshot = HeadPoseSnapshot(rollDegrees: 2.8,
-                                        yawDegrees: 3.0,
-                                        pitchDegrees: 3.2,
+        let snapshot = HeadPoseSnapshot(rollDegrees: 2.0,
+                                        yawDegrees: 2.2,
+                                        pitchDegrees: 2.3,
                                         timestamp: 8.7,
                                         sensor: .rearMonoBridge)
 
@@ -393,7 +410,20 @@ struct CaptureReadinessEngineTests {
         #expect(snapshot != nil)
         #expect(abs(snapshot?.yawDegrees ?? 0) >= 15)
         let adjustment = snapshot.flatMap { HeadPoseInstructionBuilder.adjustment(from: $0) }
-        #expect(adjustment == .yawRight(13))
+        #expect(adjustment == .yawRight(16))
+    }
+
+    @Test func rearMonoPoseRejectsClearlyTurnedHead() async throws {
+        let landmarks = rearMonoPoseLandmarks(lowerNosePoint: NormalizedPoint(x: 0.56, y: 0.57))
+
+        let snapshot = RearMonoBridgePoseEstimator.makeHeadPose(visionRoll: 0,
+                                                                visionYaw: nil,
+                                                                visionPitch: 0,
+                                                                landmarks: landmarks,
+                                                                timestamp: 8.96)
+
+        #expect(snapshot != nil)
+        #expect(abs(snapshot?.yawDegrees ?? 0) > RearMonoBridgeCapturePrecisionPolicy.yawToleranceDegrees)
     }
 
     @Test func rearMonoPoseRejectsWeakEyeGeometry() async throws {

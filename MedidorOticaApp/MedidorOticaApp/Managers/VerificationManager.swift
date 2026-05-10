@@ -614,7 +614,9 @@ final class VerificationManager: ObservableObject {
         let assistedCentered = allowAlignmentAssist &&
             abs(assistedOffset.x) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistHorizontalTolerance &&
             abs(assistedOffset.y) < RearMonoBridgeCapturePrecisionPolicy.alignmentAssistVerticalTolerance
-        let visibleOffset = allowAlignmentAssist ? assistedOffset : strictOffset
+        let visibleOffset = allowAlignmentAssist ?
+            analysis.assistedOffsetCentimeters :
+            analysis.strictOffsetCentimeters
         return (visibleOffset.x,
                 visibleOffset.y,
                 strictCentered || assistedCentered,
@@ -623,23 +625,23 @@ final class VerificationManager: ObservableObject {
     }
 
     private func publishRearMonoBridgeCentering(_ centering: (horizontal: Float, vertical: Float, isCentered: Bool, isStrict: Bool, isAssisted: Bool)) {
-        let horizontalPercent = centering.horizontal * 100
-        let verticalPercent = centering.vertical * 100
+        let horizontalCm = centering.horizontal
+        let verticalCm = centering.vertical
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.facePosition = [
-                "x": horizontalPercent,
-                "y": verticalPercent,
-                "z": horizontalPercent
+                "x": horizontalCm,
+                "y": verticalCm,
+                "z": horizontalCm
             ]
             self.faceAligned = centering.isCentered
         }
 
         print("""
-        Centralizacao Mono traseiro (% imagem):
-           - Horizontal: \(String(format: "%+.2f", horizontalPercent))
-           - Vertical:   \(String(format: "%+.2f", verticalPercent))
+        Centralizacao Mono traseiro (cm estimado):
+           - Horizontal: \(String(format: "%+.2f", horizontalCm)) cm
+           - Vertical:   \(String(format: "%+.2f", verticalCm)) cm
            - Estrito:    \(centering.isStrict ? "OK" : "ERRO")
            - Assistido:  \(centering.isAssisted ? "SIM" : "NAO")
         """)

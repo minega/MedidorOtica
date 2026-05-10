@@ -19,19 +19,22 @@ enum HeadPoseInstructionBuilder {
 
         if abs(snapshot.pitchDegrees) > tolerances.pitch {
             let correction = displayedDegrees(from: snapshot.pitchDegrees,
-                                              tolerance: tolerances.pitch)
+                                              tolerance: tolerances.pitch,
+                                              sensor: snapshot.sensor)
             return snapshot.pitchDegrees > 0 ? .pitchUp(correction) : .pitchDown(correction)
         }
 
         if abs(snapshot.yawDegrees) > tolerances.yaw {
             let correction = displayedDegrees(from: snapshot.yawDegrees,
-                                              tolerance: tolerances.yaw)
+                                              tolerance: tolerances.yaw,
+                                              sensor: snapshot.sensor)
             return snapshot.yawDegrees > 0 ? .yawRight(correction) : .yawLeft(correction)
         }
 
         if abs(snapshot.rollDegrees) > tolerances.roll {
             let correction = displayedDegrees(from: snapshot.rollDegrees,
-                                              tolerance: tolerances.roll)
+                                              tolerance: tolerances.roll,
+                                              sensor: snapshot.sensor)
             return snapshot.rollDegrees > 0 ? .rollLeft(correction) : .rollRight(correction)
         }
 
@@ -60,9 +63,14 @@ enum HeadPoseInstructionBuilder {
         }
     }
 
-    /// Mostra apenas o quanto falta corrigir apos a tolerancia.
+    /// Mostra o angulo mais util para o sensor ativo.
     private static func displayedDegrees(from angle: Float,
-                                         tolerance: Float) -> Float {
+                                         tolerance: Float,
+                                         sensor: VerificationManager.SensorType) -> Float {
+        if sensor == .rearMonoBridge {
+            return max(round(abs(angle)), 1)
+        }
+
         max(round(abs(angle) - tolerance), 1)
     }
 }
@@ -273,11 +281,9 @@ struct CameraInstructions: View {
 
     private func calibrationGuidance() -> String {
         if cameraManager.cameraPosition == .back {
-            let usesRearDepth = verificationManager.activeSensor == .rearDepth ||
-                verificationManager.activeSensor == .rearMonoBridge ||
-                cameraManager.isUsingRearDepthFallbackSession
-            let minDistance = usesRearDepth ? RearDepthDistanceLimits.minCm : RearLiDARDistanceLimits.minCm
-            let maxDistance = usesRearDepth ? RearDepthDistanceLimits.maxCm : RearLiDARDistanceLimits.maxCm
+            let range = rearCameraDistanceRange()
+            let minDistance = range.min
+            let maxDistance = range.max
             return "📱 ↔️ Mantenha o celular entre \(Int(minDistance)) e \(Int(maxDistance)) cm"
         }
 
@@ -286,6 +292,27 @@ struct CameraInstructions: View {
         }
 
         return "📱 ↔️ Aproxime o rosto ate o sensor confirmar a malha"
+    }
+
+    private func rearCameraDistanceRange() -> (min: Float, max: Float) {
+        switch verificationManager.activeSensor {
+        case .rearMonoBridge:
+            return (RearMonoBridgeDistanceLimits.minCm, RearMonoBridgeDistanceLimits.maxCm)
+        case .rearDepth:
+            return (RearDepthDistanceLimits.minCm, RearDepthDistanceLimits.maxCm)
+        case .liDAR:
+            return (RearLiDARDistanceLimits.minCm, RearLiDARDistanceLimits.maxCm)
+        default:
+            if cameraManager.isUsingRearMonoBridgeSession {
+                return (RearMonoBridgeDistanceLimits.minCm, RearMonoBridgeDistanceLimits.maxCm)
+            }
+
+            if cameraManager.isUsingRearDepthFallbackSession {
+                return (RearDepthDistanceLimits.minCm, RearDepthDistanceLimits.maxCm)
+            }
+
+            return (RearLiDARDistanceLimits.minCm, RearLiDARDistanceLimits.maxCm)
+        }
     }
 
     // MARK: - Bloco visual
@@ -466,8 +493,8 @@ struct CameraInstructions: View {
         let yPos = verificationManager.facePosition["y"] ?? 0
         let horizontalOffset = abs(xPos)
         let verticalOffset = abs(yPos)
-        let horizontalTolerance = RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringTolerance * 100
-        let verticalTolerance = RearMonoBridgeCapturePrecisionPolicy.verticalCenteringTolerance * 100
+        let horizontalTolerance = RearMonoBridgeCapturePrecisionPolicy.horizontalCenteringDisplayToleranceCm
+        let verticalTolerance = RearMonoBridgeCapturePrecisionPolicy.verticalCenteringDisplayToleranceCm
 
         if horizontalOffset <= horizontalTolerance && verticalOffset <= verticalTolerance {
             return "📱 ⏳ Segure parado no centro do PC"
