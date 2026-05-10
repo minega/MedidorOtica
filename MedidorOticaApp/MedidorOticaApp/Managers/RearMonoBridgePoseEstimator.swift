@@ -34,7 +34,7 @@ enum RearMonoBridgePoseEstimator {
         static let rollVisionAgreementDegrees: Float = 3.5
         static let yawVisionAgreementDegrees: Float = 5.0
         static let pitchVisionAgreementDegrees: Float = 5.0
-        static let neutralEyeRelativeY: ClosedRange<Float> = 0.30...0.50
+        static let neutralEyeRelativeY: ClosedRange<Float> = 0.39...0.45
         static let neutralNoseDrop: ClosedRange<Float> = 0.14...0.32
         static let neutralLowerFaceDrop: ClosedRange<Float> = 0.42...0.70
         static let maximumPitchBoxBiasDegrees: Float = 5.5
@@ -157,13 +157,6 @@ enum RearMonoBridgePoseEstimator {
             confidence += 0.08
         }
 
-        if pitchLooksNeutral(relativeEyeY: relativeEyeY,
-                             noseDrop: noseDrop,
-                             lowerFaceDrop: lowerFaceDrop) {
-            return RearMonoBridgePoseAxisEstimate(degrees: 0,
-                                                  confidence: min(confidence, 0.94))
-        }
-
         let effectiveRelativeY: Float
         if Constants.neutralEyeRelativeY.contains(relativeEyeY) {
             effectiveRelativeY = 0
@@ -173,16 +166,22 @@ enum RearMonoBridgePoseEstimator {
             effectiveRelativeY = relativeEyeY - Constants.neutralEyeRelativeY.upperBound
         }
         let degrees = clampedPoseDegrees(effectiveRelativeY * Constants.pitchDegreesPerRelativeUnit)
+        if pitchLooksLikeBoxBias(degrees: degrees,
+                                 noseDrop: noseDrop,
+                                 lowerFaceDrop: lowerFaceDrop) {
+            return RearMonoBridgePoseAxisEstimate(degrees: 0,
+                                                  confidence: min(confidence, 0.94))
+        }
+
         return RearMonoBridgePoseAxisEstimate(degrees: degrees,
                                               confidence: min(confidence, 0.94))
     }
 
-    /// Trata o viés normal do retângulo facial como neutro quando nariz e queixo estão proporcionais.
-    private static func pitchLooksNeutral(relativeEyeY: Float,
-                                          noseDrop: Float?,
-                                          lowerFaceDrop: Float?) -> Bool {
-        guard Constants.neutralEyeRelativeY.contains(relativeEyeY) else { return false }
-
+    /// Trata somente o viés pequeno do retângulo facial como neutro; inclinação real continua bloqueando.
+    private static func pitchLooksLikeBoxBias(degrees: Float,
+                                              noseDrop: Float?,
+                                              lowerFaceDrop: Float?) -> Bool {
+        guard abs(degrees) <= Constants.maximumPitchBoxBiasDegrees else { return false }
         let noseIsNeutral = noseDrop.map { Constants.neutralNoseDrop.contains($0) } ?? true
         let lowerFaceIsNeutral = lowerFaceDrop.map { Constants.neutralLowerFaceDrop.contains($0) } ?? true
         return noseIsNeutral && lowerFaceIsNeutral
@@ -214,7 +213,7 @@ enum RearMonoBridgePoseEstimator {
         return abs(visionDegrees) >= abs(geometricDegrees) ? visionDegrees : geometricDegrees
     }
 
-    /// O pitch 2D sofre viés do bounding box; Vision alinhado não deve ser vencido por erro pequeno e fixo.
+    /// O pitch 2D pode sofrer viés, mas nunca pode ser ignorado quando indica erro real.
     static func resolvedPitchAxis(vision: Float?,
                                   geometry: RearMonoBridgePoseAxisEstimate?) -> Float? {
         guard let geometry,
@@ -231,13 +230,19 @@ enum RearMonoBridgePoseEstimator {
 
         let visionDegrees = clampedPoseDegrees(vision)
         let disagreement = abs(visionDegrees - geometricDegrees)
-        if disagreement <= Constants.pitchVisionAgreementDegrees {
-            return clampedPoseDegrees((visionDegrees * 0.65) + (geometricDegrees * 0.35))
+        let pitchTolerance = RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees
+        if abs(visionDegrees) <= pitchTolerance,
+           abs(geometricDegrees) > pitchTolerance {
+            return geometricDegrees
         }
 
-        if abs(visionDegrees) <= RearMonoBridgeCapturePrecisionPolicy.pitchToleranceDegrees,
-           abs(geometricDegrees) <= Constants.maximumPitchBoxBiasDegrees {
+        if abs(geometricDegrees) <= pitchTolerance,
+           abs(visionDegrees) > pitchTolerance {
             return visionDegrees
+        }
+
+        if disagreement <= Constants.pitchVisionAgreementDegrees {
+            return clampedPoseDegrees((visionDegrees * 0.65) + (geometricDegrees * 0.35))
         }
 
         return abs(visionDegrees) >= abs(geometricDegrees) ? visionDegrees : geometricDegrees

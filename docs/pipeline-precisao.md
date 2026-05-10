@@ -185,7 +185,8 @@ O app possui um fluxo separado para camera traseira principal quando nao ha LiDA
 - A distancia Mono usa tamanho facial calibrado, distancia entre olhos e intrinsics quando o `AVCaptureVideoDataOutput` fornece a matriz da camera; continua sendo estimativa visual, nao profundidade real.
 - A centralizacao Mono exibe centimetros estimados para a orientacao, calculados a partir do deslocamento normalizado, distancia estimada, tamanho da imagem e intrinsics/focal de fallback.
 - O alinhamento Mono nao pode liberar captura com eixo ausente, fallback zerado ou cabeca fora de `roll +/-2,2°`, `yaw +/-2,4°` e `pitch +/-2,5°`; `roll/yaw/pitch` precisam ser sustentados por landmarks faciais confiaveis e conflitos com Vision usam o erro mais conservador.
-- O `pitch` Mono trata vies pequeno do retangulo facial como neutro quando nariz/queixo estao proporcionais ou quando o Vision indica eixo alinhado, evitando instrucao fixa falsa.
+- O `pitch` Mono trata vies pequeno do retangulo facial como neutro somente quando nariz/queixo estao proporcionais, evitando instrucao fixa falsa.
+- Nenhuma correcao do Mono pode neutralizar, pular ou liberar `roll/yaw/pitch` quando a geometria indicar inclinacao real; alinhamento ausente ou desligado e regressao.
 - Sem profundidade real, a escala absoluta nao nasce da camera; a pos-captura exige a ponte real antes de calcular o resumo.
 - A ponte real usa as barras nasais ja ajustadas no fluxo normal como referencia, sem criar pontos extras.
 - A escala vertical deriva da horizontal pela proporcao da imagem para reduzir erro de distorcao lateral.
