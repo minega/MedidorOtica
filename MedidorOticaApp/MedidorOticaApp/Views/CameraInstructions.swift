@@ -71,7 +71,7 @@ enum HeadPoseInstructionBuilder {
             return max(round(abs(angle)), 1)
         }
 
-        max(round(abs(angle) - tolerance), 1)
+        return max(round(abs(angle) - tolerance), 1)
     }
 }
 
